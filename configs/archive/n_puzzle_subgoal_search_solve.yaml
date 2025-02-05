@@ -1,0 +1,141 @@
+algorithm:
+
+  # SolveInstances has parameters:
+    #   - solver_class - this class is responsible for solving the problem. It has parameters:
+    #           - max_nodes - maximum number of nodes to be expanded
+    #           - planner_class - this class is responsible for planning the path
+    #           - subgoal_generator - this class is responsible for generating subgoals
+    #           - validator - this class is responsible for validating the plan, i.e. checking if there is a path from the initial state to the goal state
+    #           - cllp - this class is responsible for executing the plan, i.e. executing the actions in the plan, i.e. finding the path from the initial state to the goal state
+    #           - value_function - this class is responsible for evaluating the state, i.e. estimating the distance from the state to the solution
+    #   - data_loader_class - this class is responsible for loading the data to be solved
+    #   - result_logger - this class is responsible for logging the results
+    #   - problem_to_solve - number of problems to be solved
+    #   - n_parallel_workers - number of parallel workers, i.e. number of processes to be used
+
+
+  _target_: carl.algorithms.solve_instances.SolveInstances
+
+  # solver class
+  solver_class:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 5000
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.BestFSPlanner
+      k: 4
+    # subgoal generator
+    subgoal_generator:
+      _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+      generator_class:
+        _target_: transformers.BartForConditionalGeneration.from_pretrained
+        _partial_: True
+      path_to_generator_weights: checkpoint-48314 # "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/components/moe/generator/4/checkpoint-48314"
+      env:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 194
+          type_of_value_training: regression
+          size_of_board:
+            - 5
+            - 5
+      subgoal_generation_kwargs:
+        max_new_tokens: 26
+        num_beams: 4
+        do_sample: False
+        temperature: 1.0
+        num_return_sequences: 1
+
+    # validator
+    validator:
+      _target_: carl.inference_components.validator.BasicValidator
+      inference_batch_size: 256
+      env_class:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 194
+          type_of_value_training: "regression"
+          size_of_board:
+            - 5
+            - 5
+        _partial_: True
+
+      # conditional low level policy
+      cllp:
+        _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+        conditional_low_level_policy_class:
+          _target_: transformers.BertForSequenceClassification.from_pretrained
+          _partial_: True
+        path_to_conditional_low_level_policy_weights: checkpoint-225736 # "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/components/moe/cllp/8/checkpoint-225736" # "/mnt/storage_2/project_data/grant_619/eglmizaw/npuzzle/checkpoints/cllp/n_40000/k_4/checkpoint-13536"
+        env:
+          _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+          tokenizer:
+            _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+            cut_distance: 194
+            type_of_value_training: "regression"
+            size_of_board:
+              - 5
+              - 5
+      budget_for_achieving_subgoal: 10
+
+    # value function
+    value_function:
+      _target_: carl.inference_components.value.TransformerValue
+      value_network:
+        _target_: hydra.utils.get_class
+        path: transformers.BertForSequenceClassification
+
+      path_to_value_network_weights: ""
+      type_of_evaluation: "regression"
+      env:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 194
+          type_of_value_training: "regression"
+          size_of_board:
+            - 5
+            - 5
+
+  # data loader class
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: ""
+    batch_size: 100
+
+  # result logger
+  result_logger:
+    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      name: None
+      description: ""
+      project: "pmtest/subexit"
+      tags: None
+      log_parameters: False
+    problem_to_solve: 1000
+    budget_logs: [ 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000 ]
+  problem_to_solve: 1000
+
+  n_parallel_workers: 20
+
+carl_grid:
+  algorithm.problem_to_solve: [1000]
+  algorithm.solver_class.subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2]
+  algorithm.solver_class.subgoal_generator.subgoal_generation_kwargs.num_beams: [4]
+
+  algorithm.solver_class.subgoal_generator.path_to_generator_weights: [ "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/components/moe/generator/4/checkpoint-48314" ]
+  algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: [ "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/components/moe/cllp/4/checkpoint-294075" ]
+  algorithm.solver_class.value_function.path_to_value_network_weights: ["/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/components/moe/value/checkpoint-2825298"]
+
+  algorithm.data_loader_class.generator.path_to_folder_with_data: [ "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/progress/fin" ]
+
+  algorithm.solver_class.validator.budget_for_achieving_subgoal: [ 6 ]
+
+
+  algorithm.result_logger.custom_logger.name: [ "n_puzzle_structured_k_4_subgoal_search_moe" ]
+  algorithm.result_logger.custom_logger.tags: [ [ "n_puzzle" , "subgoal_search", "k_4", "moe" ] ]

@@ -1,0 +1,152 @@
+# Description: This file contains the configuration for the experiment of solving the Sokoban problem with the BestFS algorithm.
+# The configuration is similar to the one for the Rubik's Cube problem, but there are some differences.
+# The differences are:
+#   - the environment is different
+#   - the tokenizer is different
+# This experiment is part of the experiments for validation of the BestFS algorithm and the subgoal search.
+
+algorithm:
+
+  # SolveInstances has parameters:
+    #   - solver_class - this class is responsible for solving the problem. It has parameters:
+    #           - max_nodes - maximum number of nodes to be expanded
+    #           - planner_class - this class is responsible for planning the path
+    #           - subgoal_generator - this class is responsible for generating subgoals
+    #           - validator - this class is responsible for validating the plan, i.e. checking if there is a path from the initial state to the goal state
+    #           - cllp - this class is responsible for executing the plan, i.e. executing the actions in the plan, i.e. finding the path from the initial state to the goal state
+    #           - value_function - this class is responsible for evaluating the state, i.e. estimating the distance from the state to the solution
+    #   - data_loader_class - this class is responsible for loading the data to be solved
+    #   - result_logger - this class is responsible for logging the results
+    #   - problem_to_solve - number of problems to be solved
+    #   - n_parallel_workers - number of parallel workers, i.e. number of processes to be used
+
+
+  _target_: carl.algorithms.solve_instances.SolveInstances
+
+  # solver class
+  solver_class:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: None
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.AstarPlanner
+      depth_weight: 1.0
+
+    subgoal_generator:
+      _target_: carl.inference_components.policy.PolicyGeneratorWrapper
+      policy:
+        _target_: carl.inference_components.policy.TransformerPolicy
+        policy_network:
+          _target_: transformers.BertForSequenceClassification
+          config:
+            _target_: transformers.BertConfig
+        path_to_policy_weights: ""
+        env:
+          _target_: carl.environment.sokoban.env.SokobanEnv
+          tokenizer:
+            _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+            cut_distance: None
+            type_of_value_training: "regression"
+            size_of_board:
+              - 12
+              - 12
+          num_boxes: 4
+        # if confidence_threshold is None, then the n_actions parameter is used.
+#        n_actions: None
+        confidence_threshold: None
+      env:
+        _target_: carl.environment.sokoban.env.SokobanEnv
+        tokenizer:
+          _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+          cut_distance: None
+          type_of_value_training: "regression"
+          size_of_board:
+            - 12
+            - 12
+        num_boxes: 4
+
+    # validator
+    validator:
+      _target_: carl.inference_components.validator.DummyValidator
+      env:
+        _target_: carl.environment.sokoban.env.SokobanEnv
+        tokenizer:
+          _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+          cut_distance: None
+          type_of_value_training: "regression"
+          size_of_board:
+            - 12
+            - 12
+        num_boxes: 4
+
+    # value function
+    value_function:
+      _target_: carl.inference_components.value.TransformerValue
+      value_network:
+        _target_: transformers.BertForSequenceClassification
+        config:
+          _target_: transformers.BertConfig
+      path_to_value_network_weights: ""
+      type_of_evaluation: "regression"
+      noise_variance: 0.0
+      env:
+        _target_: carl.environment.sokoban.env.SokobanEnv
+        tokenizer:
+          _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+          cut_distance: None
+          type_of_value_training: "regression"
+          size_of_board:
+            - 12
+            - 12
+        num_boxes: 4
+
+  # data loader class
+  data_loader_class:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "/net/pr2/projects/plgrid/plggrl_algo/validation/sokoban/progress/12_12_4"
+    batch_size: 100
+
+  # result logger
+  result_logger:
+    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      name: ""
+      description: ""
+      project: "pmtest/subexit"
+      tags: None
+      log_parameters: False
+    problem_to_solve: 1000
+    budget_logs: [1, 2, 5, 10, 15, 20, 35, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+
+  problem_to_solve: 1000
+
+  n_parallel_workers: 20
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+
+carl_grid:
+  algorithm.solver_class.max_nodes: [5000]
+
+  algorithm.solver_class.subgoal_generator.policy.path_to_policy_weights: ["/net/pr2/projects/plgrid/plggrl_algo/validation/sokoban/components/full_data/policy/checkpoint-94820"]
+  algorithm.solver_class.subgoal_generator.policy.env.tokenizer.cut_distance: [150]
+
+#  algorithm.solver_class.subgoal_generator.policy.n_actions: [2, 3]
+  algorithm.solver_class.subgoal_generator.policy.confidence_threshold: [0.75]
+  algorithm.solver_class.planner_class.depth_weight: [0.3]
+  algorithm.solver_class.planner_class.value_weight: [150.]  # should be equal to cut_distance
+
+  algorithm.solver_class.subgoal_generator.env.tokenizer.cut_distance: [150]
+
+  algorithm.solver_class.validator.env.tokenizer.cut_distance: [150]
+
+  algorithm.solver_class.value_function.path_to_value_network_weights: ["/net/pr2/projects/plgrid/plggrl_algo/validation/sokoban/components/full_data/value/checkpoint-1343100"]
+  algorithm.solver_class.value_function.env.tokenizer.cut_distance: [150]
+
+  algorithm.result_logger.custom_logger.name: ["sokoban_bestfs"]
+  algorithm.result_logger.custom_logger.tags: [["sokoban", "astar", "rebuttal", "confidence", "dead_ends"]]

@@ -1,0 +1,85 @@
+algorithm:
+  _target_: carl.algorithms.train_supervised.TrainSupervisedHF
+  custom_logger:
+    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    name: "n_puzzle_fin_dataset_cllp_moe"
+    description: "n_puzzle_fin_dataset_cllp_moe"
+    project: "pmtest/subexit"
+    tags: ["n_puzzle", "cllp", "training", "n_5000", "moe"]
+    log_parameters: False
+  datamodule:
+    _target_: carl.dataloader.game_data_module.GameDataModule
+    env:
+      _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+      tokenizer:
+        _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+        cut_distance: 100
+        type_of_value_training: "regression"
+        size_of_board:
+          - 5
+          - 5
+
+    dataset_path: ""
+    save_tokenized_dataset_path: ""
+    training_goal: "cllp"
+    subgoal_distance_interval: [4]
+    validation_split: 0.01
+    num_workers: 1
+  custom_metrics:
+    _target_: carl.components.metrics.ConditionalLowLevelPolicyMetricsHF
+  trainer:
+    _partial_: True
+    _target_: transformers.Trainer
+    args:
+      _target_: transformers.TrainingArguments
+      output_dir: "models_weights/n_puzzle/cllp"
+      overwrite_output_dir: True
+      evaluation_strategy: epoch
+      per_device_train_batch_size: 4096
+      per_device_eval_batch_size: 4096
+      learning_rate: 0.0001
+      weight_decay: 0.0001
+      num_train_epochs: 10000
+      lr_scheduler_type: linear
+      log_level: info
+      logging_strategy: epoch
+      save_strategy: epoch
+      save_total_limit: 1
+      load_best_model_at_end: True
+      metric_for_best_model: eval_loss
+      warmup_steps: 0
+      report_to: none
+  model:
+    _partial_: True
+    _target_: transformers.BertForSequenceClassification
+  config:
+    _target_: transformers.BertConfig
+    hidden_size: 128
+    intermediate_size: 128
+    max_position_embeddings: 128
+    num_attention_heads: 1
+    num_hidden_layers: 1
+    vocab_size: 40
+    num_labels: 4
+
+  do_finetune: False
+  path_to_model_weights: null
+
+float32_matmul_precision: high
+
+carl_grid:
+  algorithm.config.hidden_size: [256]
+  algorithm.config.intermediate_size: [256]
+  algorithm.config.max_position_embeddings: [256]
+  algorithm.config.num_attention_heads: [2]
+  algorithm.config.num_hidden_layers: [2]
+  algorithm.trainer.args.learning_rate: [1e-4]
+  algorithm.trainer.args.weight_decay: [0.00001]
+  algorithm.trainer.args.warmup_steps: [2000]
+  algorithm.datamodule.subgoal_distance_interval: [[4], [8]]
+
+  # Here you specify the path to dataset.
+  algorithm.datamodule.dataset_path: [ "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/offline/moe" ]
+
+  # Here you specify the path to tokenized dataset. This is place where the tokenized dataset will be saved.
+  algorithm.datamodule.save_tokenized_dataset_path: [ "/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/offline/basic_solver_tokenized/cllp_moe" ]

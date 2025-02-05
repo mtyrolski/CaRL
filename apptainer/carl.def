@@ -1,0 +1,35 @@
+Bootstrap: docker
+From: python:3.11.4-slim-bullseye
+Stage: build
+
+%files
+    requirements.txt requirements.txt
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update
+    apt-get -y install gcc g++ clang-11 lldb-11 lld-11 git
+
+    # cuda installation
+    # https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html#debian
+    apt-get -y install software-properties-common linux-headers-amd64 wget
+    wget https://developer.download.nvidia.com/compute/cuda/repos/debian11/x86_64/cuda-keyring_1.1-1_all.deb
+    dpkg -i cuda-keyring_1.1-1_all.deb
+    add-apt-repository contrib
+    apt-get update
+    apt-get -y install cuda
+
+    # packages
+    pip3 install --upgrade pip
+    # https://stackoverflow.com/questions/26228136/pip-build-option-to-use-multicore
+    MAKEFLAGS="-j$(nproc)" pip3 install -r requirements.txt --no-cache-dir --upgrade
+    apt-get clean
+
+    unset DEBIAN_FRONTEND
+
+%environment
+    export PATH=/usr/local/cuda-12.2/bin${PATH:+:${PATH}}
+    export LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+    export CMAKE_C_COMPILER=clang-11
+    export CMAKE_CXX_COMPILER=clang++-11

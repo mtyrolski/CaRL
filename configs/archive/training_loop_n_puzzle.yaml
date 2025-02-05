@@ -1,0 +1,206 @@
+algorithm:
+  # main algorithm
+  _target_: carl.algorithms.training_loop.TrainingLoopHF
+    # general algorithm parameters
+  n_iterations: 100
+  problem_to_evaluate: 100
+  evaluate_every: 1
+
+  # planner ,i.e. algorithm to solve instances
+  # It is partial because it is initialized with the state (i.e. the environment)
+  planner_class:
+    _partial_: True
+    _target_: carl.solver.planners.BestFSPlanner
+    k: 4
+  max_solver_nodes: 500
+
+  # environment; it is the same for all components
+  env:
+    _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+    tokenizer:
+      _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+      cut_distance: 20
+      type_of_value_training: "regression"
+      size_of_board:
+        - 5
+        - 5
+
+  # params for replay buffers
+  path_to_data_used_for_components_training: ""
+  initialization_buffer_with_data_used_for_components_training: False
+
+  add_to_replay_buffer: False
+
+  # path to the data to test cllp:
+  path_to_data_used_for_testing_cllp: null #"/net/pr2/projects/plgrid/plggrl_algo/CaRL/n_puzzle_data/progress/5x5/shuffle_100"
+  number_of_trajectories_to_test_cllp: 1000
+
+  subgoal_generator_replay_buffer_size: 1000000
+  subgoal_generator_distance_range: [4]
+  value_function_replay_buffer_size: 1000000
+  cllp_replay_buffer_size: 1000000
+  cllp_distance_range: 4
+  replay_buffer_data_split: 0.1
+
+  # params for instances generator
+  # this data is used during collecting data for replay buffers
+  generated_data_path: "/net/pr2/projects/plgrid/plggrl_algo/CaRL/n_puzzle_data/online_data/5x5/shuffle_100"
+  instance_generator_batch_size: 1000
+  # this data is used pure evaluation
+  eval_data_path: "" #"/net/pr2/projects/plgrid/plggrl_algo/CaRL/n_puzzle_data/progress/5x5/shuffle_100"
+  eval_batch_size: 100
+
+  # TODO: what is this?
+  eval_max_radius: 1
+  add_first_batch_to_node_computations: True
+
+  # path to save the models:
+  weights_dump_path: ""
+
+  # params for components:
+  # generator:
+  subgoal_generator_path: "/net/pr2/projects/plgrid/plggrl_algo/CaRL/final_components/n_puzzle/generator/50/4/checkpoint-2115"
+  generator_network:
+    _target_: hydra.utils.get_class
+    path: transformers.BartForConditionalGeneration
+  generator_inference_class:
+    _target_: hydra.utils.get_class
+    path: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+  subgoal_generation_kwargs:
+    max_new_tokens: 26
+    num_beams: 16
+    num_return_sequences: 4
+
+  # cllp
+  cllp_path: "/net/pr2/projects/plgrid/plggrl_algo/CaRL/final_components/n_puzzle/cllp/50/4/checkpoint-3010"
+  cllp_network:
+    _target_: hydra.utils.get_class
+    path: transformers.BertForSequenceClassification
+  cllp_inference_class:
+    _target_: hydra.utils.get_class
+    path: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+
+  # value
+  value_function_path: "/net/pr2/projects/plgrid/plggrl_algo/CaRL/final_components/n_puzzle/value/50/checkpoint-6723"
+  value_netwrok:
+    _target_: hydra.utils.get_class
+    path: transformers.BertForSequenceClassification
+  value_inference_class:
+    _target_: hydra.utils.get_class
+    path: carl.inference_components.value.TransformerValue
+  value_type_of_evaluation: "regression"
+
+  # validator
+  validator_inference_class:
+    _target_: hydra.utils.get_class
+    path: carl.inference_components.validator.BasicValidator
+  budget_for_achieving_subgoal: 6
+
+  # Trainers:
+  # generator:
+  subgoal_generator_trainer_class:
+    _target_: hydra.utils.get_class
+    path: transformers.Trainer
+  subgoal_generator_trainer_args:
+    _partial_: True
+    _target_: transformers.TrainingArguments
+    overwrite_output_dir: True
+    evaluation_strategy: epoch
+    per_device_train_batch_size: 512
+    per_device_eval_batch_size: 512
+    learning_rate: 0.0005
+    weight_decay: 0.00001
+    num_train_epochs: 10
+#    max_steps: 100
+    lr_scheduler_type: linear
+    logging_strategy: epoch
+    save_strategy: epoch
+    save_total_limit: 1
+    load_best_model_at_end: True
+    metric_for_best_model: eval_loss
+    report_to: none
+    warmup_steps: 2000
+  metric_for_subgoal_generator:
+    _target_: carl.components.metrics.GeneratorMetricsHF
+
+  # value
+  value_function_trainer_class:
+    _target_: hydra.utils.get_class
+    path: transformers.Trainer
+  value_function_trainer_args:
+    _partial_: True
+    _target_: transformers.TrainingArguments
+    overwrite_output_dir: True
+    evaluation_strategy: epoch
+    per_device_train_batch_size: 512
+    per_device_eval_batch_size: 512
+    learning_rate: 0.0003
+    weight_decay: 0.0001
+    num_train_epochs: 10
+#    max_steps: 100
+    lr_scheduler_type: linear
+    logging_strategy: epoch
+    save_strategy: epoch
+    save_total_limit: 1
+    load_best_model_at_end: True
+    metric_for_best_model: eval_loss
+    report_to: none
+    warmup_steps: 2000
+  metric_for_value_function:
+    _target_: carl.components.metrics.ValueMetricsHF
+    type_of_evaluation: "regression"
+
+  # cllp
+  cllp_trainer_class:
+    _target_: hydra.utils.get_class
+    path: transformers.Trainer
+  cllp_trainer_args:
+    _partial_: True
+    _target_: transformers.TrainingArguments
+    overwrite_output_dir: True
+    evaluation_strategy: epoch
+    per_device_train_batch_size: 512
+    per_device_eval_batch_size: 512
+    learning_rate: 0.0005
+    weight_decay: 0.00001
+    num_train_epochs: 10
+    lr_scheduler_type: linear
+    logging_strategy: epoch
+    save_strategy: epoch
+    save_total_limit: 1
+    load_best_model_at_end: True
+    metric_for_best_model: eval_loss
+    report_to: none
+    warmup_steps: 2000
+  metric_for_cllp:
+    _target_: carl.components.metrics.ConditionalLowLevelPolicyMetricsHF
+
+  # custom logger:
+  custom_logger:
+    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    name: "rlloop n_puzzle - weak baseline - init buffers - 1000 - subgoals 4"
+    description: "rlloop n_puzzle - weak baseline - init buffers - 1000 - subgoals 4"
+    project: "pmtest/subexit"
+    tags: "rlloop - n_puzzle - weak baseline - init buffers - 1000 - subgoals 4"
+    log_parameters: False
+
+float32_matmul_precision: high
+
+carl_grid:
+  algorithm.eval_max_radius: [1]
+  algorithm.subgoal_generator_trainer_args.warmup_steps: [2000]
+  algorithm.subgoal_generator_trainer_args.num_train_epochs: [100]
+  algorithm.subgoal_generator_trainer_args.weight_decay: [0.00001]
+  algorithm.subgoal_generator_trainer_args.per_device_train_batch_size: [512]
+  algorithm.subgoal_generator_trainer_args.per_device_eval_batch_size: [512]
+  algorithm.subgoal_generator_trainer_args.learning_rate: [0.0005]
+  algorithm.value_function_trainer_args.warmup_steps: [2000]
+  algorithm.value_function_trainer_args.num_train_epochs: [100]
+  algorithm.value_function_trainer_args.per_device_train_batch_size: [512]
+  algorithm.value_function_trainer_args.per_device_eval_batch_size: [512]
+  algorithm.value_function_trainer_args.learning_rate: [0.0003]
+  algorithm.cllp_trainer_args.warmup_steps: [2000]
+  algorithm.cllp_trainer_args.num_train_epochs: [100]
+  algorithm.cllp_trainer_args.learning_rate: [0.0005]
+  algorithm.cllp_trainer_args.per_device_train_batch_size: [512]
+  algorithm.cllp_trainer_args.per_device_eval_batch_size: [512]

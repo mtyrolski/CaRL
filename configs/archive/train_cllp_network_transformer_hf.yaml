@@ -1,0 +1,80 @@
+algorithm:
+  _target_: carl.algorithms.train_supervised.TrainSupervisedHF
+  custom_logger:
+    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    name: "sokoban_cllp_n_100_subgoal_distance_athena_article"
+    description: "sokoban_cllp_n_100_subgoal_distance_athena_article"
+    project: "pmtest/subexit"
+    tags: "sokoban_cllp_n_100_subgoal_distance_athena_article"
+    log_parameters: False
+  datamodule:
+    _target_: carl.dataloader.game_data_module.GameDataModule
+    env:
+      _target_: carl.environment.sokoban.env.SokobanEnv
+      tokenizer:
+        _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+        size_of_board:
+          - 12
+          - 12
+      num_boxes: 4
+
+    dataset_path: "/net/tscratch/people/plggracjangoral/sokoban/training_dataset/100/boards_100_t"
+    save_tokenized_dataset_path: "/net/tscratch/people/plggracjangoral/sokoban/training_dataset/100/boards_100_t_tokenized_cllp"
+    training_goal: "cllp"
+    validation_split: 0.1
+    subgoal_distance_interval:
+      - 8
+    num_workers: 1
+  custom_metrics:
+    _target_: carl.components.metrics.ConditionalLowLevelPolicyMetricsHF
+  trainer:
+    _partial_: True
+    _target_: transformers.Trainer
+    args:
+      _target_: transformers.TrainingArguments
+      output_dir: "models_weights/cllp"
+      overwrite_output_dir: True
+      evaluation_strategy: epoch
+      per_device_train_batch_size: 2048
+      per_device_eval_batch_size: 2048
+      learning_rate: 0.0002
+      weight_decay: 0.0001
+      num_train_epochs: 10000
+      lr_scheduler_type: linear
+      log_level: info
+      logging_strategy: epoch
+      save_strategy: epoch
+      save_total_limit: 1
+      load_best_model_at_end: True
+      metric_for_best_model: eval_loss
+      warmup_steps: 2000
+      report_to: none
+  model:
+    _partial_: True
+    _target_: transformers.BertForSequenceClassification
+  config:
+    _target_: transformers.BertConfig
+    hidden_size: 512
+    intermediate_size: 512
+    max_position_embeddings: 512
+    num_attention_heads: 2
+    num_hidden_layers: 2
+    vocab_size: 22
+    num_labels: 4
+
+  do_finetune: False
+  path_to_model_weights: null
+
+# Other config
+float32_matmul_precision: high
+
+carl_grid:
+  algorithm.config.hidden_size: [512]
+  algorithm.config.intermediate_size: [512]
+  algorithm.config.max_position_embeddings: [512]
+  algorithm.config.num_attention_heads: [2]
+  algorithm.config.num_hidden_layers: [2]
+  algorithm.trainer.args.learning_rate: [5e-4, 0.0006]
+  algorithm.trainer.args.weight_decay: [0.0001]
+  algorithm.trainer.args.warmup_steps: [2000]
+  algorithm.datamodule.subgoal_distance_interval: [[1], [2], [4], [8]]

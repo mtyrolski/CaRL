@@ -1,0 +1,90 @@
+algorithm:
+  _target_: carl.algorithms.train_supervised.TrainSupervisedHF
+  custom_logger:
+    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    name: "n_puzzle_fin_dataset_generatr_moe"
+    description: "n_puzzle_fin_dataset_generatr_moe"
+    project: "pmtest/subexit"
+    tags: ["n_puzzle", "generator", "training", "moe"]
+    log_parameters: False
+  datamodule:
+    _target_: carl.dataloader.game_data_module.GameDataModule
+    env:
+      _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+      tokenizer:
+        _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+        cut_distance: 100
+        type_of_value_training: "regression"
+        size_of_board:
+          - 5
+          - 5
+    dataset_path: ""
+    save_tokenized_dataset_path: ""
+    training_goal: "generator"
+    subgoal_distance_interval: [4]
+    validation_split: 0.01
+    num_workers: 1
+  custom_metrics:
+    _target_: carl.components.metrics.GeneratorMetricsHF
+  trainer:
+    _partial_: True
+    _target_: transformers.Trainer
+    args:
+      _target_: transformers.TrainingArguments
+      output_dir: "models_weights/n_puzzle/generator"
+      overwrite_output_dir: True
+      evaluation_strategy: epoch
+      per_device_train_batch_size: 4096
+      per_device_eval_batch_size: 4096
+      learning_rate: 0.0001
+      weight_decay: 0.0001
+      num_train_epochs: 1000
+      lr_scheduler_type: linear
+      log_level: info
+      logging_strategy: epoch
+      save_strategy: epoch
+      save_total_limit: 1
+      load_best_model_at_end: True
+      metric_for_best_model: eval_loss
+      warmup_steps: 0
+      report_to: none
+  model:
+    _partial_: True
+    _target_: transformers.BartForConditionalGeneration
+  config:
+    _target_: transformers.BartConfig
+    vocab_size: 40
+    d_model: 128
+    encoder_layers: 1
+    decoder_layers: 1
+    encoder_attention_heads: 1
+    decoder_attention_heads: 1
+    encoder_ffn_dim: 256
+    decoder_ffn_dim: 256
+    dropout: 0.1
+    max_position_embeddings: 512
+
+  do_finetune: False
+  path_to_model_weights: null
+
+
+carl_grid:
+  algorithm.config.d_model: [256]
+  algorithm.config.decoder_attention_heads: [4]
+  algorithm.config.decoder_ffn_dim: [256]
+  algorithm.config.decoder_layers: [3]
+  algorithm.config.encoder_attention_heads: [4]
+  algorithm.config.encoder_ffn_dim: [256]
+  algorithm.config.encoder_layers: [3]
+  algorithm.config.dropout: [0.1]
+  algorithm.config.max_position_embeddings: [256]
+  algorithm.trainer.args.learning_rate: [0.0001]
+  algorithm.trainer.args.weight_decay: [0.00001]
+  algorithm.trainer.args.warmup_steps: [5000]
+  algorithm.datamodule.subgoal_distance_interval: [[4], [8]]
+
+  # Here you specify the path to dataset.
+  algorithm.datamodule.dataset_path: ["/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/offline/moe"]
+
+  # Here you specify the path to tokenized dataset. This is place where the tokenized dataset will be saved.
+  algorithm.datamodule.save_tokenized_dataset_path: ["/net/pr2/projects/plgrid/plggrl_algo/validation/npuzzle/offline/basic_solver_tokenized/generator_moe"]

@@ -1,0 +1,120 @@
+float32_matmul_precision: medium
+
+environment:
+  env:
+    _target_: carl.environment.sokoban.env.SokobanEnv
+    tokenizer:
+      _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+      cut_distance: 150
+      type_of_value_training: regression
+      size_of_board:
+        - 12
+        - 12
+      remove_border: False
+    num_boxes: 4
+
+solver:
+  _target_: carl.solver.subgoal_search.Solver
+  max_nodes: 200
+  planner_class:
+    _partial_: true
+    _target_: carl.solver.planners.AdasubsPlanner
+    generators_k_list: [8, 4, 1]
+
+  # subgoal generator
+  subgoal_generator:
+    _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
+    env: ${environment.env}
+    subgoal_generation_kwargs:
+      min_new_tokens: 145
+      early_stopping: True
+      max_new_tokens: 145
+      num_beams: 4
+      num_return_sequences: 1
+    generator_k_list: ${algorithm.solver.planner_class.generators_k_list}
+    paths_to_generator_weights:
+      - "./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856"
+      - "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856"
+      - "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"
+    subgoal_generator_class:
+      _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+      _partial_: True
+      generator_network_class:
+        _target_: transformers.BartForConditionalGeneration.from_pretrained
+        _partial_: True
+  # validator
+  validator:
+    _target_: carl.inference_components.validator.BasicValidator
+    inference_batch_size: 1
+    env: ${environment.env}
+    # conditional low level policy
+    cllp:
+      _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+      conditional_low_level_policy_class:
+        _target_: transformers.BertForSequenceClassification.from_pretrained
+        _partial_: True
+      path_to_conditional_low_level_policy_weights: "./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
+      env: ${environment.env}
+
+  # value function
+  value_function:
+    _target_: carl.inference_components.value.TransformerValue
+    value_network_class:
+      _target_: transformers.BertForSequenceClassification.from_pretrained
+      _partial_: True
+    path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
+    type_of_evaluation: "regression"
+    env: ${environment.env}
+
+generator_buffer:
+  _target_: carl.memory.replay_buffer.SolvingPathGeneratorReplayBuffer
+  max_size: 10_000_000
+  distance_range: [4]
+  env: ${environment.env}
+
+value_buffer:
+  _target_: carl.memory.replay_buffer.SolvingPathValueReplayBuffer
+  max_size: 500_000
+  env: ${environment.env}
+
+cllp_buffer: 
+  _target_: carl.memory.replay_buffer.SolvingPathConditionalLowLevelPolicyReplayBuffer
+  max_size: 500_000
+  max_distance: 8
+  env: ${environment.env}
+
+replay_buffer:
+  _target_: carl.memory.replay_buffer.SimpleUniversalReplayBuffer
+  generator_buffer: ${generator_buffer}
+  cllp_buffer: ${cllp_buffer}
+  value_buffer: ${value_buffer}
+
+# data loader class
+instance_generator:
+  _target_: carl.environment.instance_generator.BasicInstanceGenerator
+  generator:
+    _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+    path_to_folder_with_data: "./validation/sokoban/progress/12_12_4"
+  batch_size: 2
+
+loop_control:
+  _target_: carl.algorithms.training_loop.flow_control.LoopControl
+  n_iterations_limit: 5
+  num_offline_trajectories: 4
+  num_online_trajectories: 4
+
+algorithm:
+  _target_: carl.algorithms.training_loop.training_loop_v2.TrainingLoop
+  solver: ${solver}
+  replay_buffer: ${replay_buffer}
+  instance_generator: ${instance_generator}
+  loop_control: ${loop_control}
+  path_to_offline_trajectories: './validation/sokoban/offline/12-12-4'
+  n_solving_jobs: 1
+
+carl_workers:
+  loop:
+    algorithm._target_: carl.algorithms.training_loop.training_loop_v2.TrainingLoop
+
+
+carl_grid:

@@ -1,0 +1,118 @@
+
+params:
+  env:
+    _target_: carl.environment.sokoban.env.SokobanEnv
+    tokenizer:
+      _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+      cut_distance: 150
+      type_of_value_training: "regression"
+      size_of_board:
+        - 12
+        - 12
+    num_boxes: 4
+
+
+algorithm:
+  _target_: carl.algorithms.solve_instances.SolveInstances
+
+  # solver class
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 50
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.AdasubsPlanner
+      generators_k_list: ${algorithm.solver.subgoal_generator.generator_k_list}
+
+    subgoal_generator:
+      _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
+      generator_k_list: [8, 4, 1]
+      env: ${params.env}
+      subgoal_generation_kwargs:
+        max_new_tokens: 145
+        do_sample: False
+        temperature: 1.0
+        num_beams: 4
+        num_return_sequences: 2
+      paths_to_generator_weights: ["./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"]
+      generator_network_class:
+        _target_: transformers.BartForConditionalGeneration.from_pretrained
+        _partial_: true
+
+    # validator
+    validator:
+      _target_: carl.inference_components.validator.BasicValidator
+      env: ${params.env}
+
+      # conditional low level policy
+      cllp:
+        _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+        conditional_low_level_policy_class:
+          _target_: transformers.BertForSequenceClassification.from_pretrained
+          _partial_: true
+
+        path_to_conditional_low_level_policy_weights: "./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
+        env: ${params.env}
+      budget_for_achieving_subgoal: 10
+
+    # value function
+    value_function:
+      _target_: carl.inference_components.value.TransformerValue
+      value_network_class:
+        _target_: transformers.BertForSequenceClassification.from_pretrained
+        _partial_: true
+
+      path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
+      type_of_evaluation: "regression"
+      noise_variance: 0.0
+      env: ${params.env}
+
+  # data loader class
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "./validation/sokoban/progress/12_12_4"
+    batch_size: 2
+
+  # result logger
+  result_logger:
+    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      name: "adasubs solve"
+      description: "adasubs solve"
+      project: "mtyrol/drop"
+      tags: ["sokoban", "adasubs solve", "12_12_4"]
+      log_parameters: True
+    problem_to_solve: ${algorithm.problems_to_solve}
+    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+  problems_to_solve: 50
+
+  n_parallel_workers: 1
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+
+carl_grid:
+  - algorithm.solver_class.max_nodes: [150]
+    algorithm.solver_class.subgoal_generator.generator_k_list: [[8, 4, 1]]
+    algorithm.solver_class.subgoal_generator.paths_to_generator_weights: [[
+          "./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
+        "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+        "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
+    ]]
+    algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"]
+    algorithm.result_logger.custom_logger.name: ["sokoban_subgoal_search"]
+    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]
+  - algorithm.solver_class.max_nodes: [150]
+    algorithm.solver_class.subgoal_generator.generator_k_list: [[4, 1]]
+    algorithm.solver_class.subgoal_generator.paths_to_generator_weights: [[
+        "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+        "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
+    ]]
+    algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./validation/sokoban/components/full_data/cllp/4/checkpoint-167585"]
+    algorithm.result_logger.custom_logger.name: ["sokoban_subgoal_search"]
+    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "solve", "k_41", "12x12x4"]]

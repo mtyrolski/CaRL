@@ -1,0 +1,104 @@
+environment:
+  env:
+    _target_: carl.environment.sokoban.env.SokobanEnv
+    tokenizer:
+      _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+      cut_distance: 150
+      type_of_value_training: "regression"
+      size_of_board:
+        - 12
+        - 12
+    num_boxes: 4
+
+algorithm:
+  _target_: carl.algorithms.solve_instances.SolveInstances
+  dump_solved: True
+  # solver class
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 2000
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.BestFSPlanner
+
+    subgoal_generator:
+      _target_: carl.inference_components.policy.PolicyGeneratorWrapper
+      policy:
+        _target_: carl.inference_components.policy.TransformerPolicy
+        policy_network_class:
+          _target_: transformers.BertForSequenceClassification.from_pretrained
+          _partial_: True
+        path_to_policy_weights: "./validation/sokoban/components/full_data/policy/checkpoint-94820"
+        env: ${environment.env}
+        # if confidence_threshold is None, then the n_actions parameter is used.
+#        n_actions: None
+        confidence_threshold: 0.85
+      env: ${environment.env}
+    # validator
+    validator:
+      _target_: carl.inference_components.validator.DummyValidator
+      env: ${environment.env}
+
+    # value function
+    value_function:
+      _target_: carl.inference_components.value.TransformerValue
+      value_network_class:
+        _target_: transformers.BertForSequenceClassification.from_pretrained
+        _partial_: True
+      path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
+      type_of_evaluation: "regression"
+      noise_variance: 0.0
+      env: ${environment.env}
+
+  # data loader class
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "./validation/sokoban/progress/12_12_4"
+    batch_size: 256
+
+  # result logger
+  result_logger:
+    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      name: "sokoban_bestfs"
+      description: ""
+      project: "pmtest/subexit"
+      tags:
+        - "BestFS - parallel - 4 boxes - ood"
+      log_parameters: False
+    problem_to_solve: ${algorithm.problems_to_solve}
+    budget_logs: [1, 2, 5, 10, 15, 30, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+
+  problems_to_solve: 1000
+
+  n_jobs: 24
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+carl_grid:
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 4boxes"]]
+    environment.env.num_boxes: [4]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.85']
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 5boxes"]]
+    environment.env.num_boxes: [5]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.85']
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 6boxes"]]
+    environment.env.num_boxes: [6]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.85']
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 7boxes"]]
+    environment.env.num_boxes: [7]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.85']
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 8boxes"]]
+    environment.env.num_boxes: [8]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.85']
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 9boxes"]]
+    environment.env.num_boxes: [9]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.85']
+  - algorithm.result_logger.custom_logger.tags: [["BestFS - arxiv - 10boxes"]]
+    environment.env.num_boxes: [10]
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.85']

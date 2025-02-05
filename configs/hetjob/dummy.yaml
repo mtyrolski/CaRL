@@ -1,0 +1,19 @@
+
+algorithm: null
+
+algorithm_producer:
+  _target_: carl.algorithms.dummy_hetworkers.dummy_producer.DummyProducer
+  seed: 21
+  janpawel: "tak"
+  var: "x"
+algorithm_receiver:
+  _target_: carl.algorithms.dummy_hetworkers.dummy_receiver.DummyReceiver
+  seed: 37
+
+carl_workers:
+  producer:
+    algorithm: ${algorithm_producer}
+  receiver:
+    algorithm: ${algorithm_receiver}
+
+carl_grid:

@@ -1,0 +1,23 @@
+{ 
+    "ignore": ["__pycache__", "venv", "expert_data"],
+    "local": {"tree_root": "./path/to/local/dataset"},
+    "clusters": {
+        "cluster1": {
+            "host_name": "hostname1",
+            "tree_root": "/path/to/root/data"
+        },
+        "cluster2": {
+            "host_name": "hostname2",
+            "tree_root": "/path/to/root/data"
+        },
+        "cluster3": {
+            "host_name": "hostname3",
+            "tree_root": "/path/to/root/data"
+        },
+        "cluster_backup": {
+            "host_name": "backup_host",
+            "tree_root": "/path/to/root/data"
+        },
+    },
+    "sync_paths": ["."]
+}

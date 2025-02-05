@@ -1,0 +1,21 @@
+"""Originally from the branch mz_rubik_solve_noise"""
+
+algorithm:
+  _target_: carl.utils.create_dataset.CreateDataset
+
+  env:
+    _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+    tokenizer:
+      _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
+      cut_distance: 20
+      type_of_value_training: "regression"
+
+  number_of_trajectories: 500000
+  method: 'mixture_of_solvers'
+  max_moves: 20
+  path_to_save: "/net/pr2/projects/plgrid/plggrl_algo/validation/rubik/offiline/mixture_algos"
+  save_after: 10000
+  noisy_reverse_prob: None
+
+carl_grid:
+  algorithm.noisy_reverse_prob: [0.0]

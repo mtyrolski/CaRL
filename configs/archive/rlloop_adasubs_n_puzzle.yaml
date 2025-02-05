@@ -1,0 +1,288 @@
+algorithm:
+  # main algorithm
+  _target_: carl.algorithms.training_loop.TrainingLoopHF
+
+  # general algorithm parameters
+  n_iterations: 4 # 10000
+  problem_to_evaluate: 100 # IGNORED
+  n_jobs: 36
+  n_jobs_factor_wrt_cores: null
+  min_count_of_new_solved_boards_to_next_train_iteration: 5_000
+  workdir_to_import_weights_and_experiences_from: './rlloop_icml/n_puzzle/gathered_data/n_200_own_kickoff_to_20p'
+  # this data is used pure evaluation
+  eval_data_path: null
+  eval_batch_size: 256
+  evaluate_every: 2_000_000 # inf
+  initialization_buffer_with_data_used_for_components_training: True
+  path_to_data_used_for_components_training: './rlloop_icml/n_puzzle/offline_data/fin_dataset_a_star'
+  limit_of_data_used_for_components_training: 200
+  solver:
+    # _target_: carl.solver.subgoal_search.Solver
+    _target_: carl.solver.subgoal_search_batched.SubgoalSearchSolver # Comment this for the non-batched version
+    inference_batch_size: 384 # Comment this for the non-batched version
+    max_nodes: 5_000
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.AdasubsPlanner
+      generators_k_list: [1]
+
+    # subgoal generator
+    subgoal_generator:
+      _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
+      env:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 900
+          type_of_value_training: regression
+          size_of_board:
+            - 5
+            - 5
+      subgoal_generation_kwargs:
+        max_new_tokens: 26
+        num_beams: 4
+        num_return_sequences: 2
+      generator_k_list: [1]
+      paths_to_generator_weights:
+        - "./rlloop_icml/n_puzzle/gathered_data/n_200_own_kickoff_to_20p/generator/1" # Pretraining on generator k=1
+      subgoal_generator_class:
+        _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+        _partial_: True
+        generator_class:
+          _target_: transformers.BartForConditionalGeneration.from_pretrained
+          _partial_: True
+        training_module:
+          _target_: carl.inference_components.component.TrainingModule
+          trainer_class:
+            _target_: hydra.utils.get_class
+            path: transformers.Trainer
+          trainer_args:
+            _partial_: True
+            _target_: transformers.TrainingArguments
+            overwrite_output_dir: True
+            evaluation_strategy: epoch
+            per_device_train_batch_size: 256
+            per_device_eval_batch_size: 256
+            learning_rate: 0.0001 # algorithm.solver.subgoal_generator.subgoal_generator_class.training_module.trainer_args.learning_rate
+            weight_decay: 0.000001 # 0.0001
+            num_train_epochs: 1
+            lr_scheduler_type: constant
+            logging_strategy: epoch
+            save_strategy: epoch
+            save_total_limit: 1
+            report_to: none
+            warmup_steps: 0
+          metrics_for_component:
+            _target_: carl.components.metrics.GeneratorMetricsHF
+    # validator
+    validator:
+      _target_: carl.inference_components.validator.BasicValidator
+      inference_batch_size: 384
+      env_class:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 900
+          type_of_value_training: regression
+          size_of_board:
+            - 5
+            - 5
+        _partial_: True
+
+      # conditional low level policy
+      cllp:
+        _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+        conditional_low_level_policy_class:
+          _target_: transformers.BertForSequenceClassification.from_pretrained
+          _partial_: True
+        path_to_conditional_low_level_policy_weights: "./rlloop_icml/n_puzzle/gathered_data/n_200_own_kickoff_to_20p/cllp"
+        env:
+          _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+          tokenizer:
+            _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+            cut_distance: 900
+            type_of_value_training: regression
+            size_of_board:
+              - 5
+              - 5
+        training_module:
+          _target_: carl.inference_components.component.TrainingModule
+          trainer_class:
+            _target_: hydra.utils.get_class
+            path: transformers.Trainer
+          trainer_args:
+            _partial_: True
+            _target_: transformers.TrainingArguments
+            overwrite_output_dir: True
+            evaluation_strategy: epoch
+            per_device_train_batch_size: 256
+            per_device_eval_batch_size: 256
+            learning_rate: 0.0001
+            weight_decay: 0.0001 # 0.000001
+            num_train_epochs: 1
+            lr_scheduler_type: constant
+            logging_strategy: epoch
+            save_strategy: epoch
+            save_total_limit: 1
+            report_to: none
+            warmup_steps: 0
+          metrics_for_component:
+            _target_: carl.components.metrics.ConditionalLowLevelPolicyMetricsHF
+
+    # value function
+    value_function:
+      _target_: carl.inference_components.value.TransformerValue
+      value_network_class:
+        _target_: transformers.BertForSequenceClassification.from_pretrained
+        _partial_: True
+      path_to_value_network_weights: "./rlloop_icml/n_puzzle/gathered_data/n_200_own_kickoff_to_20p/value"
+      type_of_evaluation: "regression"
+      env:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 900
+          type_of_value_training: regression
+          size_of_board:
+            - 5
+            - 5
+      training_module:
+        _target_: carl.inference_components.component.TrainingModule
+        trainer_class:
+          _target_: hydra.utils.get_class
+          path: transformers.Trainer
+        trainer_args:
+          _partial_: True
+          _target_: transformers.TrainingArguments
+          overwrite_output_dir: True
+          evaluation_strategy: epoch
+          per_device_train_batch_size: 256
+          per_device_eval_batch_size: 256
+          learning_rate: 0.0001
+          weight_decay: 0.0001
+          num_train_epochs: 1
+          lr_scheduler_type: constant
+          logging_strategy: epoch
+          save_strategy: epoch
+          save_total_limit: 1
+          report_to: none
+          warmup_steps: 0
+        metrics_for_component:
+          _target_: carl.components.metrics.ValueMetricsHF
+          type_of_evaluation: "regression"
+
+  # result logger
+  result_logger:
+    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      name: ""
+      description: ""
+      project: "pmtest/subexit"
+      tags:
+        - "n_puzzle - n_200 - own data kickoff - training then solving"
+      log_parameters: True
+    budget_logs:
+      - 100
+      - 200
+      - 300
+      - 500
+      - 1000
+      - 2000
+      - 3000
+      - 5000
+
+
+  # environment; it is the same for all components
+  env:
+    _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+    tokenizer:
+      _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+      cut_distance: 900
+      type_of_value_training: regression
+      size_of_board:
+        - 5
+        - 5
+  # params for replay buffers
+  replay_buffer_data_split: 0.1
+
+  # params for instances generator
+  # this data is used during collecting data for replay buffers
+  generated_data_path: "./rlloop_icml/n_puzzle/online_data"
+
+  instance_generator_batch_size: 1024
+  curriculum:
+    # _target_: carl.solver.curriculum.SimpleScheduledCurriculum
+    # scheduler_generators:
+    #   5: 2
+    #   10: 4
+    #   13: 6
+
+
+  # path to save the models:
+  weights_dump_path: ""
+  replay_buffer:
+    _target_: carl.memory.replay_buffer.SimpleUniversalReplayBuffer
+    generator_buffer:
+      1:
+        _target_: carl.memory.replay_buffer.SolvingPathGeneratorReplayBuffer
+        max_size: 10_000_000
+        xy_dropout_prob: 0.3
+        distance_range: [1]
+        env:
+          _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+          tokenizer:
+            _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+            cut_distance: 900
+            type_of_value_training: regression
+            size_of_board:
+              - 5
+              - 5
+    value_buffer:
+      _target_: carl.memory.replay_buffer.SolvingPathValueReplayBuffer
+      max_size: 5_000_000
+      xy_dropout_prob: 0.3
+      env:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 900
+          type_of_value_training: regression
+          size_of_board:
+            - 5
+            - 5
+    cllp_buffer:
+      _target_: carl.memory.replay_buffer.SolvingPathConditionalLowLevelPolicyReplayBuffer
+      max_size: 5_000_000
+      xy_dropout_prob: 0.3
+      max_distance: 1
+      env:
+        _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+        tokenizer:
+          _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+          cut_distance: 900
+          type_of_value_training: regression
+          size_of_board:
+            - 5
+            - 5
+
+float32_matmul_precision: medium
+
+carl_workers:
+  loop:
+    algorithm._target_: carl.algorithms.training_loop.TrainingLoopHF
+  solver:
+    algorithm._target_: carl.algorithms.training_loop.DistributedSolverWorker
+  trainer:
+    algorithm._target_: carl.algorithms.training_loop.DistributedTrainerWorker
+
+carl_grid:
+  - algorithm.solver.subgoal_generator.subgoal_generator_class.training_module.trainer_args.learning_rate: [0.0001, 0.00001, 0.001] # lr for generator
+    algorithm.solver.validator.cllp.training_module.trainer_args.learning_rate: [0.0001]
+    algorithm.solver.value_function.training_module.trainer_args.learning_rate: [0.0001, 0.001]
+    algorithm.solver.subgoal_generator.subgoal_generator_class.training_module.trainer_args.weight_decay: [0.0001, 0.00001]
+    algorithm.solver.validator.cllp.training_module.trainer_args.weight_decay: [0.0001]
+    algorithm.solver.value_function.training_module.trainer_args.weight_decay: [0.0001, 0.00001]
+    algorithm.solver.subgoal_generator.subgoal_generator_class.training_module.trainer_args.num_train_epochs: [1, 2, 4, 8, 16, 24, 32, 64]
+    algorithm.solver.max_nodes: [5000]
+    algorithm.min_count_of_new_solved_boards_to_next_train_iteration: [0]
