@@ -99,9 +99,9 @@ algorithm:
 
   # result logger
   result_logger:
-    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
     custom_logger:
-      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
       name: "solve_instances"
       description: ""
       project: "pmtest/subexit"

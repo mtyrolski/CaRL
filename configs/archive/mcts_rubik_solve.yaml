@@ -67,7 +67,7 @@ algorithm:
   result_logger:
     _target_: carl.solve_instances.result_loggers.MCTSResultLogger
     custom_logger:
-      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
       name: "mcts_rubik_ICML_100x"
       description: "MCTS for rubik_100x"
       project: "pmtest/subexit"

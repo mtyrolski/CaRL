@@ -5,7 +5,7 @@
 algorithm:
   _target_: carl.algorithms.train_supervised.TrainSupervisedHF
   custom_logger:
-    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "rubik_generator_training_n_200k_length_of_trajectories_200"
     description: "rubik_generator_training_n_200k_length_of_trajectories_200"
     project: "pmtest/subexit"
