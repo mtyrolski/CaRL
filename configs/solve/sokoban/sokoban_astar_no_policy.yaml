@@ -9,10 +9,10 @@ params:
         - 12
         - 12
     num_boxes: 4
-  problems_to_solve: 100
+  problems_to_solve: 1000
   policy_weights: "./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820"
   value_weights: "./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100"
-  data_path: "./rl-data/validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.35"
+  data_path: "./rl-data/validation/sokoban/progress/12_12_4" # 12_12_4/boards_sokoban_12x12x4_0.joblib
 
 
 algorithm:
@@ -22,7 +22,7 @@ algorithm:
   # solver class
   solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 10000
+    max_nodes: 50000
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.AstarPlanner
