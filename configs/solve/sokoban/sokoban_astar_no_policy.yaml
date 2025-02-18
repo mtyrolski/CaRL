@@ -79,7 +79,7 @@ algorithm:
 
   problems_to_solve: ${params.problems_to_solve}
 
-  n_parallel_workers: 20
+  n_parallel_workers: 18
 
 carl_workers:
   solve:
