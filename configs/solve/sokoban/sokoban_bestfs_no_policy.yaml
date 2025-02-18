@@ -9,30 +9,34 @@ params:
         - 12
         - 12
     num_boxes: 4
+  problems_to_solve: 1000
+  policy_weights: "./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820"
+  value_weights: "./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100"
+  data_path: "./rl-data/validation/sokoban/progress/12_12_4" # 12_12_4/boards_sokoban_12x12x4_0.joblib
+
 
 algorithm:
 
   _target_: carl.algorithms.solve_instances.SolveInstances
 
   # solver class
-  solver_class:
+  solver:
     _target_: carl.solver.subgoal_search.Solver
     max_nodes: 50000
     planner_class:
       _partial_: true
-      _target_: carl.solver.planners.AstarPlanner
-      depth_weight: 1.0
+      _target_: carl.solver.planners.BfsPlanner
 
     subgoal_generator:
       _target_: carl.inference_components.policy.PolicyGeneratorWrapper
       policy:
         _target_: carl.inference_components.policy.TransformerPolicy
-        policy_network:
+        policy_network_class:
           _target_: transformers.BertForSequenceClassification.from_pretrained
           _partial_: true
-        path_to_policy_weights: "./validation/sokoban/components/full_data/policy/checkpoint-94820"
+        path_to_policy_weights: ${params.policy_weights}
         env: ${params.env}
-        n_actions: 2
+        n_actions: 4 # all possible actions
       env: ${params.env}
 
     # validator
@@ -43,20 +47,20 @@ algorithm:
     # value function
     value_function:
       _target_: carl.inference_components.value.TransformerValue
-      value_network:
+      value_network_class:
         _target_: transformers.BertForSequenceClassification.from_pretrained
         _partial_: true
-      path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
+      path_to_value_network_weights: ${params.value_weights}
       type_of_evaluation: "regression"
       noise_variance: 0.0
       env: ${params.env}
 
   # data loader class
-  data_loader_class:
+  data_loader:
     _target_: carl.environment.instance_generator.BasicInstanceGenerator
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
-      path_to_folder_with_data: "./validation/sokoban/progress/deep_mind_12_12_4"
+      path_to_folder_with_data: ${params.data_path}
     batch_size: 64
 
   # result logger
@@ -64,15 +68,15 @@ algorithm:
     _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
     custom_logger:
       _target_: carl.utils.loggers.NeptuneCaRLLogger
-      name: ""
+      name: "sokoban_no_policy_bestfs"
       description: ""
       project: "pmtest/subexit"
-      tags: None
+      tags: ["sokoban", "bestfs", 'progress', "actions_all"]
       log_parameters: False
-    problem_to_solve: 1000
-    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+    problem_to_solve: ${params.problems_to_solve}
+    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000, 10000, 20000, 25000, 30000, 40000, 50000]
 
-  problem_to_solve: 100
+  problems_to_solve: ${params.problems_to_solve}
 
   n_parallel_workers: 20
 
@@ -81,7 +85,4 @@ carl_workers:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - algorithm.solver_class.subgoal_generator.policy.n_actions: [2, 3]
-    algorithm.solver_class.planner_class.depth_weight: [-1., -0.3, 0.1, 0.3, 1., 3., 10.]
-    algorithm.result_logger.custom_logger.name: ["sokoban_ood_astar"]
-    algorithm.result_logger.custom_logger.tags: [["sokoban", "astar", 'ood', "actions_2,3", "weight_grid"]]
+  - algorithm.solver.n_parallel_workers: [20]
