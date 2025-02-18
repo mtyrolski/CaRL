@@ -22,7 +22,7 @@ algorithm:
   # solver class
   solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 50000
+    max_nodes: 40000
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.BfsPlanner
