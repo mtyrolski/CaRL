@@ -86,4 +86,4 @@ carl_workers:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - algorithm.solver.planner_class.depth_weight: 1.0
+  - algorithm.solver.planner_class.depth_weight: [1.0]
