@@ -22,7 +22,7 @@ algorithm:
   # solver class
   solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 50000
+    max_nodes: 1500
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.AstarPlanner
@@ -62,7 +62,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: ${params.data_path}
-    batch_size: 64
+    batch_size: 20
 
   # result logger
   result_logger:

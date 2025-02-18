@@ -100,9 +100,9 @@ class SubgoalSearchResultLogger(ResultLogger):
                 is_solved_in_budget = solution['solved'] and (search_info['low_level_nodes_visited'] <= budget)
                 self.solved_stats.log_metric_to_average(f'rate/{budget}_nodes', is_solved_in_budget)
 
-                # High Level budget
-                is_solved_in_high_level_budget = solution['solved'] and (search_info['subgoals_visited'] <= budget)
-                self.solved_stats.log_metric_to_average(f'rate/{budget}_subgoals', is_solved_in_high_level_budget)
+                # # High Level budget
+                # is_solved_in_high_level_budget = solution['solved'] and (search_info['subgoals_visited'] <= budget)
+                # self.solved_stats.log_metric_to_average(f'rate/{budget}_subgoals', is_solved_in_high_level_budget)
 
             # Log additional search metrics.
             for metric, value in search_info.items():
