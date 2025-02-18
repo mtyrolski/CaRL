@@ -97,7 +97,7 @@ class SubgoalSearchResultLogger(ResultLogger):
 
             # Log solved rates for selected budgets.
             for budget in self.budget_logs:
-                is_solved_in_budget = solution['solved'] and (search_info['nodes_visited'] <= budget)
+                is_solved_in_budget = solution['solved'] and (search_info['low_level_nodes_visited'] <= budget)
                 self.solved_stats.log_metric_to_average(f'rate/{budget}_nodes', is_solved_in_budget)
 
                 # High Level budget
@@ -112,15 +112,15 @@ class SubgoalSearchResultLogger(ResultLogger):
                                                                              value=value)
 
             # Log fraction of reachable nodes and unreachable nodes.
-            fraction_of_reachable_nodes: float = search_info['nodes_valid'] / (search_info['nodes_valid'] +
-                                                                               search_info['nodes_unreachable'])
-            fraction_of_unreachable_nodes: float = search_info['nodes_unreachable'] / (search_info['nodes_valid'] +
-                                                                                       search_info['nodes_unreachable'])
+            # fraction_of_reachable_nodes: float = search_info['nodes_valid'] / (search_info['nodes_valid'] +
+            #                                                                    search_info['nodes_unreachable'])
+            # fraction_of_unreachable_nodes: float = search_info['nodes_unreachable'] / (search_info['nodes_valid'] +
+            #                                                                            search_info['nodes_unreachable'])
 
-            self.custom_logger.run['fraction_of_reachable_nodes'].append(step=base_completed_problems + task_id,
-                                                                         value=fraction_of_reachable_nodes)
-            self.custom_logger.run['fraction_of_unreachable_nodes'].append(step=base_completed_problems + task_id,
-                                                                           value=fraction_of_unreachable_nodes)
+            # self.custom_logger.run['fraction_of_reachable_nodes'].append(step=base_completed_problems + task_id,
+            #                                                              value=fraction_of_reachable_nodes)
+            # self.custom_logger.run['fraction_of_unreachable_nodes'].append(step=base_completed_problems + task_id,
+            #                                                                value=fraction_of_unreachable_nodes)
 
             # Count the finished reasons.
             finished_reason = search_info['finished_reason']
