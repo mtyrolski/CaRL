@@ -85,4 +85,4 @@ carl_workers:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - algorithm.n_parallel_workers: [40]
+  - algorithm.n_parallel_workers: [10]
