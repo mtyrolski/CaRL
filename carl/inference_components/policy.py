@@ -111,7 +111,14 @@ class TransformerPolicy(Policy):
         actions_probs = list(zip(range(len(output)), torch.softmax(output, dim=-1).cpu().numpy()))
         actions_probs_sorted_form_highest_probability = sorted(actions_probs, key=lambda x: x[1], reverse=True)
         taking_n_actions = actions_probs_sorted_form_highest_probability[:self.n_actions]
-        return taking_n_actions
+        # ex. [(2, 0.9993591), (0, 0.00024667516), (1, 0.00020415094), (3, 0.0001901771)]
+        
+        actions_to_return = list(map(
+            lambda x: GeneratedAction(x[0], {'action_probs': output}),
+            taking_n_actions
+        ))
+        
+        return actions_to_return
 
 
 class TransformerPolicyGeneration(Policy):
@@ -196,9 +203,8 @@ class PolicyGeneratorWrapper(SubgoalGenerator):
         state = node.state
 
         actions = self.policy.get_actions(state)
-
         for action in actions:
-            action.generation_metadata['action'] = action.action
+            action.generation_metadata['action'] = action.action 
 
         return [
             GeneratedSubgoal(self.env.next_state(state, action.action), action.generation_metadata)

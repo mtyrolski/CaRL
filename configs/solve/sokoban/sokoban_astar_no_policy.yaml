@@ -9,10 +9,10 @@ params:
         - 12
         - 12
     num_boxes: 4
-  problem_to_solve: 100
+  problems_to_solve: 100
   policy_weights: "./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820"
   value_weights: "./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100"
-  data_path: "./rl-data/validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.35"
+  data_path: "./rl-data/validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.35"
 
 
 algorithm:
@@ -20,9 +20,9 @@ algorithm:
   _target_: carl.algorithms.solve_instances.SolveInstances
 
   # solver class
-  solver_class:
+  solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 50000
+    max_nodes: 10000
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.AstarPlanner
@@ -57,7 +57,7 @@ algorithm:
       env: ${params.env}
 
   # data loader class
-  data_loader_class:
+  data_loader:
     _target_: carl.environment.instance_generator.BasicInstanceGenerator
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
@@ -74,10 +74,10 @@ algorithm:
       project: "pmtest/subexit"
       tags: ["sokoban", "astar", 'progress', "actions_all", "weight_grid"]
       log_parameters: False
-    problem_to_solve: ${params.problem_to_solve}
-    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+    problem_to_solve: ${params.problems_to_solve}
+    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000, 10000, 20000, 25000, 30000, 40000, 50000]
 
-  problem_to_solve: ${params.problem_to_solve}
+  problems_to_solve: ${params.problems_to_solve}
 
   n_parallel_workers: 20
 
@@ -86,4 +86,4 @@ carl_workers:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - algorithm.solver_class.planner_class.depth_weight: [-1., -0.3, 0.1, 0.3, 1., 3., 10.]
+  - algorithm.solver.planner_class.depth_weight: 1.0

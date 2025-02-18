@@ -82,9 +82,6 @@ def run(config: DictConfig) -> None:
     algorithm.run()
 
 
-FILE_PATH = pathlib.Path(os.path.realpath(__file__))
-CONFIG_ROOT = FILE_PATH.parent.parent / 'experiments'
-
 
 # pylint: disable=missing-function-docstring
 @hydra.main(version_base=None, config_path=None)

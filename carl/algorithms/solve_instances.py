@@ -59,7 +59,7 @@ class SolveInstances:
             else:
                 logger.info(f'Batches: {batch + 1}, Problems: {len(conv_problems)}')
                 results = Parallel(n_jobs=self.n_parallel_workers, verbose=100)(
-                    delayed(self.solver.solve)(problem, self.solver) for problem in conv_problems)
+                    delayed(self.solver.solve)(problem) for problem in conv_problems)
 
             self.result_logger.log_results(results)
             all_experiences.append(results)

@@ -108,7 +108,7 @@ class Solver:
 
                 if validation.is_solved:
                     solving_node = subgoal_node
-                    logger.success('Solved.')
+                    logger.success(f'solved with {nodes_visited} low level nodes visited')
                     search_info['finished_reason'] = 'solved'
                     break
 

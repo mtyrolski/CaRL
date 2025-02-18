@@ -76,6 +76,7 @@ class CarlGrid:
 
     def iter_workers(self, config: dict[str, Any]):
         worker2overrides = config['carl_workers']
+        # TODO: add default worker
         workername2config_dict = {}
         for worker_name, overrides in worker2overrides.items():
             config_copy = copy.deepcopy(config)
