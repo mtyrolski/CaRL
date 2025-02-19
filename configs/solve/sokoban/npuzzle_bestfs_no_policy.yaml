@@ -11,7 +11,7 @@ params:
   problems_to_solve: 1000
   policy_weights: "./rl-data/npuzzle/components/moe/policy/checkpoint-31552"
   value_weights: "./rl-data/npuzzle/components/moe/value/checkpoint-2825298"
-  data_path: "./rl-data/npuzzle/progress/fin"
+  data_path: "./rl-data/validation/npuzzle/progress/fin"
 
 
 algorithm:
