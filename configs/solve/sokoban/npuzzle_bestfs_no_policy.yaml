@@ -77,11 +77,11 @@ algorithm:
 
   problems_to_solve: ${params.problems_to_solve}
 
-  n_parallel_workers: 20
+  n_parallel_workers: 1
 
 carl_workers:
   solve:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - algorithm.n_parallel_workers: [20]
+  - algorithm.n_parallel_workers: [1]

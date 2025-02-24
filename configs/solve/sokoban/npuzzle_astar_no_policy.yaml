@@ -8,7 +8,7 @@ params:
       size_of_board:
         - 5
         - 5
-  problems_to_solve: 1000
+  problems_to_solve: 200
   policy_weights: "./rl-data/npuzzle/components/moe/policy/checkpoint-31552"
   value_weights: "./rl-data/npuzzle/components/moe/value/checkpoint-2825298"
   data_path: "./rl-data/validation/npuzzle/progress/fin"
@@ -78,11 +78,11 @@ algorithm:
 
   problems_to_solve: ${params.problems_to_solve}
 
-  n_parallel_workers: 18
+  n_parallel_workers: 1
 
 carl_workers:
   solve:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - algorithm.n_parallel_workers: [20]
+  - algorithm.n_parallel_workers: [1]
