@@ -14,7 +14,6 @@ from omegaconf import DictConfig
 from omegaconf import OmegaConf
 from transformers.integrations import NeptuneCallback
 
-from carl.utils.loggers import NeptuneCaRLLogger
 
 DOTENV_PATH = './.tokens.env'
 

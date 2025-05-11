@@ -106,13 +106,13 @@ carl_grid:
     ]]
     algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"]
     algorithm.result_logger.custom_logger.name: ["sokoban_subgoal_search"]
-    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]
-  - algorithm.solver_class.max_nodes: [150]
-    algorithm.solver_class.subgoal_generator.generator_k_list: [[4, 1]]
-    algorithm.solver_class.subgoal_generator.paths_to_generator_weights: [[
-        "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
-        "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
-    ]]
-    algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./validation/sokoban/components/full_data/cllp/4/checkpoint-167585"]
-    algorithm.result_logger.custom_logger.name: ["sokoban_subgoal_search"]
-    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "solve", "k_41", "12x12x4"]]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]
+  # - algorithm.solver_class.max_nodes: [150]
+  #   algorithm.solver_class.subgoal_generator.generator_k_list: [[4, 1]]
+  #   algorithm.solver_class.subgoal_generator.paths_to_generator_weights: [[
+  #       "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+  #       "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
+  #   ]]
+  #   algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./validation/sokoban/components/full_data/cllp/4/checkpoint-167585"]
+  #   algorithm.result_logger.custom_logger.name: ["sokoban_subgoal_search"]
+  #   algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "solve", "k_41", "12x12x4"]]
