@@ -64,7 +64,7 @@ algorithm:
   # solver class
   solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 1000
+    max_nodes: 100
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.AdasubsPlanner
