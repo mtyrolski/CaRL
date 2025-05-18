@@ -1,3 +1,5 @@
+# make run_local_solve dir=configs/solve/sokoban name=sokoban_ada_solve
+components_prefix: "./rl-data/validation/sokoban/components/full_data"
 
 params:
   env:
@@ -22,7 +24,7 @@ subgoal_generator:
     temperature: 1.0
     num_beams: 43
     num_return_sequences: 2
-  paths_to_generator_weights: ["./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"]
+  paths_to_generator_weights: ["./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856", "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856", "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"]
   subgoal_generator_class:
     _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
     generator_network_class: 
@@ -36,7 +38,7 @@ value_function:
     _target_: transformers.BertForSequenceClassification.from_pretrained
     _partial_: true
 
-  path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
+  path_to_value_network_weights: "./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100"
   type_of_evaluation: "regression"
   noise_variance: 0.0
   env: ${params.env}
@@ -52,7 +54,7 @@ validator:
       _target_: transformers.BertForSequenceClassification.from_pretrained
       _partial_: true
 
-    path_to_conditional_low_level_policy_weights: "./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
+    path_to_conditional_low_level_policy_weights: "./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
     env: ${params.env}
   budget_for_achieving_subgoal: 10
 
@@ -81,7 +83,7 @@ algorithm:
     _target_: carl.environment.instance_generator.BasicInstanceGenerator
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
-      path_to_folder_with_data: "./validation/sokoban/progress/12_12_4"
+      path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
     batch_size: 2
 
   # result logger
@@ -109,10 +111,10 @@ carl_grid:
   - algorithm.solver_class.max_nodes: [150]
     algorithm.solver_class.subgoal_generator.generator_k_list: [[8, 4, 1]]
     algorithm.solver_class.subgoal_generator.paths_to_generator_weights: [[
-          "./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
-        "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
-        "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
+          "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
+        "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+        "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
     ]]
-    algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"]
+    algorithm.solver_class.validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585"]
     algorithm.result_logger.custom_logger.name: ["sokoban_subgoal_search"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]

@@ -48,7 +48,7 @@ def run(config: DictConfig) -> None:
     logger.info(f'NEPTUNE_API_TOKEN: {os.environ.get("NEPTUNE_API_TOKEN")}')
     logger.remove()
     logger.add(sys.stderr, level='INFO')
-    logger.add(sink=lambda msg: print(msg, end=''), level='INFO')
+    # logger.add(sink=lambda msg: print(msg, end=''), level='INFO')
     # Check NEPTUNE_API_TOKEN
     if os.environ.get('NEPTUNE_API_TOKEN') is None:
         logger.error('NEPTUNE_API_TOKEN is not set')
