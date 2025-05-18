@@ -6,7 +6,8 @@ from carl.solver.subgoal_search import Solver
 from joblib import Parallel, delayed, dump
 from loguru import logger
 from pickle import HIGHEST_PROTOCOL
-
+import os
+from carl.env import CUDA_VISIBLE_DEVICES__ENV_VAR
 
 class SolveInstances:
     def __init__(
@@ -27,6 +28,13 @@ class SolveInstances:
         self.completed_problems: int = 0
         self.n_parallel_workers = n_parallel_workers
         self.dump_solved = dump_solved
+
+        if os.environ.get('CUDA_VISIBLE_DEVICES', '') != '' and self.n_parallel_workers > 1:
+            logger.warning(
+                'CUDA_VISIBLE_DEVICES is not set. Reducing n_parallel_workers to 1.'
+            )
+            # self.n_parallel_workers = 1
+        logger.info(f'Using {self.n_parallel_workers} parallel workers')
 
     def run(self) -> None:
         logger.warning('Running solve_instances.py')

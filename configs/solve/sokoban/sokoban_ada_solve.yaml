@@ -22,8 +22,8 @@ subgoal_generator:
     max_new_tokens: 145
     do_sample: False
     temperature: 1.0
-    num_beams: 43
-    num_return_sequences: 2
+    num_beams: 4
+    num_return_sequences: 1
   paths_to_generator_weights: ["./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856", "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856", "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"]
   subgoal_generator_class:
     _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
@@ -64,7 +64,7 @@ algorithm:
   # solver class
   solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 50
+    max_nodes: 1000
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.AdasubsPlanner
@@ -84,7 +84,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
-    batch_size: 2
+    batch_size: 10
 
   # result logger
   result_logger:
@@ -94,13 +94,13 @@ algorithm:
       name: "adasubs solve"
       description: "adasubs solve"
       project: "mtyrol/drop"
-      tags: ["sokoban", "adasubs solve", "12_12_4"]
+      tags: ["inner_eval", "sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]
       log_parameters: True
     problem_to_solve: ${algorithm.problems_to_solve}
-    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
-  problems_to_solve: 50
+    budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
+  problems_to_solve: 200
 
-  n_parallel_workers: 1
+  n_parallel_workers: 4
 
 carl_workers:
   solve:
