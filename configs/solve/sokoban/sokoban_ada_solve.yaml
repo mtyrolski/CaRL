@@ -12,6 +12,50 @@ params:
     num_boxes: 4
 
 
+subgoal_generator:
+  _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
+  generator_k_list: [8, 4, 1]
+  env: ${params.env}
+  subgoal_generation_kwargs:
+    max_new_tokens: 145
+    do_sample: False
+    temperature: 1.0
+    num_beams: 43
+    num_return_sequences: 2
+  paths_to_generator_weights: ["./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"]
+  subgoal_generator_class:
+    _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+    generator_network_class: 
+      _target_: transformers.BartForConditionalGeneration.from_pretrained
+      _partial_: true
+    _partial_: true
+
+value_function:
+  _target_: carl.inference_components.value.TransformerValue
+  value_network_class:
+    _target_: transformers.BertForSequenceClassification.from_pretrained
+    _partial_: true
+
+  path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
+  type_of_evaluation: "regression"
+  noise_variance: 0.0
+  env: ${params.env}
+
+validator:
+  _target_: carl.inference_components.validator.BasicValidator
+  env: ${params.env}
+
+  # conditional low level policy
+  cllp:
+    _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+    conditional_low_level_policy_class:
+      _target_: transformers.BertForSequenceClassification.from_pretrained
+      _partial_: true
+
+    path_to_conditional_low_level_policy_weights: "./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
+    env: ${params.env}
+  budget_for_achieving_subgoal: 10
+
 algorithm:
   _target_: carl.algorithms.solve_instances.SolveInstances
 
@@ -24,51 +68,13 @@ algorithm:
       _target_: carl.solver.planners.AdasubsPlanner
       generators_k_list: ${algorithm.solver.subgoal_generator.generator_k_list}
 
-    subgoal_generator:
-      _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
-      generator_k_list: [8, 4, 1]
-      env: ${params.env}
-      subgoal_generation_kwargs:
-        max_new_tokens: 145
-        do_sample: False
-        temperature: 1.0
-        num_beams: 43
-        num_return_sequences: 2
-      paths_to_generator_weights: ["./validation/sokoban/components/full_data/generator/border/8/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/4/checkpoint-75856", "./validation/sokoban/components/full_data/generator/border/1/checkpoint-151712"]
-      subgoal_generator_class:
-        _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
-        generator_network_class: 
-          _target_: transformers.BartForConditionalGeneration.from_pretrained
-          _partial_: true
-        _partial_: true
+    subgoal_generator: ${subgoal_generator}
 
     # validator
-    validator:
-      _target_: carl.inference_components.validator.BasicValidator
-      env: ${params.env}
-
-      # conditional low level policy
-      cllp:
-        _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
-        conditional_low_level_policy_class:
-          _target_: transformers.BertForSequenceClassification.from_pretrained
-          _partial_: true
-
-        path_to_conditional_low_level_policy_weights: "./validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
-        env: ${params.env}
-      budget_for_achieving_subgoal: 10
+    validator: ${validator}
 
     # value function
-    value_function:
-      _target_: carl.inference_components.value.TransformerValue
-      value_network_class:
-        _target_: transformers.BertForSequenceClassification.from_pretrained
-        _partial_: true
-
-      path_to_value_network_weights: "./validation/sokoban/components/full_data/value/checkpoint-1343100"
-      type_of_evaluation: "regression"
-      noise_variance: 0.0
-      env: ${params.env}
+    value_function: ${value_function}
 
   # data loader class
   data_loader:
@@ -89,7 +95,7 @@ algorithm:
       tags: ["sokoban", "adasubs solve", "12_12_4"]
       log_parameters: True
     problem_to_solve: ${algorithm.problems_to_solve}
-    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
   problems_to_solve: 50
 
   n_parallel_workers: 1
