@@ -98,7 +98,7 @@ algorithm:
       log_parameters: True
     problem_to_solve: ${algorithm.problems_to_solve}
     budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
-  problems_to_solve: 200
+  problems_to_solve: 100
 
   n_parallel_workers: 4
 
@@ -108,7 +108,7 @@ carl_workers:
 
 
 carl_grid:
-  - algorithm.solver_class.max_nodes: [150]
+  - algorithm.solver_class.max_nodes: [100]
     algorithm.solver_class.subgoal_generator.generator_k_list: [[8, 4, 1]]
     algorithm.solver_class.subgoal_generator.paths_to_generator_weights: [[
           "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
