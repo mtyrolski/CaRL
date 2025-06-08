@@ -20,6 +20,7 @@ class Solution:
     subgoal_path: list[np.ndarray] | None = None
     action_path: list[int] | None = None
     subgoal_distance_path: list[int] | None = None
+    subgoal_values: list[float] | None = None
     
     def __post_init__(self):
         if self.solved and (self.subgoal_path is None or self.action_path is None or self.subgoal_distance_path is None):
@@ -193,7 +194,7 @@ class GreedyPlanner(Planner):
         search_info.low_level_nodes_visited = len(self.seen_states)
         search_info.search_tree = self.root_node
 
-        for k, v in get_tree_info(self.root_node, search_info.__dict__).items():
+        for k, v in  get_tree_info(self.root_node, search_info).items():
             assert k in search_info.__dict__, f"Key {k} not found in search_info"
             search_info.__dict__[k] = v
 
@@ -202,14 +203,15 @@ class GreedyPlanner(Planner):
 
         subgoal_path: list[np.ndarray]
         action_path: list[int]
-        subgoal_path, action_path, subgoal_distance_path, _ = get_solving_path_data(solving_node,
+        subgoal_path, action_path, values, subgoal_distance_path, _ = get_solving_path_data(solving_node,
                                                                                     include_state_path=False)
         
         solution = Solution(
             solved=True,
             subgoal_path=subgoal_path,
             action_path=action_path,
-            subgoal_distance_path=subgoal_distance_path
+            subgoal_distance_path=subgoal_distance_path,
+            subgoal_values=values
         )
 
         return solution, search_info
@@ -331,7 +333,7 @@ class AdasubsPlanner(Planner):
         search_info.subgoals_selected_for_expansion = self.subgoals_selected_for_expansion
         search_info.low_level_nodes_visited = len(self.seen_states)
 
-        tree_info = get_tree_info(self.root_node, search_info.__dict__)
+        tree_info =  get_tree_info(self.root_node, search_info)
         for k, v in tree_info.items():
             if hasattr(search_info, k):
                 setattr(search_info, k, v)
@@ -340,12 +342,13 @@ class AdasubsPlanner(Planner):
             solution = Solution(solved=False)
             return Experience(solution=solution, search_info=search_info)
 
-        subgoal_path, action_path, subgoal_distance_path, _ = get_solving_path_data(
+        subgoal_path, action_path, values, subgoal_distance_path, _ = get_solving_path_data(
             solving_node, include_state_path=False)
         solution = Solution(
             solved=True,
             subgoal_path=subgoal_path,
             action_path=action_path,
-            subgoal_distance_path=subgoal_distance_path
+            subgoal_distance_path=subgoal_distance_path,
+            subgoal_values=values
         )
         return Experience(solution=solution, search_info=search_info)

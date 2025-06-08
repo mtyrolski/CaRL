@@ -5,8 +5,8 @@ from collections import namedtuple
 import numpy as np
 from loguru import logger
 
-from carl.environment.sokoban.env import printable_sokoban_state
-
+from carl.environment.sokoban.env import SokobanEnv, printable_sokoban_state
+from carl.utils.loggers import log_error_and_raise
 
 class SearchTreeNode:
     """
@@ -174,10 +174,22 @@ class SafePriorityQueue:
         return self.queue.empty()
 
 
-def get_solving_path_data(solving_node, include_state_path=True, env=None):
-    subgoal_path = []
-    action_path = []
-    values = []
+def get_solving_path_data(solving_node: SearchTreeNode,
+                          include_state_path: bool=True,
+                          env: SokobanEnv=None) -> tuple[list[np.ndarray], list[int], list[float], list[int], list[np.ndarray] | None]:
+    """
+    Extracts the solving path data from the solving node.
+    Returns the subgoal path, action path, values, k_used, and state path if include_state_path is True.
+    If env is None and include_state_path is True, raises an error.
+    """
+    subgoal_path: list[np.ndarray] = []
+    action_path: list[int] = []
+    values: list[float] = []
+    k_used: list[int] = []
+    if env is None and include_state_path:
+        log_error_and_raise(
+            'Environment is required to include state path in the solving path data.'
+        )
     state_path = None
 
     current_node = solving_node
@@ -185,6 +197,7 @@ def get_solving_path_data(solving_node, include_state_path=True, env=None):
     while current_node.parent_node is not None:
         subgoal_path.append(current_node.state)
         values.append(current_node.value)
+        k_used.append(current_node.next_expand_with_k_generator)
         current_node.is_on_solving_path = True
 
         if current_node.low_level_path is not None:
@@ -196,6 +209,8 @@ def get_solving_path_data(solving_node, include_state_path=True, env=None):
     current_node.is_on_solving_path = True
 
     subgoal_path.reverse()
+    values.reverse()
+    k_used.reverse()
     action_path.reverse()
     action_path = flatten(action_path)
 
@@ -207,7 +222,7 @@ def get_solving_path_data(solving_node, include_state_path=True, env=None):
             state, _, _, _ = env.step(action)
             state_path.append(state)
 
-    return subgoal_path, action_path, values, state_path
+    return subgoal_path, action_path, values, k_used, state_path
 
 
 def flatten(l):

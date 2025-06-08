@@ -166,7 +166,7 @@ class SolvingPathGeneratorReplayBuffer(OfflineReplayBuffer):
         _, search_info = data
         if search_info['solving_node'] is None:
             return
-        _, _, _, state_path = get_solving_path_data(search_info['solving_node'], include_state_path=True, env=self.env)
+        _, _, _, _, state_path = get_solving_path_data(search_info['solving_node'], include_state_path=True, env=self.env)
 
         for xy in self.preprocess_trajectory(state_path):
             self.buffer.append(xy)
@@ -229,7 +229,7 @@ class SolvingPathValueReplayBuffer(OfflineReplayBuffer):
             return
 
         state_path: list[np.ndarray]
-        _, _, _, state_path = get_solving_path_data(search_info['solving_node'], include_state_path=True, env=self.env)
+        _, _, _, _, state_path = get_solving_path_data(search_info['solving_node'], include_state_path=True, env=self.env)
 
         for x, y in self.preprocess_trajectory(state_path):
             self.buffer.append((x, y))
@@ -290,10 +290,9 @@ class SolvingPathConditionalLowLevelPolicyReplayBuffer(OfflineReplayBuffer):
 
         action_path: list[int]
         state_path: list[np.ndarray]
-        _, action_path, _, state_path = get_solving_path_data(search_info['solving_node'],
+        _, action_path, _, _, state_path = get_solving_path_data(search_info['solving_node'],
                                                               include_state_path=True,
                                                               env=self.env)
-
         for xy in self.preprocess_trajectory(state_path, action_path):
             self.buffer.append(xy)
 

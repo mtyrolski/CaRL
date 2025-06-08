@@ -192,3 +192,8 @@ class CLLPTestLogger(TrainerCallback):
         with torch.no_grad():
             output: torch.Tensor = self.model(encoded_boards).logits
         return output.softmax(dim=-1)[0]
+
+def log_error_and_raise(message: str, exception_cls: type[Exception] = ValueError) -> None:
+    """Logs an error message and raises a RuntimeError."""
+    logger.error(message)
+    raise exception_cls(message)
