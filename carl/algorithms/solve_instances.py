@@ -29,10 +29,11 @@ class SolveInstances:
         self.n_parallel_workers = n_parallel_workers
         self.dump_solved = dump_solved
 
-        if os.environ.get('CUDA_VISIBLE_DEVICES', '') != '' and self.n_parallel_workers > 1:
+        if os.environ.get(CUDA_VISIBLE_DEVICES__ENV_VAR, '') != '' and self.n_parallel_workers > 1:
             logger.warning(
-                'CUDA_VISIBLE_DEVICES is not set. Reducing n_parallel_workers to 1.'
+                f'{CUDA_VISIBLE_DEVICES__ENV_VAR} is not set. Reducing n_parallel_workers {self.n_parallel_workers} --> 1.'
             )
+            logger.info('Reducing is disabled now.')
             # self.n_parallel_workers = 1
         logger.info(f'Using {self.n_parallel_workers} parallel workers')
 

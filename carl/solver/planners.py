@@ -1,8 +1,9 @@
 import queue
 from abc import abstractmethod
-
 import numpy as np
 from loguru import logger
+from dataclasses import dataclass, field
+from enum import StrEnum
 
 from carl.environment.sokoban.env import printable_sokoban_state
 from carl.environment.utilis import DeadEndFinder
@@ -10,13 +11,51 @@ from carl.solver.nodes import SafePriorityQueue, prune_search_tree_from_solving_
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import get_solving_path_data
 from carl.solver.nodes import hashable_state
-from carl.solver.nodes import (SafePriorityQueue, SearchTreeNode, get_solving_path_data)
 
 GeneratorIdx = int
-Solution = dict[str, bool | list[np.ndarray]]
-SearchInfo = dict[str, str | int | float | None]
 
-Experience = tuple[Solution, SearchInfo]
+@dataclass
+class Solution:
+    solved: bool
+    subgoal_path: list[np.ndarray] | None = None
+    action_path: list[int] | None = None
+    subgoal_distance_path: list[int] | None = None
+    
+    def __post_init__(self):
+        if self.solved and (self.subgoal_path is None or self.action_path is None or self.subgoal_distance_path is None):
+            raise ValueError("If solved, subgoal_path, action_path and subgoal_distance_path must be provided.")
+        if not self.solved and (self.subgoal_path is not None or self.action_path is not None or self.subgoal_distance_path is not None):
+            raise ValueError("If not solved, subgoal_path, action_path and subgoal_distance_path must be None.")
+
+@dataclass
+class SearchInfo:
+    finished_reason: str
+    low_level_nodes_visited: int = 0
+    high_level_nodes_valid: int = 0
+    high_level_nodes_unreachable: int = 0
+    subgoals_reachable_count_per_k: dict[int, int] = field(default_factory=dict)
+    subgoals_unreachable_count_per_k: dict[int, int] = field(default_factory=dict)
+    subgoals_reachable_rate_per_k: dict[int, float] = field(default_factory=dict)
+    search_tree: SearchTreeNode | None = None # root node
+    tree_size: int = 0
+    tree_depth: int = 0
+    leaf_nodes: int = 0
+    branching_factor: float = 0.0
+    subgoals_visited: int = 0
+    solving_node: SearchTreeNode | None = None
+    subgoals_added_per_k: dict[int, int] = field(default_factory=dict)
+    subgoals_selected_for_expansion: dict[int, int] = field(default_factory=dict)
+    dead_ends_rate: float = 0.0
+    
+class FinishReason(StrEnum):
+    BUDGET_EXCEEDED = 'budget_exceeded'
+    NOTHING_TO_EXPAND = 'nothing_to_expand'
+    SOLVED = 'solved'
+
+@dataclass
+class Experience:
+    solution: Solution
+    search_info: SearchInfo
 
 
 class Planner:
@@ -43,9 +82,18 @@ class Planner:
         raise NotImplementedError()
 
     @abstractmethod
-    def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: dict) -> tuple[dict, dict]:
+    def get_solution_data(self,
+                          solving_node: SearchTreeNode | None,
+                          search_info: SearchInfo) -> Experience:
         raise NotImplementedError()
 
+def get_branching_factor(tree_size: int, leaf_nodes: int) -> float:
+    """Calculates average branching factor (excluding leaf nodes)"""
+    if tree_size == leaf_nodes: # all nodes are leaf nodes i.e. single node tree
+        return 0.0
+    if tree_size <= 1: # no branching possible
+        return 0.0
+    return max((tree_size - 1) / (tree_size - leaf_nodes), 0)
 
 def get_tree_info(root_node: SearchTreeNode | None, search_info: dict):
     # Initialize statistics
@@ -55,10 +103,10 @@ def get_tree_info(root_node: SearchTreeNode | None, search_info: dict):
     total_children = 0
 
     # Queue for breadth-first traversal (node, depth)
-    queue = [(root_node, 0)]
+    queue_ = [(root_node, 0)]
 
-    while queue:
-        current_node, depth = queue.pop(0)
+    while queue_:
+        current_node, depth = queue_.pop(0)
         max_depth = max(max_depth, depth)
 
         if not current_node.children:    # Leaf node
@@ -66,16 +114,13 @@ def get_tree_info(root_node: SearchTreeNode | None, search_info: dict):
         else:
             total_children += len(current_node.children)
             # Add children to the queue with increased depth
-            queue.extend((child, depth + 1) for child in current_node.children)
-
-    # Calculate average branching factor (excluding leaf nodes)
-    branching_factor = (tree_size - 1) / (tree_size - leaf_nodes) if tree_size != leaf_nodes else 0
+            queue_.extend((child, depth + 1) for child in current_node.children)
 
     return {
-        "tree_size": tree_size,    # low-level nodes visited
+        "tree_size": tree_size,  # low-level nodes visited
         "tree_depth": max_depth,
         "leaf_nodes": leaf_nodes,
-        "branching_factor": branching_factor
+        "branching_factor": get_branching_factor(tree_size, leaf_nodes),
     }
 
 
@@ -144,26 +189,28 @@ class GreedyPlanner(Planner):
     def is_seen(self, state: np.ndarray | str) -> bool | None:
         return hashable_state(state) in self.seen_states
 
-    def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: dict):
-        search_info['low_level_nodes_visited'] = len(self.seen_states)
-        search_info['search_tree'] = self.root_node
+    def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: SearchInfo) -> Experience:
+        search_info.low_level_nodes_visited = len(self.seen_states)
+        search_info.search_tree = self.root_node
 
-        search_info.update(get_tree_info(self.root_node, search_info))
+        for k, v in get_tree_info(self.root_node, search_info).items():
+            assert k in search_info.__dict__, f"Key {k} not found in search_info"
+            search_info.__dict__[k] = v
 
         if solving_node is None:
-            return {'solved': False}, search_info
+            return Solution(solved=False), search_info
 
         subgoal_path: list[np.ndarray]
         action_path: list[int]
         subgoal_path, action_path, subgoal_distance_path, _ = get_solving_path_data(solving_node,
                                                                                     include_state_path=False)
-
-        solution: dict[str, bool | list[np.ndarray]] = {
-            'solved': True,
-            'subgoal_path': subgoal_path,
-            'action_path': action_path,
-            'subgoal_distance_path': subgoal_distance_path,
-        }
+        
+        solution = Solution(
+            solved=True,
+            subgoal_path=subgoal_path,
+            action_path=action_path,
+            subgoal_distance_path=subgoal_distance_path
+        )
 
         return solution, search_info
 
@@ -272,34 +319,33 @@ class AdasubsPlanner(Planner):
             self.nodes_queue.put(data=new_node, key=(-k, -node.value))
             self.subgoals_added[k] += 1
 
-    def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: dict) -> tuple[dict, dict]:
-        search_info['subgoals_visited'] = len(self.seen_states)
-        search_info['search_tree'] = self.root_node
+    def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: SearchInfo) -> Experience:
+        search_info.subgoals_visited = len(self.seen_states)
+        search_info.search_tree = self.root_node
 
         if self.prune_search_trees and solving_node is not None:
             prune_search_tree_from_solving_node(solving_node)
 
-        search_info['solving_node'] = solving_node
+        search_info.solving_node = solving_node
+        search_info.subgoals_added_per_k = self.subgoals_added
+        search_info.subgoals_selected_for_expansion = self.subgoals_selected_for_expansion
+        search_info.low_level_nodes_visited = len(self.seen_states)
 
-        search_info['subgoals_added'] = self.subgoals_added
-        search_info['subgoals_selected_for_expansion'] = self.subgoals_selected_for_expansion
-        search_info['low_level_nodes_visited'] = len(self.seen_states)
-
-        search_info.update(get_tree_info(self.root_node, search_info))
+        tree_info = get_tree_info(self.root_node, search_info.__dict__)
+        for k, v in tree_info.items():
+            if hasattr(search_info, k):
+                setattr(search_info, k, v)
 
         if solving_node is None:
-            return {'solved': False}, search_info
+            solution = Solution(solved=False)
+            return Experience(solution=solution, search_info=search_info)
 
-        subgoal_path: list[np.ndarray]
-        action_path: list[int]
-        subgoal_path, action_path, subgoal_distance_path, _ = get_solving_path_data(solving_node,
-                                                                                    include_state_path=False)
-
-        solution: dict[str, bool | list[np.ndarray]] = {
-            'solved': True,
-            'subgoal_path': subgoal_path,
-            'action_path': action_path,
-            'subgoal_distance_path': subgoal_distance_path,
-        }
-
-        return solution, search_info
+        subgoal_path, action_path, subgoal_distance_path, _ = get_solving_path_data(
+            solving_node, include_state_path=False)
+        solution = Solution(
+            solved=True,
+            subgoal_path=subgoal_path,
+            action_path=action_path,
+            subgoal_distance_path=subgoal_distance_path
+        )
+        return Experience(solution=solution, search_info=search_info)

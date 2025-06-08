@@ -192,7 +192,7 @@ def get_solving_path_data(solving_node, include_state_path=True, env=None):
 
         current_node = current_node.parent_node
 
-    subgoal_path.append(current_node.state)
+    # subgoal_path.append(current_node.state)
     current_node.is_on_solving_path = True
 
     subgoal_path.reverse()

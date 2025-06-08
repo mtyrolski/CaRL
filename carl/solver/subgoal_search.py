@@ -1,14 +1,14 @@
 from collections.abc import Callable
 import sys
 import numpy as np
+from loguru import logger
 
 from carl.inference_components.subgoal_generator import AdaptiveSubgoalGenerator
 from carl.inference_components.validator import Validator
 from carl.inference_components.value import Value
-from carl.solver.planners import Planner, SearchInfo, Experience
+from carl.solver.planners import FinishReason, Planner, SearchInfo, Experience
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import ValidationResult
-from loguru import logger
 
 
 def ensure_high_recursion_limit() -> None:
@@ -52,15 +52,13 @@ class Solver:
         nodes_unreachable: int = 0
         solving_node: SearchTreeNode | None = None
 
-        search_info: SearchInfo = {
-            'finished_reason': 'budget_exceeded',
-        }
+        search_info: SearchInfo = SearchInfo(finished_reason=FinishReason.BUDGET_EXCEEDED.value)
 
         while nodes_visited < self.max_nodes and solving_node is None:
             current_node: SearchTreeNode | None = self.planner.get()
             if current_node is None:
                 # There is nothing more to expand.
-                search_info['finished_reason'] = 'nothing_to_expand'
+                search_info.finished_reason = FinishReason.BUDGET_EXCEEDED.value
                 break
 
             subgoals = self.subgoal_generator.get_subgoals(current_node)
@@ -109,25 +107,23 @@ class Solver:
                 if validation.is_solved:
                     solving_node = subgoal_node
                     logger.success(f'solved with {nodes_visited} low level nodes visited')
-                    search_info['finished_reason'] = 'solved'
+                    search_info.finished_reason = FinishReason.SOLVED.value
                     break
-
-        search_info.update({
-            'low_level_nodes_visited': nodes_visited,
-            'nodes_valid': nodes_valid,
-            'nodes_unreachable': nodes_unreachable,
-        })
+        
+        search_info.low_level_nodes_visited = nodes_visited
+        search_info.high_level_nodes_valid = nodes_valid
+        search_info.high_level_nodes_unreachable = nodes_unreachable
 
         for k in ks:
-            search_info[f'subgoals_reachable_count_per_k/{k}'] = subgoals_reachable_count_per_k[k]
-            search_info[f'subgoals_unreachable_count_per_k/{k}'] = subgoals_unreachable_count_per_k[k]
+            search_info.subgoals_reachable_count_per_k[k] = subgoals_reachable_count_per_k[k]
+            search_info.subgoals_unreachable_count_per_k[k] = subgoals_unreachable_count_per_k[k]
 
             if subgoals_reachable_count_per_k[k] + subgoals_unreachable_count_per_k[k] == 0:
-                search_info[f'subgoals_reachable_rate/{k}'] = 0
+                search_info.subgoals_reachable_rate_per_k[k] = 0
             else:
                 rate = subgoals_reachable_count_per_k[k] / (subgoals_reachable_count_per_k[k] +
                                                             subgoals_unreachable_count_per_k[k])
-                search_info[f'subgoals_reachable_rate/{k}'] = rate
+                search_info.subgoals_reachable_rate_per_k[k] = rate
 
         # The computational budget is over.
         return self.planner.get_solution_data(solving_node, search_info)
