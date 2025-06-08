@@ -95,9 +95,9 @@ def get_branching_factor(tree_size: int, leaf_nodes: int) -> float:
         return 0.0
     return max((tree_size - 1) / (tree_size - leaf_nodes), 0)
 
-def get_tree_info(root_node: SearchTreeNode | None, search_info: dict):
+def get_tree_info(root_node: SearchTreeNode | None, search_info: SearchInfo):
     # Initialize statistics
-    tree_size = search_info["low_level_nodes_visited"]
+    tree_size = search_info.low_level_nodes_visited
     max_depth = 0
     leaf_nodes = 0
     total_children = 0
@@ -193,7 +193,7 @@ class GreedyPlanner(Planner):
         search_info.low_level_nodes_visited = len(self.seen_states)
         search_info.search_tree = self.root_node
 
-        for k, v in get_tree_info(self.root_node, search_info).items():
+        for k, v in get_tree_info(self.root_node, search_info.__dict__).items():
             assert k in search_info.__dict__, f"Key {k} not found in search_info"
             search_info.__dict__[k] = v
 
