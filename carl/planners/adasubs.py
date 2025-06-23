@@ -74,7 +74,6 @@ class AdasubsPlanner(Planner):
         search_info.solving_node = solving_node
         search_info.subgoals_added_per_k = self.subgoals_added
         search_info.subgoals_selected_for_expansion = self.subgoals_selected_for_expansion
-        search_info.low_level_nodes_visited = len(self.seen_states)
 
         tree_info = get_tree_info(self.root_node, search_info)
         for k, v in tree_info.items():

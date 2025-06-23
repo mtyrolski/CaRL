@@ -32,7 +32,7 @@ class Validator(InferenceComponent):
         raise NotImplementedError()
 
     @abstractmethod
-    def is_valid(self, state: np.ndarray | str, subgoal: np.ndarray | str) -> ValidationResult:
+    def is_valid(self, state: np.ndarray | str, subgoal: np.ndarray | str, **kwargs) -> ValidationResult:
         """
         Checks if a subgoal is achievable from a given state.
 
@@ -77,7 +77,7 @@ class BasicValidator(Validator):
             is_solved = True
 
         if steps_limit is None:
-            steps_limit = self.budget_for_achieving_subgoal
+            steps_limit = self.budget_for_achieving_subgoal + 1
 
         while step < steps_limit:
             step += 1

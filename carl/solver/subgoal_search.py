@@ -53,7 +53,11 @@ class Solver:
         solving_node: SearchTreeNode | None = None
 
         search_info: SearchInfo = SearchInfo(finished_reason=FinishReason.BUDGET_EXCEEDED.value)
-
+        ks = self.subgoal_generator.generator_k_list
+        
+        subgoals_reachable_count_per_k: dict[int, int] = {}
+        subgoals_unreachable_count_per_k: dict[int, int] = {}
+        
         while nodes_visited < self.max_nodes and solving_node is None:
             current_node: SearchTreeNode | None = self.planner.get()
             if current_node is None:
@@ -64,7 +68,7 @@ class Solver:
             subgoals = self.subgoal_generator.get_subgoals(current_node)
             subgoals_reachable_count_per_k = {}
             subgoals_unreachable_count_per_k = {}
-            ks = self.subgoal_generator.generator_k_list
+            
             for k in ks:
                 subgoals_reachable_count_per_k[k] = 0
                 subgoals_unreachable_count_per_k[k] = 0

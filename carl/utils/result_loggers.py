@@ -12,6 +12,7 @@ from carl.utils.metric_logging import MetricsAccumulator
 SOLVED_PREFIX = 'solved_instances'
 ALL_PREFIX = 'all_instances'
 AVG_PREFIX = 'average'
+
 class ResultLogger(ABC):
     @abstractmethod
     def log_results(self, results: Any) -> None:
@@ -114,24 +115,20 @@ class SubgoalSearchResultLogger(ResultLogger):
 
 
     def _log_general_metrics(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
-        low_level_solution_len, high_level_solution_len = self._get_solution_lengths(solution)
-        self.neptune_run[f'{ALL_PREFIX}__low_level_solution_len'].append(
-            step=base_completed_problems + task_id, value=low_level_solution_len)
-        self.neptune_run[f'{ALL_PREFIX}__high_level_solution_len'].append(
-            step=base_completed_problems + task_id, value=high_level_solution_len)
-        self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__low_level_solution_len', low_level_solution_len)
-        self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__high_level_solution_len', high_level_solution_len)
-        if search_info.is_valid_tree_search_info:
-            self.neptune_run[f'{ALL_PREFIX}__tree_size'].append(
-                step=base_completed_problems + task_id, value=search_info.tree_size)
-            self.neptune_run[f'{ALL_PREFIX}__tree_depth'].append(
-                step=base_completed_problems + task_id, value=search_info.tree_depth)
-            self.neptune_run[f'{ALL_PREFIX}__leaf_nodes'].append(
-                step=base_completed_problems + task_id, value=search_info.leaf_nodes)
-            self.neptune_run[f'{ALL_PREFIX}__branching_factor'].append(
-                step=base_completed_problems + task_id, value=search_info.branching_factor)
-        else:
-            logger.warning("SearchInfo is not valid for general metrics logging, skipping tree metrics.")
+        assert search_info.is_valid_tree_search_info:
+        self.neptune_run[f'{ALL_PREFIX}__tree_size'].append(
+            step=base_completed_problems + task_id, value=search_info.tree_size)
+        self.neptune_run[f'{ALL_PREFIX}__tree_depth'].append(
+            step=base_completed_problems + task_id, value=search_info.tree_depth)
+        self.neptune_run[f'{ALL_PREFIX}__leaf_nodes'].append(
+            step=base_completed_problems + task_id, value=search_info.leaf_nodes)
+        self.neptune_run[f'{ALL_PREFIX}__branching_factor'].append(
+            step=base_completed_problems + task_id, value=search_info.branching_factor)
+
+        self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__tree_size', search_info.tree_size) # type: ignore
+        self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__tree_depth', search_info.tree_depth) # type: ignore
+        self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__leaf_nodes', search_info.leaf_nodes) # type: ignore
+        self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__branching_factor', search_info.branching_factor) # type: ignore
 
     def _log_budget_solved_rates(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
         for budget in self.budget_logs:

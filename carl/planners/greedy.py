@@ -52,14 +52,19 @@ class GreedyPlanner(Planner):
         return hashable_state(state) in self.seen_states
 
     def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: SearchInfo) -> Experience:
+        # Update solution data in search_info
         search_info.low_level_nodes_visited = len(self.seen_states)
         search_info.search_tree = self.root_node
         for k, v in get_tree_info(self.root_node, search_info).items():
             assert k in search_info.__dict__, f"Key {k} not found in search_info"
             search_info.__dict__[k] = v
+            
+        # case when no solution was found
         if solving_node is None:
             solution = Solution(solved=False)
             return Experience(solution=solution, search_info=search_info)
+        
+        # case when solution was found
         subgoal_path, action_path, values, subgoal_distance_path, _ = get_solving_path_data(
             solving_node, include_state_path=False)
         solution = Solution(
