@@ -56,7 +56,7 @@ validator:
 
     path_to_conditional_low_level_policy_weights: "./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
     env: ${params.env}
-  budget_for_achieving_subgoal: 10
+  budget_for_achieving_subgoal: 10 # max(k) + 2
 
 algorithm:
   _target_: carl.algorithms.solve_instances.SolveInstances
@@ -84,7 +84,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
-    batch_size: 10
+    batch_size: 5
 
   # result logger
   result_logger:

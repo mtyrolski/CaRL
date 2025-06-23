@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from loguru import logger
 from carl.algorithms.training_loop.flow_control import LoopControl
 from carl.inference_components.component import InferenceComponent
-from carl.solver.planners import Experience
+from carl.planners.base import Experience
 from carl.solver.subgoal_search import Solver
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.environment.instance_generator import InstanceGenerator

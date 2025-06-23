@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from carl.solver.planners import AdasubsPlanner, AstarPlanner, BestFSPlanner, BfsPlanner, GreedyPlanner, SearchTreeNode
+from carl.planners.base import AdasubsPlanner, AstarPlanner, BestFSPlanner, BfsPlanner, GreedyPlanner, SearchTreeNode
 from carl.solver.nodes import get_root_from_solving_node
 from tests.utils import build_dummy_search_tree
 

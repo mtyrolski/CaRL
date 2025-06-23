@@ -19,7 +19,7 @@ from transformers import TrainingArguments
 from carl.algorithms import CARL_ALL_NODES_COUNT
 from carl.algorithms import CARL_WORKER_LOCAL_ID
 from carl.algorithms.algorithm import Algorithm
-from carl.components.metrics import MetricsHF
+from carl.utils.metrics import MetricsHF
 from carl.dataloader.game_data_module import UntokenizedTrajectory
 from carl.dataloader.game_dataset import GameDataset
 from carl.environment.env import GameEnv

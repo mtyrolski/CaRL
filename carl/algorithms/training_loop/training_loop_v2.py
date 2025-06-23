@@ -2,7 +2,7 @@ from loguru import logger
 from itertools import cycle
 
 from carl.algorithms.algorithm import Algorithm
-from carl.solver.planners import Experience
+from carl.planners.base import Experience
 from carl.solver.subgoal_search import Solver
 import carl.utils.loops as loop_utils
 from carl.algorithms.training_loop.flow_control import LoopControl

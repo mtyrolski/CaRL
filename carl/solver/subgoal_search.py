@@ -6,7 +6,7 @@ from loguru import logger
 from carl.inference_components.subgoal_generator import AdaptiveSubgoalGenerator
 from carl.inference_components.validator import Validator
 from carl.inference_components.value import Value
-from carl.solver.planners import FinishReason, Planner, SearchInfo, Experience
+from carl.planners.base import FinishReason, Planner, SearchInfo, Experience
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import ValidationResult
 
