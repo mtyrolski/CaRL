@@ -114,6 +114,7 @@ def get_branching_factor(tree_size: int, leaf_nodes: int) -> float:
 def get_tree_info(root_node: SearchTreeNode, search_info: SearchInfo):
     # Initialize statistics
     tree_size = search_info.low_level_nodes_visited
+    assert tree_size is not None, 'Low level nodes param has to be set.'
     max_depth = 0
     leaf_nodes = 0
     total_children = 0

@@ -66,8 +66,6 @@ class SubgoalSearchResultLogger(ResultLogger):
                 instance_log_fn(base_completed_problems, task_id, solution, search_info)
         self._log_final_solved_rates()
         self._log_final_finished_reasons()
-        if self.completed_problems == self.problem_to_solve:
-            self._log_success_rates_by_budget()
 
     @property
     def neptune_run(self):
@@ -115,7 +113,7 @@ class SubgoalSearchResultLogger(ResultLogger):
 
 
     def _log_general_metrics(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
-        assert search_info.is_valid_tree_search_info:
+        assert search_info.is_valid_tree_search_info
         self.neptune_run[f'{ALL_PREFIX}__tree_size'].append(
             step=base_completed_problems + task_id, value=search_info.tree_size)
         self.neptune_run[f'{ALL_PREFIX}__tree_depth'].append(
@@ -150,10 +148,3 @@ class SubgoalSearchResultLogger(ResultLogger):
         for finished_reason, count in self.finished_reasons.items():
             self.neptune_run[join(f'finished_reasons/{finished_reason}/rate', self.node_global_id)].append(
                 step=self.completed_problems, value=count / self.completed_problems)
-
-    def _log_success_rates_by_budget(self):
-        for budget in self.budget_logs:
-            self.neptune_run['success_rate/budget'].append(
-                step=budget, value=self.solved_stats.get_value(f'rate/{budget}_nodes'))
-            self.neptune_run['success_rate/budget_logscale'].append(
-                step=int(np.log(budget) * 100), value=self.solved_stats.get_value(f'rate/{budget}_nodes'))
