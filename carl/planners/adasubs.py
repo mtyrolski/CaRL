@@ -1,16 +1,10 @@
-import queue
-from abc import abstractmethod
 import numpy as np
 from loguru import logger
-from dataclasses import dataclass, field
-from enum import StrEnum
-
-from carl.environment.sokoban.env import printable_sokoban_state
-from carl.environment.utilis import DeadEndFinder
+from carl.planners.base import Planner, SearchInfo, Experience, Solution, get_tree_info
 from carl.solver.nodes import SafePriorityQueue, prune_search_tree_from_solving_node
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import get_solving_path_data
-from carl.solver.nodes import hashable_state
+
 
 class AdasubsPlanner(Planner):
     def __init__(self, root_state: np.ndarray, generators_k_list: list[int], prune_search_trees: bool = False) -> None:
@@ -82,7 +76,7 @@ class AdasubsPlanner(Planner):
         search_info.subgoals_selected_for_expansion = self.subgoals_selected_for_expansion
         search_info.low_level_nodes_visited = len(self.seen_states)
 
-        tree_info =  get_tree_info(self.root_node, search_info)
+        tree_info = get_tree_info(self.root_node, search_info)
         for k, v in tree_info.items():
             if hasattr(search_info, k):
                 setattr(search_info, k, v)
