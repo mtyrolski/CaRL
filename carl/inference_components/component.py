@@ -10,7 +10,7 @@ from transformers import PreTrainedModel
 from transformers import Trainer as HFTrainer
 from transformers import TrainingArguments
 
-from carl.utils.metrics import MetricsHF
+from carl.utils.training_metrics import MetricsHF
 
 
 @dataclass

@@ -14,7 +14,7 @@ from carl.planners.base import Experience
 from carl.solver.subgoal_search import Solver
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.environment.instance_generator import InstanceGenerator
-from carl.utils.metrics import extract_metrics_from_experiences, extract_metrics_from_buffer_logs
+from carl.utils.training_metrics import extract_metrics_from_experiences, extract_metrics_from_buffer_logs
 from typing import Iterator
 from carl.inference_components.component import TrainingModule
 from carl.utils.training import iterate_networks_for_training

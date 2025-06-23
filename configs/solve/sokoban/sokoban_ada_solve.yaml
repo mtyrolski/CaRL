@@ -67,7 +67,7 @@ algorithm:
     max_nodes: 100
     planner_class:
       _partial_: true
-      _target_: carl.solver.planners.AdasubsPlanner
+      _target_: carl.planners.adasubs.AdasubsPlanner
       generators_k_list: ${algorithm.solver.subgoal_generator.generator_k_list}
 
     subgoal_generator: ${subgoal_generator}

@@ -26,22 +26,43 @@ class Solution:
 @dataclass
 class SearchInfo:
     finished_reason: str
-    low_level_nodes_visited: int = 0
-    high_level_nodes_valid: int = 0
-    high_level_nodes_unreachable: int = 0
+    low_level_nodes_visited: int | None = None
+    high_level_nodes_valid: int | None = None
+    high_level_nodes_unreachable: int | None = None
     subgoals_reachable_count_per_k: dict[int, int] = field(default_factory=dict)
     subgoals_unreachable_count_per_k: dict[int, int] = field(default_factory=dict)
     subgoals_reachable_rate_per_k: dict[int, float] = field(default_factory=dict)
     search_tree: SearchTreeNode | None = None # root node
-    tree_size: int = 0
-    tree_depth: int = 0
-    leaf_nodes: int = 0
-    branching_factor: float = 0.0
-    subgoals_visited: int = 0
+    tree_size: int | None = None
+    tree_depth: int | None = None
+    leaf_nodes: int | None = None
+    branching_factor: float | None = None
+    subgoals_visited: int | None = None
     solving_node: SearchTreeNode | None = None
     subgoals_added_per_k: dict[int, int] = field(default_factory=dict)
     subgoals_selected_for_expansion: dict[int, int] = field(default_factory=dict)
-    dead_ends_rate: float = 0.0
+    dead_ends_rate: float | None = None
+    
+    @property
+    def is_valid_tree_search_info(self) -> bool:
+        return (self.low_level_nodes_visited is not None and
+                self.tree_size is not None and
+                self.tree_depth is not None and
+                self.leaf_nodes is not None and
+                self.branching_factor is not None)
+    
+    @property
+    def is_valid_subgoal_search_info(self) -> bool:
+        return self.is_valid_tree_search_info and \
+                (self.high_level_nodes_valid is not None and
+                self.high_level_nodes_unreachable is not None and
+                len(self.subgoals_reachable_count_per_k) > 0 and
+                len(self.subgoals_unreachable_count_per_k) > 0 and
+                len(self.subgoals_reachable_rate_per_k) > 0 and
+                self.subgoals_visited is not None and
+                self.subgoals_added_per_k is not None and
+                self.subgoals_selected_for_expansion is not None)
+
     
 class FinishReason(StrEnum):
     BUDGET_EXCEEDED = 'budget_exceeded'
@@ -52,7 +73,6 @@ class FinishReason(StrEnum):
 class Experience:
     solution: Solution
     search_info: SearchInfo
-
 
 class Planner:
     """

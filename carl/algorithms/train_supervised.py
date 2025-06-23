@@ -14,7 +14,7 @@ from transformers import Trainer as HFTrainer
 from transformers import TrainerCallback
 
 from carl.algorithms.algorithm import Algorithm
-from carl.utils.metrics import MetricsHF
+from carl.utils.training_metrics import MetricsHF
 from carl.utils.loggers import CaRLLogger
 from carl.dataloader.game_data_module import GameDataModule
 from carl.logs import info, debug, success

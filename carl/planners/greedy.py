@@ -1,7 +1,7 @@
 import queue
 import numpy as np
 
-from carl.planners.base import Planner, SearchInfo, Experience, Solution, get_tree_info, get_dead_end_data
+from carl.planners.base import Planner, SearchInfo, Experience, Solution, get_tree_info
 
 from carl.environment.utilis import DeadEndFinder
 from carl.solver.nodes import SafePriorityQueue

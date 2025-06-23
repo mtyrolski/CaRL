@@ -17,10 +17,6 @@ class MetricsAccumulator:
         self._data_to_sum.setdefault(name, []).append(value)
         self._metrics[name] = np.sum(self._data_to_sum[name])
 
-    def log_metric_to_accumulate(self, name: str, value: float | int) -> None:
-        self._data_to_accumulate.setdefault(name, []).append(value)
-        self._metrics[name] = np.sum(self._data_to_accumulate[name])
-
     def return_scalars(self) -> dict[str, float | int]:
         return self._metrics
 
