@@ -5,8 +5,10 @@ from collections import namedtuple
 import numpy as np
 from loguru import logger
 
-from carl.environment.sokoban.env import SokobanEnv, printable_sokoban_state
+from carl.environment.sokoban.env import SokobanEnv
+from carl.environment.sokoban.env import printable_sokoban_state
 from carl.utils.loggers import log_error_and_raise
+
 
 class SearchTreeNode:
     """

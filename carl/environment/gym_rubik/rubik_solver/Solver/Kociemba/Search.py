@@ -2,7 +2,8 @@ __author__ = 'Victor'
 
 import time
 
-from carl.environment.gym_rubik.rubik_solver import CoordCube, FaceCube
+from carl.environment.gym_rubik.rubik_solver import CoordCube
+from carl.environment.gym_rubik.rubik_solver import FaceCube
 from carl.environment.gym_rubik.rubik_solver.CubieCube import DupedEdge
 from carl.environment.gym_rubik.rubik_solver.Enums import Color
 

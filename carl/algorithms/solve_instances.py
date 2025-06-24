@@ -1,13 +1,18 @@
+import os
+from pickle import HIGHEST_PROTOCOL
+
 import numpy as np
 import torch
-from carl.environment.instance_generator import BasicInstanceGenerator
-from carl.utils.result_loggers import ResultLogger
-from carl.solver.subgoal_search import Solver
-from joblib import Parallel, delayed, dump
+from joblib import Parallel
+from joblib import delayed
+from joblib import dump
 from loguru import logger
-from pickle import HIGHEST_PROTOCOL
-import os
+
 from carl.env import CUDA_VISIBLE_DEVICES__ENV_VAR
+from carl.environment.instance_generator import BasicInstanceGenerator
+from carl.solver.subgoal_search import Solver
+from carl.utils.result_loggers import ResultLogger
+
 
 class SolveInstances:
     def __init__(

@@ -8,8 +8,8 @@ from transformers import PreTrainedModel
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
-from carl.inference_components.subgoal_generator import SubgoalGenerator
 from carl.inference_components.component import InferenceComponent
+from carl.inference_components.subgoal_generator import SubgoalGenerator
 from carl.solver.nodes import GeneratedAction
 from carl.solver.nodes import GeneratedSubgoal
 from carl.solver.nodes import SearchTreeNode

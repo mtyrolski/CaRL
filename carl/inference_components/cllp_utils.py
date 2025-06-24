@@ -2,10 +2,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-from carl.inference_components.validator import BasicValidator
+
 from carl.environment.env import GameEnv
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
 from carl.inference_components.subgoal_generator import SubgoalGenerator
+from carl.inference_components.validator import BasicValidator
 from carl.solver.nodes import ValidationResult
 
 

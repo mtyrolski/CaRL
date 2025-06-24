@@ -1,24 +1,27 @@
 import os
-from os.path import isdir, join
-from typing import Generator
-from numpy import ndarray
-from dataclasses import dataclass, field
-from tqdm import tqdm
-import joblib
-from torch.utils.data import DataLoader
+from dataclasses import dataclass
+from dataclasses import field
+from os.path import isdir
+from os.path import join
+from typing import Generator, Iterator
 
+import joblib
 from loguru import logger
+from numpy import ndarray
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 from carl.algorithms.training_loop.flow_control import LoopControl
+from carl.environment.instance_generator import InstanceGenerator
 from carl.inference_components.component import InferenceComponent
+from carl.inference_components.component import TrainingModule
+from carl.memory.replay_buffer import OfflineReplayBuffer
+from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.planners.base import Experience
 from carl.solver.subgoal_search import Solver
-from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
-from carl.environment.instance_generator import InstanceGenerator
-from carl.utils.training_metrics import extract_metrics_from_experiences, extract_metrics_from_buffer_logs
-from typing import Iterator
-from carl.inference_components.component import TrainingModule
 from carl.utils.training import iterate_networks_for_training
-from carl.memory.replay_buffer import OfflineReplayBuffer
+from carl.utils.training_metrics import extract_metrics_from_buffer_logs
+from carl.utils.training_metrics import extract_metrics_from_experiences
 
 
 class ComponentCollection:

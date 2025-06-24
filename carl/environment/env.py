@@ -1,15 +1,16 @@
 from abc import ABC
 from abc import abstractmethod
+from enum import Enum
+from enum import auto
+from typing import TypeVar
 
 import numpy as np
-from carl.environment.tokenizer import GameTokenizer
-from torch import Tensor
-from typing import TypeVar
-from plotly import graph_objects as go
-
 # plotly fig
 from matplotlib import figure as plt
-from enum import Enum, auto
+from plotly import graph_objects as go
+from torch import Tensor
+
+from carl.environment.tokenizer import GameTokenizer
 
 ReadableReprT = TypeVar('RepresentationT', str, go.Figure, plt.Figure)
 

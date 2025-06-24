@@ -2,17 +2,18 @@ import os
 import pickle
 import sys
 from typing import Any
-from carl.slurm.grid_search import CarlGrid
+
 import hydra
 import torch
-from carl.algorithms.algorithm import Algorithm
-from carl.utils.result_loggers import SubgoalSearchResultLogger
 from dotenv import load_dotenv
 from loguru import logger
 from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
 
+from carl.algorithms.algorithm import Algorithm
+from carl.slurm.grid_search import CarlGrid
+from carl.utils.result_loggers import SubgoalSearchResultLogger
 
 HIGHEST_PROTOCOL = 5
 pickle.HIGHEST_PROTOCOL = HIGHEST_PROTOCOL

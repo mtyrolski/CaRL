@@ -4,22 +4,16 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Any
 
-from loguru import logger
-
 import neptune
 import numpy as np
 import torch
+from loguru import logger
 from omegaconf import ListConfig
 from omegaconf import OmegaConf
 from torch import Tensor
 from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers import TrainerCallback
-from carl.environment.env import GameEnv
-from carl.environment.training_goal import TrainingGoal
-from torch import Tensor
-from tqdm import tqdm
-from transformers import PreTrainedModel, TrainerCallback
 from transformers.integrations import NeptuneCallback
 
 from carl.environment.env import GameEnv

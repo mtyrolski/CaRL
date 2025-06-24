@@ -1,7 +1,8 @@
 import os
 
-from carl.environment.env import GameEnv
 from loguru import logger
+
+from carl.environment.env import GameEnv
 
 
 class CreateDataset:

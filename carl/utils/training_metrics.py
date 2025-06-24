@@ -1,10 +1,9 @@
-from functools import reduce
-from operator import or_
-from typing import Any
-
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Callable
+from functools import reduce
+from operator import or_
+from typing import Any
 
 import numpy as np
 import torch

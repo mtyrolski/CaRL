@@ -1,8 +1,10 @@
 import functools
+import subprocess
+
+from loguru import logger
+
 from carl.algorithms.algorithm import Algorithm
 from carl.slurm.grid_search import CarlGrid
-import subprocess
-from loguru import logger
 
 
 def instantiate_algorithm(config_name: str,
@@ -28,7 +30,8 @@ def instantiate_algorithm(config_name: str,
         HydraException: If there is an error during Hydra initialization or configuration composition.
 
     """
-    from hydra import compose, initialize
+    from hydra import compose
+    from hydra import initialize
     from hydra.core.global_hydra import GlobalHydra
     GlobalHydra.instance().clear()
 

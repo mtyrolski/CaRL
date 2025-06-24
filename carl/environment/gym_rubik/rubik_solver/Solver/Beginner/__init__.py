@@ -3,7 +3,11 @@ import copy
 from carl.environment.gym_rubik.rubik_solver.Move import Move
 
 from .. import Solver
-from . import (SecondLayerSolver, WhiteCrossSolver, WhiteFaceSolver, YellowCrossSolver, YellowFaceSolver)
+from . import SecondLayerSolver
+from . import WhiteCrossSolver
+from . import WhiteFaceSolver
+from . import YellowCrossSolver
+from . import YellowFaceSolver
 
 
 class BeginnerSolver(Solver):

@@ -1,13 +1,16 @@
 import itertools
 
 import numpy as np
-from carl.environment.env import GameEnv, ReadableReprT, RepresentationType
+from loguru import logger
+from matplotlib import pyplot as plt
+from torch import Tensor
+
+from carl.environment.env import GameEnv
+from carl.environment.env import ReadableReprT
+from carl.environment.env import RepresentationType
+from carl.environment.sokoban.core import _SokobanEnvCore
 from carl.environment.sokoban.tokenizer import SokobanTokenizer
 from carl.environment.tokenizer import GameTokenizer
-from matplotlib import pyplot as plt
-from loguru import logger
-from carl.environment.sokoban.core import _SokobanEnvCore
-from torch import Tensor
 
 
 class SokobanEnv(GameEnv):

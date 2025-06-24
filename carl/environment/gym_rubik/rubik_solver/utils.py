@@ -6,7 +6,10 @@ from past.builtins import basestring
 from .Cubie import Cube
 from .NaiveCube import NaiveCube
 from .Printer import TtyPrinter
-from .Solver import CFOP, Beginner, Kociemba, Solver
+from .Solver import CFOP
+from .Solver import Beginner
+from .Solver import Kociemba
+from .Solver import Solver
 
 __author__ = 'Victor Cabezas'
 

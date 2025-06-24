@@ -14,16 +14,12 @@ from transformers import Trainer as HFTrainer
 from transformers import TrainerCallback
 
 from carl.algorithms.algorithm import Algorithm
-from carl.utils.training_metrics import MetricsHF
-from carl.utils.loggers import CaRLLogger
 from carl.dataloader.game_data_module import GameDataModule
-from carl.logs import info, debug, success
-from joblib import load
-from lightning import LightningDataModule, LightningModule, Trainer
-from torch.utils.data import Dataset
-from transformers import PretrainedConfig, PreTrainedModel
-from transformers import Trainer as HFTrainer
-from transformers import TrainerCallback
+from carl.logs import debug
+from carl.logs import info
+from carl.logs import success
+from carl.utils.loggers import CaRLLogger
+from carl.utils.training_metrics import MetricsHF
 
 
 class TrainSupervised(Algorithm):

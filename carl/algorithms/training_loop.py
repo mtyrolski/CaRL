@@ -1,9 +1,9 @@
 import os
+import shutil
 import time
 from collections.abc import Callable
 from collections.abc import Iterable
 from pathlib import Path
-import shutil
 
 import joblib
 import numpy as np
@@ -19,7 +19,6 @@ from transformers import TrainingArguments
 from carl.algorithms import CARL_ALL_NODES_COUNT
 from carl.algorithms import CARL_WORKER_LOCAL_ID
 from carl.algorithms.algorithm import Algorithm
-from carl.utils.training_metrics import MetricsHF
 from carl.dataloader.game_data_module import UntokenizedTrajectory
 from carl.dataloader.game_dataset import GameDataset
 from carl.environment.env import GameEnv
@@ -34,11 +33,16 @@ from carl.inference_components.subgoal_generator import TransformerSubgoalGenera
 from carl.inference_components.value import TransformerValue
 from carl.memory.replay_buffer import OfflineReplayBuffer
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
-from carl.utils.result_loggers import SubgoalSearchResultLogger
+from carl.solver.nodes import prune_experiences
 from carl.solver.subgoal_search import Solver
 from carl.solver.subgoal_search_batched import SubgoalSearchSolver
-from carl.solver.nodes import prune_experiences
-from carl.utils.resources import dump_resource, exists_resource, get_latest_file, read_resource_and_delete, stop_signal
+from carl.utils.resources import dump_resource
+from carl.utils.resources import exists_resource
+from carl.utils.resources import get_latest_file
+from carl.utils.resources import read_resource_and_delete
+from carl.utils.resources import stop_signal
+from carl.utils.result_loggers import SubgoalSearchResultLogger
+from carl.utils.training_metrics import MetricsHF
 
 
 def solved_count(results: list[dict]) -> int:

@@ -1,11 +1,12 @@
 from abc import abstractmethod
-import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field
 from enum import StrEnum
+
+import numpy as np
 
 from carl.environment.sokoban.env import printable_sokoban_state
 from carl.solver.nodes import SearchTreeNode
-
 
 GeneratorIdx = int
 

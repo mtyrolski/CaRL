@@ -1,12 +1,14 @@
 """Unit tests for replay buffers."""
+import gymnasium as gym
 import pytest
-from carl.memory.replay_buffer import SimpleUniversalReplayBuffer, SolvingPathConditionalLowLevelPolicyReplayBuffer
+
+from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
+from carl.memory.replay_buffer import SolvingPathConditionalLowLevelPolicyReplayBuffer
 from carl.memory.replay_buffer import SolvingPathGeneratorReplayBuffer
 from carl.memory.replay_buffer import SolvingPathValueReplayBuffer
-from tests.utils import assert_equal, assert_equal_sets, build_dummy_search_tree
-import gymnasium as gym
-from carl.memory.replay_buffer import (SolvingPathConditionalLowLevelPolicyReplayBuffer,
-                                       SolvingPathGeneratorReplayBuffer, SolvingPathValueReplayBuffer)
+from tests.utils import assert_equal
+from tests.utils import assert_equal_sets
+from tests.utils import build_dummy_search_tree
 
 
 class DummyEnvironment(gym.Env):

@@ -6,8 +6,6 @@ from torch import tensor
 
 from carl.environment.tokenizer import GameTokenizer
 from carl.environment.training_goal import TrainingGoal
-from loguru import logger
-from torch import Tensor, tensor
 
 
 class NPuzzleTokenizer(GameTokenizer):

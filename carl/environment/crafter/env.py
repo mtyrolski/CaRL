@@ -1,21 +1,24 @@
-from carl.environment.env import GameEnv, ReadableReprT
-from crafter.env import Env as CrafterEnv
-import numpy as np
-from enum import StrEnum
-from torch import Tensor
-from carl.environment.tokenizer import GameTokenizer
-from crafter.env import Env as CrafterEnv
-from typing import TypeVar
-from plotly import graph_objects as go
-from matplotlib import figure as plt
-import matplotlib.pyplot as plt_m
 from dataclasses import dataclass
-from crafter.engine import World
-from crafter.objects import Player
-from crafter.engine import LocalView
+from enum import StrEnum
+from typing import TypeVar
+
+import matplotlib.pyplot as plt_m
+import numpy as np
 from crafter import constants
 from crafter import objects
-from crafter.engine import ItemView, SemanticView
+from crafter.engine import ItemView
+from crafter.engine import LocalView
+from crafter.engine import SemanticView
+from crafter.engine import World
+from crafter.env import Env as CrafterEnv
+from crafter.objects import Player
+from matplotlib import figure as plt
+from plotly import graph_objects as go
+from torch import Tensor
+
+from carl.environment.env import GameEnv
+from carl.environment.env import ReadableReprT
+from carl.environment.tokenizer import GameTokenizer
 
 """
 (64, 64, 3)

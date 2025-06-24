@@ -1,9 +1,11 @@
 ### Start Core Sokoban - ported and adapted to carl from https://gitlab.com/awarelab/gym-sokoban/-/blob/master/gym_sokoban/envs/sokoban_env_fast.py
 import enum
-import numpy as np
 import importlib.resources as resources
-from carl.environment.utilis import HashableState
+
+import numpy as np
 from PIL import Image
+
+from carl.environment.utilis import HashableState
 
 RENDERING_MODES = ['one_hot', 'rgb_array', 'tiny_rgb_array']
 

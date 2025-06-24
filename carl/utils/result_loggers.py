@@ -1,11 +1,14 @@
+import os
 from abc import ABC
 from abc import abstractmethod
 from os.path import join
 from typing import Any
-import os
+
 from loguru import logger
-import numpy as np
-from carl.planners.base import Experience, SearchInfo, Solution
+
+from carl.planners.base import Experience
+from carl.planners.base import SearchInfo
+from carl.planners.base import Solution
 from carl.utils.loggers import NeptuneCaRLLogger
 from carl.utils.metric_logging import MetricsAccumulator
 

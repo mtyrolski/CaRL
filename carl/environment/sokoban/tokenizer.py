@@ -8,7 +8,6 @@ from torch import tensor
 
 from carl.environment.tokenizer import GameTokenizer
 from carl.environment.training_goal import TrainingGoal
-from loguru import logger
 
 
 class SokobanTokenizer(GameTokenizer):

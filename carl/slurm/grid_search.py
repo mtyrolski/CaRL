@@ -1,10 +1,12 @@
 import copy
 import itertools
-from typing import Any, Generator, Dict
+from typing import Any, Dict, Generator
 
 import yaml
 from loguru import logger
-from omegaconf import DictConfig, ListConfig, OmegaConf
+from omegaconf import DictConfig
+from omegaconf import ListConfig
+from omegaconf import OmegaConf
 
 
 class NotListError(Exception):

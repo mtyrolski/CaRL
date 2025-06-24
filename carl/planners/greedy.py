@@ -1,9 +1,11 @@
-import queue
 import numpy as np
 
-from carl.planners.base import Planner, SearchInfo, Experience, Solution, get_tree_info
-
 from carl.environment.utilis import DeadEndFinder
+from carl.planners.base import Experience
+from carl.planners.base import Planner
+from carl.planners.base import SearchInfo
+from carl.planners.base import Solution
+from carl.planners.base import get_tree_info
 from carl.solver.nodes import SafePriorityQueue
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import get_solving_path_data

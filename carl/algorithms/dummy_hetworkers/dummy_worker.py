@@ -1,10 +1,11 @@
 import random
 import time
 
+from loguru import logger
 
 from carl.algorithms.algorithm import Algorithm
 from carl.utils.resources import read_resource_and_delete
-from loguru import logger
+
 
 class DummyReceiver(Algorithm):
     def __init__(self, seed: int) -> None:

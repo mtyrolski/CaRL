@@ -2,13 +2,16 @@ import copy
 import os
 
 import numpy as np
-from carl.environment.env import GameEnv, ReadableReprT, RepresentationType
-from carl.environment.n_puzzle.tokenizer import NPuzzleTokenizer
-from carl.environment.tokenizer import GameTokenizer
-from carl.environment.utilis import HashableState
 from joblib import dump
 from loguru import logger
 from torch import Tensor
+
+from carl.environment.env import GameEnv
+from carl.environment.env import ReadableReprT
+from carl.environment.env import RepresentationType
+from carl.environment.n_puzzle.tokenizer import NPuzzleTokenizer
+from carl.environment.tokenizer import GameTokenizer
+from carl.environment.utilis import HashableState
 
 
 class NPuzzleCore:

@@ -4,16 +4,18 @@ from enum import Enum
 import gym
 import matplotlib.pyplot as plt
 import numpy as np
-from carl.environment.env import GameEnv
-from carl.environment.gym_rubik.converter import CubeConverter
-from carl.environment.gym_rubik.cube import Actions, Cube
-from carl.environment.gym_rubik.rubik_solver import Move as rubik_solver_moves
-from carl.environment.gym_rubik.tokenizer import RubikCubeTokenizer
-from carl.environment.tokenizer import GameTokenizer
 from gym import spaces
 from joblib import dump
 from loguru import logger
 from torch import Tensor
+
+from carl.environment.env import GameEnv
+from carl.environment.gym_rubik.converter import CubeConverter
+from carl.environment.gym_rubik.cube import Actions
+from carl.environment.gym_rubik.cube import Cube
+from carl.environment.gym_rubik.rubik_solver import Move as rubik_solver_moves
+from carl.environment.gym_rubik.tokenizer import RubikCubeTokenizer
+from carl.environment.tokenizer import GameTokenizer
 
 
 class DebugLevel(Enum):

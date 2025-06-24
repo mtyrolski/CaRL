@@ -10,9 +10,6 @@ from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import get_solving_path_data
-from carl.environment.env import GameEnv
-from carl.environment.training_goal import TrainingGoal
-from torch import Tensor
 
 
 class UniversalReplayBuffer(ABC):
