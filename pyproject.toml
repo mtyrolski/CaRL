@@ -42,6 +42,7 @@ crafter = "^1.8.3"
 pygame = "^2.6.1"
 pytest = "^8.3.4"
 pyright = "^1.1.402"
+isort = "^6.0.1"
 
 [tool.poetry.group.lint.dependencies]
 ruff = "^0.0.278"

@@ -1,8 +1,8 @@
 ### Start Core Sokoban - ported and adapted to carl from https://gitlab.com/awarelab/gym-sokoban/-/blob/master/gym_sokoban/envs/sokoban_env_fast.py
 import enum
 import numpy as np
+import importlib.resources as resources
 from carl.environment.utilis import HashableState
-import pkg_resources
 from PIL import Image
 
 RENDERING_MODES = ['one_hot', 'rgb_array', 'tiny_rgb_array']
@@ -21,15 +21,17 @@ def load_surfaces():
     ]
     sizes = ['8x8pixels', '16x16pixels']
 
-    resource_package = __name__.replace('.core', '.env')
+    # resource_package = __name__.replace('.core', '.env')
+    resource_package = '.'.join(__name__.split('.')[:-1])
+    print(f"Loading assets from package: {resource_package}")
     surfaces = {}
     for size in sizes:
         surfaces[size] = []
         for asset_file_name in assets_file_name:
-            asset_path = pkg_resources.resource_filename(resource_package, '/'.join(('surface', size, asset_file_name)))
-            asset_np_array = np.array(Image.open(asset_path))
-            surfaces[size].append(asset_np_array)
-
+            # Use importlib.resources to get the path to the asset
+            with resources.path(f"{resource_package}.surface.{size}", asset_file_name) as asset_path:
+                asset_np_array = np.array(Image.open(asset_path))
+                surfaces[size].append(asset_np_array)
         surfaces[size] = np.stack(surfaces[size])
 
     return surfaces
