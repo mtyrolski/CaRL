@@ -66,7 +66,7 @@ algorithm:
   # solver class
   solver:
     _target_: carl.solver.subgoal_search.Solver
-    max_nodes: 200
+    max_nodes: 1000
     planner_class:
       _partial_: true
       _target_: carl.planners.adasubs.AdasubsPlanner
@@ -101,7 +101,7 @@ algorithm:
       log_parameters: True
     problem_to_solve: ${algorithm.problems_to_solve}
     budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
-  problems_to_solve: 100
+  problems_to_solve: 250
 
   n_parallel_workers: 4
 
@@ -116,14 +116,18 @@ carl_grid:
         "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
         "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
     ]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]
+  - subgoal_generator.generator_k_list: [[8, 4]]
+    subgoal_generator.paths_to_generator_weights: [[
+          "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
+        "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+    ]]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_84", "12x12x4"]]
   # KSubS (k=8)
   - subgoal_generator.generator_k_list: [[8]]
     subgoal_generator.paths_to_generator_weights: [[
           "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
     ]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_8", "12x12x4"]]
     subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
   # KSubS (k=4)
@@ -131,14 +135,14 @@ carl_grid:
     subgoal_generator.paths_to_generator_weights: [[
           "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
     ]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/sokoban/components/full_data/cllp/4/checkpoint-167585"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_4", "12x12x4"]]
     subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    validator.budget_for_achieving_subgoal: [6] # max(k) + 2
   # KSubS (k=1)
   - subgoal_generator.generator_k_list: [[1]]
     subgoal_generator.paths_to_generator_weights: [[
           "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
     ]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/sokoban/components/full_data/cllp/1/checkpoint-167585"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_1", "12x12x4"]]
     subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    validator.budget_for_achieving_subgoal: [2] # max(k) + 1

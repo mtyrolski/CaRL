@@ -43,7 +43,9 @@ def handle_precision(config: DictConfig):
         torch.set_float32_matmul_precision(config.float32_matmul_precision)
 
 def _instantiate_and_run(exp_config: DictConfig) -> None:
-    algorithm = hydra.utils.instantiate(exp_config.algorithm)
+    algorithm: Algorithm = hydra.utils.instantiate(exp_config.algorithm) # type: ignore[assignment]
+    assert isinstance(algorithm, Algorithm), \
+        f'Expected algorithm to be of type Algorithm, but got {type(algorithm)}'
     logger.info(f'Registered algorithm: {algorithm}')
     
     handle_logging(algorithm, exp_config)
@@ -52,7 +54,7 @@ def _instantiate_and_run(exp_config: DictConfig) -> None:
     logger.info('Setting recursion limit to 2147483640')
     sys.setrecursionlimit(2147483640)
     # logger.info(f'\n======\nRunning algorithm with config:\n {OmegaConf.to_yaml(exp_config)}')
-    # algorithm.run()
+    algorithm.run()
 
    
 def run(config: DictConfig) -> None:

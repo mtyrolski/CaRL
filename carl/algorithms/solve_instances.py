@@ -12,9 +12,9 @@ from carl.env import CUDA_VISIBLE_DEVICES__ENV_VAR
 from carl.environment.instance_generator import BasicInstanceGenerator
 from carl.solver.subgoal_search import Solver
 from carl.utils.result_loggers import ResultLogger
+from carl.algorithms.algorithm import Algorithm
 
-
-class SolveInstances:
+class SolveInstances(Algorithm):
     def __init__(
         self,
         solver: Solver,
