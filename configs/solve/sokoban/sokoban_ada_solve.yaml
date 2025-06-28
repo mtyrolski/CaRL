@@ -29,7 +29,7 @@ subgoal_generator:
   paths_to_generator_weights: ["./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856"]
   subgoal_generator_class:
     _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
-    generator_network_class: 
+    generator_network_class:
       _target_: transformers.BartForConditionalGeneration.from_pretrained
       _partial_: true
     _partial_: true
@@ -110,26 +110,26 @@ carl_workers:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  - subgoal_generator.generator_k_list: [[8, 4, 1]]
-    subgoal_generator.paths_to_generator_weights: [[
-          "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
-        "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
-        "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
-    ]]
-    algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]
-  - subgoal_generator.generator_k_list: [[8, 4]]
-    subgoal_generator.paths_to_generator_weights: [[
-          "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
-        "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
-    ]]
-    algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_84", "12x12x4"]]
-  # KSubS (k=8)
-  - subgoal_generator.generator_k_list: [[8]]
-    subgoal_generator.paths_to_generator_weights: [[
-          "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
-    ]]
-    algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_8", "12x12x4"]]
-    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+  # - subgoal_generator.generator_k_list: [[8, 4, 1]]
+  #   subgoal_generator.paths_to_generator_weights: [[
+  #         "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
+  #       "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+  #       "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
+  #   ]]
+  #   algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_841", "12x12x4"]]
+  # - subgoal_generator.generator_k_list: [[8, 4]]
+  #   subgoal_generator.paths_to_generator_weights: [[
+  #         "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
+  #       "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+  #   ]]
+  #   algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "AdaSubS", "solve", "k_84", "12x12x4"]]
+  # # KSubS (k=8)
+  # - subgoal_generator.generator_k_list: [[8]]
+  #   subgoal_generator.paths_to_generator_weights: [[
+  #         "./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856",
+  #   ]]
+  #   algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_8", "12x12x4"]]
+  #   subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
   # KSubS (k=4)
   - subgoal_generator.generator_k_list: [[4]]
     subgoal_generator.paths_to_generator_weights: [[
