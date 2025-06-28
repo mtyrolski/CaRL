@@ -1,0 +1,110 @@
+# make run_local_solve dir=configs/solve/npuzzle name=npuzzle_ada_solve
+components_prefix: "./rl-data/validation/npuzzle/components/full_data"
+
+params:
+  env:
+    _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+    tokenizer:
+      _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+      size_of_board:
+        - 5
+        - 5
+
+subgoal_generator:
+  _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
+  generator_k_list: [8]
+  env: ${params.env}
+  subgoal_generation_kwargs:
+    max_new_tokens: 145
+    do_sample: False
+    temperature: 1.0
+    num_beams: 4
+    num_return_sequences: 1
+  paths_to_generator_weights: ["./rl-data/npuzzle/components/moe/generator/8/checkpoint-64090"]
+  subgoal_generator_class:
+    _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+    generator_network_class:
+      _target_: transformers.BartForConditionalGeneration.from_pretrained
+      _partial_: true
+    _partial_: true
+
+value_function:
+  _target_: carl.inference_components.value.TransformerValue
+  value_network_class:
+    _target_: transformers.BertForSequenceClassification.from_pretrained
+    _partial_: true
+  path_to_value_network_weights: "./rl-data/npuzzle/components/moe/value/checkpoint-2825298"
+  type_of_evaluation: "regression"
+  noise_variance: 0.0
+  env: ${params.env}
+
+validator:
+  _target_: carl.inference_components.validator.BasicValidator
+  env: ${params.env}
+  cllp:
+    _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+    conditional_low_level_policy_class:
+      _target_: transformers.BertForSequenceClassification.from_pretrained
+      _partial_: true
+    path_to_conditional_low_level_policy_weights: "./rl-data/npuzzle/components/moe/cllp/8/checkpoint-225736"
+    env: ${params.env}
+  budget_for_achieving_subgoal: 10
+
+algorithm:
+  _target_: carl.algorithms.solve_instances.SolveInstances
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 1000
+    planner_class:
+      _partial_: true
+      _target_: carl.planners.adasubs.AdasubsPlanner
+      generators_k_list: ${algorithm.solver.subgoal_generator.generator_k_list}
+    subgoal_generator: ${subgoal_generator}
+    validator: ${validator}
+    value_function: ${value_function}
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "./rl-data/validation/npuzzle/progress/fin"
+    batch_size: 20
+  result_logger:
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      name: "adasubs solve"
+      description: "adasubs solve"
+      project: "mtyrol/drop"
+      tags: ["inner_eval", "npuzzle", "KSubS", "solve", "k_8", "5x5"]
+      log_parameters: True
+    problem_to_solve: ${algorithm.problems_to_solve}
+    budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
+  problems_to_solve: 250
+  n_parallel_workers: 4
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+carl_grid:
+  # AdaSubS (k=[8,4])
+  - subgoal_generator.generator_k_list: [[8, 4]]
+    subgoal_generator.paths_to_generator_weights: [[
+        "./rl-data/npuzzle/components/moe/generator/8/checkpoint-64090",
+        "./rl-data/npuzzle/components/moe/generator/4/checkpoint-48314"
+    ]]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "npuzzle", "AdaSubS", "solve", "k_84", "5x5"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    validator.budget_for_achieving_subgoal: [10]
+  # kSubS (k=8)
+  - subgoal_generator.generator_k_list: [[8]]
+    subgoal_generator.paths_to_generator_weights: [["./rl-data/npuzzle/components/moe/generator/8/checkpoint-64090"]]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "npuzzle", "KSubS", "solve", "k_8", "5x5"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    validator.budget_for_achieving_subgoal: [10]
+  # kSubS (k=4)
+  - subgoal_generator.generator_k_list: [[4]]
+    subgoal_generator.paths_to_generator_weights: [["./rl-data/npuzzle/components/moe/generator/4/checkpoint-48314"]]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "npuzzle", "KSubS", "solve", "k_4", "5x5"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    validator.budget_for_achieving_subgoal: [6]

@@ -1,6 +1,6 @@
 # CaRL Library README
 
-- [CaRL Library README](#carl-library-readme)
+- -CaRL Library README](#carl-library-readme)
   - [Introduction](#introduction)
   - [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl)
   - [Codebase Authors](#codebase-authors)
@@ -21,6 +21,7 @@
     - [Cluster Synchronization Script](#cluster-synchronization-script)
   - [Datasets Demo](#datasets-demo)
   - [Open Source Components](#open-source-components)
+  - [Evaluation Results](#evaluation-results)
 
 ---
 
@@ -39,7 +40,7 @@ CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation
 - Zawalski, M., Góral, G., Tyrolski, M., Wiśnios, E., Budrowski, F., Kuciński, Ł., and Miłoś, P., 2024. *What Matters in Hierarchical Search for Combinatorial Reasoning Problems?* arXiv preprint arXiv:2406.03361.
 - Zawalski, M., Tyrolski, M., Czechowski, K., Odrzygóźdź, T., Stachura, D., Piękos, P., Wu, Y., Kuciński, Ł., and Miłoś, P., 2022. *Fast and Precise: Adjusting Planning Horizon with Adaptive Subgoal Search.* arXiv preprint arXiv:2206.00702.
 - Czechowski, K., Odrzygóźdź, T., Zbysiński, M., Zawalski, M., Olejnik, K., Wu, Y., Kuciński, Ł., and Miłoś, P., 2021. *Subgoal Search for Complex Reasoning Tasks.* Advances in Neural Information Processing Systems, 34, pp. 624–638.
-- Other works cited in the above papers.
+- Selected works cited in the above papers.
 
 ---
 
@@ -379,3 +380,15 @@ For access to the full datasets used in various experiments, please contact the 
 | 33 | Sokoban | Generator   | 8      | `generator/no_border/8/checkpoint-284460`     | `./rl-data/sokoban/components/full_data/generator/no_border/8`              |
 | 34 | Sokoban | Policy      | N/A    | `policy/checkpoint-94820`                     | `./rl-data/sokoban/components/full_data/policy/checkpoint-94820`            |
 | 35 | Sokoban | Value       | N/A    | `value/checkpoint-1343100`                    | `./rl-data/sokoban/components/full_data/value/checkpoint-1343100`           |
+
+## Experiment Configurations Table
+
+## Evaluation / Reproducibility
+Made on version v1.0.0 of the CaRL library to ensure reproducibility of algorithms on selected environments, using the components listed above.
+
+
+**NPuzzle:** [notebooks with evaluation](notebooks/eval_npuzzle.ipynb)
+
+**Sokoban:** [notebooks with evaluation](notebooks/eval_sokoban.ipynb)
+
+**Rubik:** [notebooks with evaluation](notebooks/eval_rubik.ipynb)
