@@ -86,7 +86,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
-    batch_size: 20
+    batch_size: 25
 
   # result logger
   result_logger:
@@ -101,7 +101,7 @@ algorithm:
       log_parameters: True
     problem_to_solve: ${algorithm.problems_to_solve}
     budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000]
-  problems_to_solve: 250
+  problems_to_solve: 100
 
   n_parallel_workers: 4
 
@@ -131,18 +131,18 @@ carl_grid:
   #   algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_8", "12x12x4"]]
   #   subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
   # KSubS (k=4)
-  - subgoal_generator.generator_k_list: [[4]]
-    subgoal_generator.paths_to_generator_weights: [[
-          "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
-    ]]
-    algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_4", "12x12x4"]]
-    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
-    validator.budget_for_achieving_subgoal: [6] # max(k) + 2
+  # - subgoal_generator.generator_k_list: [[4]]
+  #   subgoal_generator.paths_to_generator_weights: [[
+  #         "./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856",
+  #   ]]
+  #   algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_4", "12x12x4"]]
+  #   subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [4] # [1, 2, 3, 4]
+  #   validator.budget_for_achieving_subgoal: [6] # max(k) + 2
   # KSubS (k=1)
   - subgoal_generator.generator_k_list: [[1]]
     subgoal_generator.paths_to_generator_weights: [[
           "./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712",
     ]]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "sokoban", "KSubS", "solve", "k_1", "12x12x4"]]
-    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 4]
     validator.budget_for_achieving_subgoal: [2] # max(k) + 1

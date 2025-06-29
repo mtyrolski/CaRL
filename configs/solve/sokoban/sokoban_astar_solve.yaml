@@ -61,7 +61,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
-    batch_size: 20
+    batch_size: 25
 
   # result logger
   result_logger:
@@ -76,7 +76,7 @@ algorithm:
     problem_to_solve: ${algorithm.problems_to_solve}
     budget_logs: [1, 2, 5, 10, 15, 20, 35, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
   problems_to_solve: 100
-  n_parallel_workers: 5
+  n_parallel_workers: 7
 
 carl_workers:
   solve:
@@ -85,7 +85,7 @@ carl_workers:
 carl_grid:
   # AStar variants
   - algorithm.solver.planner_class._target_: [carl.planners.greedy.AstarPlanner]
-    algorithm.solver.planner_class.depth_weight: [-1, 0, 1, 50, 100] # [-100, -50, -1, 0, 1, 50, 100]
+    algorithm.solver.planner_class.depth_weight: [0, 1, 50, 100] # [-100, -50, -1, 0, 1, 50, 100]
     algorithm.solver.planner_class.value_weight: [100.0]
     algorithm.result_logger.custom_logger.tags: [["sokoban", "astar", "grid", "12x12x4"]]
   # BestFS variants

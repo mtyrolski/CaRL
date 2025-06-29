@@ -20,7 +20,7 @@ subgoal_generator:
     temperature: 1.0
     num_beams: 4
     num_return_sequences: 1
-  paths_to_generator_weights: ["./rl-data/npuzzle/components/moe/generator/8/checkpoint-64090"]
+  paths_to_generator_weights: ["./rl-data/validation/npuzzle/components/moe/generator/8/checkpoint-64090"]
   subgoal_generator_class:
     _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
     generator_network_class:
@@ -33,7 +33,7 @@ value_function:
   value_network_class:
     _target_: transformers.BertForSequenceClassification.from_pretrained
     _partial_: true
-  path_to_value_network_weights: "./rl-data/npuzzle/components/moe/value/checkpoint-2825298"
+  path_to_value_network_weights: "./rl-data/validation/npuzzle/components/moe/value/checkpoint-2825298"
   type_of_evaluation: "regression"
   noise_variance: 0.0
   env: ${params.env}
@@ -46,7 +46,7 @@ validator:
     conditional_low_level_policy_class:
       _target_: transformers.BertForSequenceClassification.from_pretrained
       _partial_: true
-    path_to_conditional_low_level_policy_weights: "./rl-data/npuzzle/components/moe/cllp/8/checkpoint-225736"
+    path_to_conditional_low_level_policy_weights: "./rl-data/validation/npuzzle/components/moe/cllp/8/checkpoint-225736"
     env: ${params.env}
   budget_for_achieving_subgoal: 10
 
@@ -90,21 +90,21 @@ carl_grid:
   # AdaSubS (k=[8,4])
   - subgoal_generator.generator_k_list: [[8, 4]]
     subgoal_generator.paths_to_generator_weights: [[
-        "./rl-data/npuzzle/components/moe/generator/8/checkpoint-64090",
-        "./rl-data/npuzzle/components/moe/generator/4/checkpoint-48314"
+        "./rl-data/validation/npuzzle/components/moe/generator/8/checkpoint-64090",
+        "./rl-data/validation/npuzzle/components/moe/generator/4/checkpoint-48314"
     ]]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "npuzzle", "AdaSubS", "solve", "k_84", "5x5"]]
-    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 4]
     validator.budget_for_achieving_subgoal: [10]
   # kSubS (k=8)
   - subgoal_generator.generator_k_list: [[8]]
-    subgoal_generator.paths_to_generator_weights: [["./rl-data/npuzzle/components/moe/generator/8/checkpoint-64090"]]
+    subgoal_generator.paths_to_generator_weights: [["./rl-data/validation/npuzzle/components/moe/generator/8/checkpoint-64090"]]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "npuzzle", "KSubS", "solve", "k_8", "5x5"]]
-    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 4]
     validator.budget_for_achieving_subgoal: [10]
   # kSubS (k=4)
   - subgoal_generator.generator_k_list: [[4]]
-    subgoal_generator.paths_to_generator_weights: [["./rl-data/npuzzle/components/moe/generator/4/checkpoint-48314"]]
+    subgoal_generator.paths_to_generator_weights: [["./rl-data/validation/npuzzle/components/moe/generator/4/checkpoint-48314"]]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "npuzzle", "KSubS", "solve", "k_4", "5x5"]]
-    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 3, 4]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1, 2, 4]
     validator.budget_for_achieving_subgoal: [6]

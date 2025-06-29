@@ -327,14 +327,14 @@ equivalent to `rsync -uvar ...`.
 Here are some dataset samples for exploring the codebase:
 
 - **NPuzzle:**
-  - Offline trajectories: `./rl-data/npuzzle/offline/basic_solver`
-  - Problem instances (evaluation): `./rl-data/npuzzle/progress/fin`
+  - Offline trajectories: `./rl-data/validation/npuzzle/offline/basic_solver`
+  - Problem instances (evaluation): `./rl-data/validation/npuzzle/progress/fin`
 - **Sokoban:**
-  - Offline trajectories: `./rl-data/sokoban/offline/12-12-4/`
-  - Problem instances: `./rl-data/sokoban/progress/boards_1000_b4_gs25_c300_p0.35`, `boards_1000_b6_gs100_c300_p0.35`, `boards_1000_b7_gs100_c300_p0.35`
+  - Offline trajectories: `./rl-data/validation/sokoban/offline/12-12-4/`
+  - Problem instances: `./rl-data/validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.35`, `boards_1000_b6_gs100_c300_p0.35`, `boards_1000_b7_gs100_c300_p0.35`
 - **Rubik:**
-  - Offline trajectories: `./rl-data/rubik/offline/mixture_uniform`
-  - Problem instances (evaluation): `./rl-data/rubik/progress/shuffle_general`
+  - Offline trajectories: `./rl-data/validation/rubik/offline/mixture_uniform`
+  - Problem instances (evaluation): `./rl-data/validation/rubik/progress/shuffle_general`
 
 For access to the full datasets used in various experiments, please contact the codebase authors.
 
@@ -344,42 +344,42 @@ For access to the full datasets used in various experiments, please contact the 
 
 |    | Env     | Component   | Dist   | Checkpoint                                    | Full Path                                                                   |
 |---:|:--------|:------------|:-------|:----------------------------------------------|:----------------------------------------------------------------------------|
-|  0 | NPuzzle | CLLP        | 4      | `cllp/4/checkpoint-294075`                    | `./rl-data/npuzzle/components/moe/cllp/4`                                   |
-|  1 | NPuzzle | CLLP        | 8      | `cllp/8/checkpoint-225736`                    | `./rl-data/npuzzle/components/moe/cllp/8`                                   |
-|  2 | NPuzzle | Generator   | 4      | `generator/4/checkpoint-48314`                | `./rl-data/npuzzle/components/moe/generator/4`                              |
-|  3 | NPuzzle | Generator   | 8      | `generator/8/checkpoint-64090`                | `./rl-data/npuzzle/components/moe/generator/8`                              |
-|  4 | NPuzzle | Policy      | N/A    | `policy/checkpoint-31552`                     | `./rl-data/npuzzle/components/moe/policy/checkpoint-31552`                  |
-|  5 | NPuzzle | Value       | N/A    | `value/checkpoint-2825298`                    | `./rl-data/npuzzle/components/moe/value/checkpoint-2825298`                 |
-|  6 | Rubik   | CLLP        | 4      | `cllp/4/checkpoint-2372409`                   | `./rl-data/rubik/components/moe_uniform/cllp/4`                             |
-|  7 | Rubik   | CLLP        | 5      | `cllp/5/checkpoint-2181045`                   | `./rl-data/rubik/components/moe_uniform/cllp/5`                             |
-|  8 | Rubik   | CLLP        | 6      | `cllp/6/checkpoint-2080640`                   | `./rl-data/rubik/components/moe_uniform/cllp/6`                             |
-|  9 | Rubik   | CLLP        | 7      | `cllp/7/checkpoint-2062690`                   | `./rl-data/rubik/components/moe_uniform/cllp/7`                             |
-| 10 | Rubik   | CLLP        | 8      | `cllp/8/checkpoint-1904720`                   | `./rl-data/rubik/components/moe_uniform/cllp/8`                             |
-| 11 | Rubik   | Generator   | 1      | `generator/1/checkpoint-217497`               | `./rl-data/rubik/components/moe_uniform/generator/1`                        |
-| 12 | Rubik   | Generator   | 2      | `generator/2/checkpoint-217497`               | `./rl-data/rubik/components/moe_uniform/generator/2`                        |
-| 13 | Rubik   | Generator   | 3      | `generator/3/checkpoint-217497`               | `./rl-data/rubik/components/moe_uniform/generator/3`                        |
-| 14 | Rubik   | Generator   | 4      | `generator/4/checkpoint-217497`               | `./rl-data/rubik/components/moe_uniform/generator/4`                        |
-| 15 | Rubik   | Generator   | 5      | `generator/5/checkpoint-310710`               | `./rl-data/rubik/components/moe_uniform/generator/5`                        |
-| 16 | Rubik   | Generator   | 6      | `generator/6/checkpoint-279639`               | `./rl-data/rubik/components/moe_uniform/generator/6`                        |
-| 17 | Rubik   | Generator   | 7      | `generator/7/checkpoint-279639`               | `./rl-data/rubik/components/moe_uniform/generator/7`                        |
-| 18 | Rubik   | Generator   | 8      | `generator/8/checkpoint-279639`               | `./rl-data/rubik/components/moe_uniform/generator/8`                        |
-| 19 | Rubik   | Policy      | N/A    | `policy/checkpoint-763128`                    | `./rl-data/rubik/components/moe_uniform/policy/checkpoint-763128`           |
-| 20 | Rubik   | Value       | N/A    | `value/checkpoint-14504490`                   | `./rl-data/rubik/components/moe_uniform/value/checkpoint-14504490`          |
-| 21 | Sokoban | CLLP        | 1      | `cllp/1/checkpoint-149248`                    | `./rl-data/sokoban/components/full_data/cllp/1`                             |
-| 22 | Sokoban | CLLP        | 16     | `cllp/16/checkpoint-37224`                    | `./rl-data/sokoban/components/full_data/cllp/16`                            |
-| 23 | Sokoban | CLLP        | 32     | `cllp/32/checkpoint-20045`                    | `./rl-data/sokoban/components/full_data/cllp/32`                            |
-| 24 | Sokoban | CLLP        | 4      | `cllp/4/checkpoint-587940`                    | `./rl-data/sokoban/components/full_data/cllp/4`                             |
-| 25 | Sokoban | CLLP        | 8      | `cllp/8/checkpoint-167585`                    | `./rl-data/sokoban/components/full_data/cllp/8`                             |
-| 26 | Sokoban | Generator   | 1      | `generator/border/1/checkpoint-151712`        | `./rl-data/sokoban/components/full_data/generator/border/1`                 |
-| 27 | Sokoban | Generator   | 16     | `generator/border/16/checkpoint-52150`        | `./rl-data/sokoban/components/full_data/generator/border/16`                |
-| 28 | Sokoban | Generator   | 32     | `generator/border/32/checkpoint-31290`        | `./rl-data/sokoban/components/full_data/generator/border/32`                |
-| 29 | Sokoban | Generator   | 4      | `generator/border/4/checkpoint-75856`         | `./rl-data/sokoban/components/full_data/generator/border/4`                 |
-| 30 | Sokoban | Generator   | 8      | `generator/border/8/checkpoint-75856`         | `./rl-data/sokoban/components/full_data/generator/border/8`                 |
-| 31 | Sokoban | Generator   | 1      | `generator/no_border/1/checkpoint-284460`     | `./rl-data/sokoban/components/full_data/generator/no_border/1`              |
-| 32 | Sokoban | Generator   | 4      | `generator/no_border/4/checkpoint-360316`     | `./rl-data/sokoban/components/full_data/generator/no_border/4`              |
-| 33 | Sokoban | Generator   | 8      | `generator/no_border/8/checkpoint-284460`     | `./rl-data/sokoban/components/full_data/generator/no_border/8`              |
-| 34 | Sokoban | Policy      | N/A    | `policy/checkpoint-94820`                     | `./rl-data/sokoban/components/full_data/policy/checkpoint-94820`            |
-| 35 | Sokoban | Value       | N/A    | `value/checkpoint-1343100`                    | `./rl-data/sokoban/components/full_data/value/checkpoint-1343100`           |
+|  0 | NPuzzle | CLLP        | 4      | `cllp/4/checkpoint-294075`                    | `./rl-data/validation/npuzzle/components/moe/cllp/4/checkpoint-294075`                 |
+|  1 | NPuzzle | CLLP        | 8      | `cllp/8/checkpoint-225736`                    | `./rl-data/validation/npuzzle/components/moe/cllp/8/checkpoint-225736`                 |
+|  2 | NPuzzle | Generator   | 4      | `generator/4/checkpoint-48314`                | `./rl-data/validation/npuzzle/components/moe/generator/4/checkpoint-48314`             |
+|  3 | NPuzzle | Generator   | 8      | `generator/8/checkpoint-64090`                | `./rl-data/validation/npuzzle/components/moe/generator/8/checkpoint-64090`             |
+|  4 | NPuzzle | Policy      | N/A    | `policy/checkpoint-31552`                     | `./rl-data/validation/npuzzle/components/moe/policy/checkpoint-31552`                  |
+|  5 | NPuzzle | Value       | N/A    | `value/checkpoint-2825298`                    | `./rl-data/validation/npuzzle/components/moe/value/checkpoint-2825298`                 |
+|  6 | Rubik   | CLLP        | 4      | `cllp/4/checkpoint-2372409`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/4/checkpoint-2372409`          |
+|  7 | Rubik   | CLLP        | 5      | `cllp/5/checkpoint-2181045`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/5/checkpoint-2181045`          |
+|  8 | Rubik   | CLLP        | 6      | `cllp/6/checkpoint-2080640`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/6/checkpoint-2080640`          |
+|  9 | Rubik   | CLLP        | 7      | `cllp/7/checkpoint-2062690`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/7/checkpoint-2062690`          |
+| 10 | Rubik   | CLLP        | 8      | `cllp/8/checkpoint-1904720`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720`          |
+| 11 | Rubik   | Generator   | 1      | `generator/1/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/1/checkpoint-217497`      |
+| 12 | Rubik   | Generator   | 2      | `generator/2/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/2/checkpoint-217497`      |
+| 13 | Rubik   | Generator   | 3      | `generator/3/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/3/checkpoint-217497`      |
+| 14 | Rubik   | Generator   | 4      | `generator/4/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497`      |
+| 15 | Rubik   | Generator   | 5      | `generator/5/checkpoint-310710`               | `./rl-data/validation/rubik/components/moe_uniform/generator/5/checkpoint-310710`      |
+| 16 | Rubik   | Generator   | 6      | `generator/6/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/6/checkpoint-279639`      |
+| 17 | Rubik   | Generator   | 7      | `generator/7/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/7/checkpoint-279639`      |
+| 18 | Rubik   | Generator   | 8      | `generator/8/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639`      |
+| 19 | Rubik   | Policy      | N/A    | `policy/checkpoint-763128`                    | `./rl-data/validation/rubik/components/moe_uniform/policy/checkpoint-763128`           |
+| 20 | Rubik   | Value       | N/A    | `value/checkpoint-14504490`                   | `./rl-data/validation/rubik/components/moe_uniform/value/checkpoint-14504490`          |
+| 21 | Sokoban | CLLP        | 1      | `cllp/1/checkpoint-149248`                    | `./rl-data/validation/sokoban/components/full_data/cllp/1/checkpoint-149248`           |
+| 22 | Sokoban | CLLP        | 16     | `cllp/16/checkpoint-37224`                    | `./rl-data/validation/sokoban/components/full_data/cllp/16/checkpoint-37224`           |
+| 23 | Sokoban | CLLP        | 32     | `cllp/32/checkpoint-20045`                    | `./rl-data/validation/sokoban/components/full_data/cllp/32/checkpoint-20045`           |
+| 24 | Sokoban | CLLP        | 4      | `cllp/4/checkpoint-587940`                    | `./rl-data/validation/sokoban/components/full_data/cllp/4/checkpoint-587940`           |
+| 25 | Sokoban | CLLP        | 8      | `cllp/8/checkpoint-167585`                    | `./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585`           |
+| 26 | Sokoban | Generator   | 1      | `generator/border/1/checkpoint-151712`        | `./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712`|
+| 27 | Sokoban | Generator   | 16     | `generator/border/16/checkpoint-52150`        | `./rl-data/validation/sokoban/components/full_data/generator/border/16/checkpoint-52150`|
+| 28 | Sokoban | Generator   | 32     | `generator/border/32/checkpoint-31290`        | `./rl-data/validation/sokoban/components/full_data/generator/border/32/checkpoint-31290`|
+| 29 | Sokoban | Generator   | 4      | `generator/border/4/checkpoint-75856`         | `./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856`|
+| 30 | Sokoban | Generator   | 8      | `generator/border/8/checkpoint-75856`         | `./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856`|
+| 31 | Sokoban | Generator   | 1      | `generator/no_border/1/checkpoint-284460`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/1/checkpoint-284460`|
+| 32 | Sokoban | Generator   | 4      | `generator/no_border/4/checkpoint-360316`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/4/checkpoint-360316`|
+| 33 | Sokoban | Generator   | 8      | `generator/no_border/8/checkpoint-284460`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/8/checkpoint-284460`|
+| 34 | Sokoban | Policy      | N/A    | `policy/checkpoint-94820`                     | `./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820`            |
+| 35 | Sokoban | Value       | N/A    | `value/checkpoint-1343100`                    | `./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100`           |
 
 ## Experiment Configurations Table
 
