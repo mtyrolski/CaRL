@@ -62,10 +62,12 @@ class NPuzzleTokenizer(GameTokenizer):
                 if token not in self._special_vocab_to_tokens.values() and token in self._tokens_to_n_puzzle_vocab
             ]
             board: np.ndarray = np.array([self._tokens_to_n_puzzle_vocab[token] for token in filtered_tokens])
+            print(f'Shape of detokenized board: {board.shape}')
             if len(board) == self._size_of_board[0]**2:
                 return board
         except AssertionError:
             logger.warning('Board is not valid')
+
 
     def x_y_tokenizer(
         self,

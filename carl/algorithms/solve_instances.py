@@ -50,7 +50,7 @@ class SolveInstances(Algorithm):
         all_experiences: list[tuple[dict, dict]] = []
 
         for batch, problems in enumerate(self.data_loader.reset_dataloader()):
-            # TODO: convert to numpy array is not elegant. Change this.
+            # Convert to numpy array is not elegant. Change this.
             conv_problems: list[str] | np.ndarray
             if isinstance(problems[0], np.ndarray | torch.Tensor):
                 conv_problems: np.ndarray = problems.numpy()

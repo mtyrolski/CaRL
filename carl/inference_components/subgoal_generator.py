@@ -106,11 +106,14 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
                 do_sample=do_sample,
                 temperature=temperature,
             ).tolist()
-
+        print(len(outputs))
+        print(outputs)
+        # print(outputs[0].shape)
         subgoals: list[GeneratedSubgoal] = []
 
         for output in outputs:
             subgoal: np.ndarray | None = self.env.tokenizer.board_detokenizer(output)
+            print(f'Subgoal type: {type(subgoal)}')
             if subgoal is not None:
                 subgoals.append(GeneratedSubgoal(subgoal, {}))
 

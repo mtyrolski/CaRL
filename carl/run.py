@@ -1,7 +1,7 @@
 import os
 import pickle
 import sys
-from typing import Any
+from typing import Any, Final
 
 import hydra
 import torch
@@ -50,10 +50,10 @@ def _instantiate_and_run(exp_config: DictConfig) -> None:
     
     handle_logging(algorithm, exp_config)
     handle_precision(exp_config)
-
-    logger.info('Setting recursion limit to 2147483640')
-    sys.setrecursionlimit(2147483640)
-    # logger.info(f'\n======\nRunning algorithm with config:\n {OmegaConf.to_yaml(exp_config)}')
+    _RECURSION_LIMIT: Final[int] = 2147483640
+    if sys.getrecursionlimit() < _RECURSION_LIMIT:
+        logger.warning(f'Raising recursion limit from {sys.getrecursionlimit()} to {_RECURSION_LIMIT}')
+        sys.setrecursionlimit(_RECURSION_LIMIT)
     algorithm.run()
 
    
