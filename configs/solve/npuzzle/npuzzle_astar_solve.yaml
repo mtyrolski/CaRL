@@ -17,7 +17,7 @@ subgoal_generator:
     policy_network_class:
       _target_: transformers.BertForSequenceClassification.from_pretrained
       _partial_: true
-    path_to_policy_weights: "./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820"
+    path_to_policy_weights: "./rl-data/validation/npuzzle/components/moe/policy/checkpoint-31552"
     env: ${params.env}
     confidence_threshold: 0.85
   env: ${params.env}
@@ -46,8 +46,8 @@ algorithm:
     planner_class:
       _partial_: true
       _target_: carl.solver.planners.AstarPlanner
-      depth_weight: 0.0
-      value_weight: 150.0
+      # depth_weight: 0.0
+      # value_weight: 150.0
     subgoal_generator: ${subgoal_generator}
     validator: ${validator}
     value_function: ${value_function}
@@ -81,10 +81,10 @@ carl_workers:
 
 carl_grid:
   # AStar variants
-  - algorithm.solver.planner_class._target_: [carl.planners.greedy.AstarPlanner]
-    algorithm.solver.planner_class.depth_weight: [0, 1, 50, 100]
-    algorithm.solver.planner_class.value_weight: [100.0]
-    algorithm.result_logger.custom_logger.tags: [["npuzzle", "astar", "grid", "5x5"]]
+  # - algorithm.solver.planner_class._target_: [carl.planners.greedy.AstarPlanner]
+  #   algorithm.solver.planner_class.depth_weight: [-100, -50, -1, 0, 1, 50, 100]
+  #   algorithm.solver.planner_class.value_weight: [100.0]
+  #   algorithm.result_logger.custom_logger.tags: [["npuzzle", "astar", "grid", "5x5"]]
   # BestFS variants
   - algorithm.solver.planner_class._target_: [carl.planners.greedy.BestFSPlanner]
     algorithm.result_logger.custom_logger.tags: [["npuzzle", "bestfs", "grid", "5x5"]]
