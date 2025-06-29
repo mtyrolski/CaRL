@@ -4,6 +4,7 @@ import os
 import numpy as np
 from joblib import dump
 from loguru import logger
+from sympy import plot
 from torch import Tensor
 
 from carl.environment.env import GameEnv
@@ -12,6 +13,69 @@ from carl.environment.env import RepresentationType
 from carl.environment.n_puzzle.tokenizer import NPuzzleTokenizer
 from carl.environment.tokenizer import GameTokenizer
 from carl.environment.utilis import HashableState
+
+import numpy as np
+import plotly.graph_objects as go
+
+def plot_n_puzzle(state: np.ndarray) -> go.Figure:
+    """
+    Plots the N-Puzzle board using Plotly given the state as a 1D ndarray of shape (N*N,).
+    Only one number per tile, using only annotations. The empty cell (value 0) is left blank.
+    """
+    size = int(np.sqrt(state.size))
+    board = state.reshape((size, size))
+
+    # Dummy heatmap for grid background only
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=np.ones_like(board),
+            colorscale=[[0, "white"], [1, "white"]],
+            showscale=False,
+            hoverinfo="skip",
+            text=None,
+            texttemplate=None
+        )
+    )
+    fig.update_layout(
+        xaxis=dict(
+            showgrid=False, showticklabels=False, zeroline=False, scaleanchor="y", constrain="domain"
+        ),
+        yaxis=dict(
+            showgrid=False, showticklabels=False, zeroline=False, autorange='reversed', scaleanchor="x"
+        ),
+        plot_bgcolor='white',
+        margin=dict(l=0, r=0, t=0, b=0),
+        width=80*size,
+        height=80*size,
+    )
+
+    for i in range(size):
+        for j in range(size):
+            value = board[i, j]
+            if value != 0:
+                fig.add_annotation(
+                    x=j, y=i,
+                    text=f"<b>{value}</b>",
+                    showarrow=False,
+                    font=dict(size=34, color="black", family="Arial Black"),
+                    xanchor="center", yanchor="middle"
+                )
+
+    # Draw grid lines
+    for i in range(size+1):
+        # Horizontal lines
+        fig.add_shape(type="line",
+                      x0=-0.5, x1=size-0.5, y0=i-0.5, y1=i-0.5,
+                      line=dict(color="black", width=3))
+        # Vertical lines
+        fig.add_shape(type="line",
+                      x0=i-0.5, x1=i-0.5, y0=-0.5, y1=size-0.5,
+                      line=dict(color="black", width=3))
+
+    fig.update_xaxes(range=[-0.5, size-0.5])
+    fig.update_yaxes(range=[-0.5, size-0.5])
+
+    return fig
 
 
 class NPuzzleCore:
@@ -299,23 +363,40 @@ class NPuzzleEnv(GameEnv):
         title: str | None = None,
         repr_type: RepresentationType = RepresentationType.STR,
     ) -> ReadableReprT:
-        if repr_type != RepresentationType.STR:
-            logger.warning(f'Only {RepresentationType.STR} is supported, not {repr_type}')
+        _supported_repr_types: list[RepresentationType] = [RepresentationType.STR, RepresentationType.GO_FIGURE]
+        logger.warning(f'Representation type: {repr_type} with value {repr_type.value}')
+        logger.warning(f'Supported representation types: {_supported_repr_types} with values {[x.value for x in _supported_repr_types]}')
+        
+        if repr_type.value not in map(lambda x: x.value, _supported_repr_types):
+            logger.warning(f'Only {_supported_repr_types} are supported, not {repr_type}')
             repr_type = RepresentationType.STR
 
-        return f'{title}: {state}'
-
+        if repr_type.value == RepresentationType.GO_FIGURE.value:
+            return plot_n_puzzle(state)
+        else:
+            assert repr_type.value == RepresentationType.STR.value
+            return f'{title}: {state}' if title else str(state)
+        
+        
     def many_states_to_repr(
         self,
         states: list[np.ndarray],
         titles: list[str],
         repr_type: RepresentationType = RepresentationType.STR,
     ) -> ReadableReprT:
-        if repr_type != RepresentationType.STR:
-            logger.warning(f'Only {RepresentationType.STR} is supported, not {repr_type}')
+        _supported_repr_types: list[RepresentationType] = [RepresentationType.STR, RepresentationType.GO_FIGURE]
+        
+        if repr_type.value not in map(lambda x: x.value, _supported_repr_types):
+            logger.warning(f'Only {_supported_repr_types} are supported, not {repr_type}')
             repr_type = RepresentationType.STR
 
-        return '\n'.join(f'{title}: {state}' for state, title in zip(states, titles))
+
+        if repr_type.value == RepresentationType.GO_FIGURE.value:
+            go_figures: list[go.Figure] = [plot_n_puzzle(state) for state in states]
+            return go.Figure(data=go_figures)
+        else:
+            assert repr_type.value == RepresentationType.STR.value
+            return '\n'.join(f'{title}: {state}' for state, title in zip(states, titles))
 
     def set_state(self, state: np.ndarray) -> None:
         raise NotImplementedError
