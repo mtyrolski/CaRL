@@ -37,7 +37,7 @@ algorithm:
 
       path_to_generator_weights: ""
       env:
-        _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+        _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
         tokenizer:
           _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
           cut_distance: None
@@ -54,7 +54,7 @@ algorithm:
     validator:
       _target_: carl.inference_components.validator.BasicValidator
       env:
-        _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+        _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
         tokenizer:
           _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
           cut_distance: None
@@ -70,7 +70,7 @@ algorithm:
 
         path_to_conditional_low_level_policy_weights: ""
         env:
-          _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+          _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
           tokenizer:
             _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
             cut_distance: None
@@ -88,7 +88,7 @@ algorithm:
       type_of_evaluation: "regression"
       noise_variance: 0.0
       env:
-        _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+        _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
         tokenizer:
           _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
           cut_distance: None

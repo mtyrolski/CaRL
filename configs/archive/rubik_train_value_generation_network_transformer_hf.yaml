@@ -11,7 +11,7 @@ algorithm:
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
     env:
-      _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+      _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
       tokenizer:
         _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
         type_of_value_training: "generation"

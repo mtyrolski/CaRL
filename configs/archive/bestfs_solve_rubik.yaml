@@ -34,14 +34,14 @@ algorithm:
             _target_: transformers.BertConfig
         path_to_policy_weights: ""
         env:
-          _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+          _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
           tokenizer:
             _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
             cut_distance: 20
             type_of_value_training: "regression"
         n_actions: 1
       env:
-        _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+        _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
         tokenizer:
           _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
           cut_distance: 20
@@ -52,7 +52,7 @@ algorithm:
     validator:
       _target_: carl.inference_components.validator.DummyValidator
       env:
-        _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+        _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
         tokenizer:
           _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
           cut_distance: 20
@@ -68,7 +68,7 @@ algorithm:
       path_to_value_network_weights: ""
       type_of_evaluation: "regression"
       env:
-        _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+        _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
         tokenizer:
           _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
           cut_distance: 20

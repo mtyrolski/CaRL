@@ -3,7 +3,7 @@ components_prefix: "./rl-data/validation/rubik/components/moe_uniform"
 
 params:
   env:
-    _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+    _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
     tokenizer:
       _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
       cut_distance: 20

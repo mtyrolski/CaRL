@@ -14,7 +14,7 @@ algorithm:
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
     env:
-      _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+      _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
       tokenizer:
         _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
         cut_distance: 60

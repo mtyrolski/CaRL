@@ -3,7 +3,7 @@ components_prefix: "./rl-data/validation/rubik/components/moe_uniform"
 
 params:
   env:
-    _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+    _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
     tokenizer:
       _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
       cut_distance: 20
@@ -92,21 +92,21 @@ carl_grid:
         "./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639",
         "./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497"
     ]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: "./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "AdaSubS", "solve", "k_84", "shuffle_general"]]
     subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1]
     validator.budget_for_achieving_subgoal: [10]
   # kSubS (k=8)
   - subgoal_generator.generator_k_list: [[8]]
     subgoal_generator.paths_to_generator_weights: [["./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639"]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: "./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "KSubS", "solve", "k_8", "shuffle_general"]]
     subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [2, 4]
     validator.budget_for_achieving_subgoal: [10]
   # kSubS (k=4)
   - subgoal_generator.generator_k_list: [[4]]
     subgoal_generator.paths_to_generator_weights: [["./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497"]]
-    validator.cllp.path_to_conditional_low_level_policy_weights: "./rl-data/validation/rubik/components/moe_uniform/cllp/4/checkpoint-2372409"
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/moe_uniform/cllp/4/checkpoint-2372409"]
     algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "KSubS", "solve", "k_4", "shuffle_general"]]
     subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [2, 4]
     validator.budget_for_achieving_subgoal: [6]
