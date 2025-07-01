@@ -163,31 +163,18 @@ class RubikEnv(GameEnv):
 
     @staticmethod
     def cube_state_to_str(state: np.ndarray) -> str:
-        # Converts a (6,3,3) ndarray to a canonical string
+        # Converts a (6,3,3) ndarray to a canonical string of 54 chars
+        # Use the same face order as before, but flatten all faces
         ordered_faces = [state[i] for i in [0, 5, 2, 4, 3, 1]]
-        aligned_faces = np.array([np.rot90(face, axes=(0, 1)) for face in ordered_faces])
-        sticker_list = aligned_faces.reshape((-1, 6))
-        return ''.join(['ywrogb'[label] for label in np.where(sticker_list)[1]])
-
-    # def cube_str_to_state(self, string_obs: str) -> np.ndarray:
-    #     return np.argmax(self.cube_str_to_bin(string_obs), axis=-1)
-
-    # def cube_str_to_bin(self, string_obs: str) -> np.ndarray:
-    #     assert len(string_obs) == 54
-
-    #     stickers: list[int] = [self.reverse_cube_labels()[x] for x in string_obs]
-    #     indexes: np.ndarray = np.eye(6)[stickers]
-    #     faces: np.ndarray = indexes.reshape((6, 3, 3, 6))
-    #     aligned_faces: np.ndarray = np.array([np.rot90(face, k=-1, axes=(0, 1)) for face in faces])
-    #     ordered_faces: list[np.ndarray] = [aligned_faces[i] for i in [0, 5, 2, 4, 3, 1]]
-
-    #     return np.array(ordered_faces)
+        # No rotation unless you have a specific reason
+        flat = np.concatenate([face.flatten() for face in ordered_faces])
+        return ''.join(['ywrogb'[int(label)] for label in flat])
 
     @staticmethod
     def cube_str_to_state(string_obs: str) -> np.ndarray:
         assert len(string_obs) == 54, f'Expected string of length 54, got {len(string_obs)} characters: {string_obs}'
         stickers = [RubikEnv.reverse_cube_labels()[x] for x in string_obs]
-        indexes: np.ndarray = np.eye(6)[stickers]
+        indexes = np.eye(6)[stickers]
         faces = indexes.reshape((6, 3, 3, 6))
         aligned_faces = np.array([np.rot90(face, k=-1, axes=(0, 1)) for face in faces])
         ordered_faces = [aligned_faces[i] for i in [0, 5, 2, 4, 3, 1]]

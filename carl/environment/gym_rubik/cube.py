@@ -48,8 +48,7 @@ from enum import Enum
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Polygon
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Polygon, Rectangle
 
 
 class Actions(Enum):
@@ -69,8 +68,7 @@ class Actions(Enum):
 
 class Cube:
     """
-    Cube.
-
+    Cube
     ----
     Initialize with arguments:
     - `N`, the side length (the cube is `N`x`N`x`N`)
@@ -103,12 +101,14 @@ class Cube:
     labelcolor = '#7f00ff'
 
     def __init__(self, N, whiteplastic=False):
-        """(see above)."""
+        """
+        (see above)
+        """
         self.N = N
         self.stickers = np.array([np.tile(i, (self.N, self.N)) for i in range(6)])
         self.stickercolors = ['w', '#ffcf00', '#00008f', '#009f0f', '#ff6f00', '#cf0000']
-        self.stickerthickness = 0.001    # sticker thickness in units of total cube size
-        self.stickerwidth = 0.9    # sticker size relative to cubie size (must be < 1)
+        self.stickerthickness = 0.001  # sticker thickness in units of total cube size
+        self.stickerwidth = 0.9  # sticker size relative to cubie size (must be < 1)
         if whiteplastic:
             self.plasticcolor = '#dfdfdf'
         else:
@@ -118,8 +118,7 @@ class Cube:
 
     def turn(self, f, d):
         """
-        Turn whole cube (without making a layer move) around face `f`.
-
+        Turn whole cube (without making a layer move) around face `f`
         `d` 90-degree turns in the clockwise direction.  Use `d=3` or
         `d=-1` for counter-clockwise.
         """
@@ -128,8 +127,7 @@ class Cube:
 
     def move(self, f, l, d):
         """
-        Make a layer move of layer `l` parallel to face `f` through.
-
+        Make a layer move of layer `l` parallel to face `f` through
         `d` 90-degree turns in the clockwise direction.  Layer `0` is
         the face itself, and higher `l` values are for layers deeper
         into the cube.  Use `d=3` or `d=-1` for counter-clockwise
@@ -143,36 +141,42 @@ class Cube:
             f2 = 'D'
             i2 = self.facedict[f2]
             for d in ds:
-                self._rotate([
-                    (self.facedict['F'], range(self.N), l2),
-                    (self.facedict['R'], range(self.N), l2),
-                    (self.facedict['B'], range(self.N), l2),
-                    (self.facedict['L'], range(self.N), l2),
-                ])
+                self._rotate(
+                    [
+                        (self.facedict['F'], range(self.N), l2),
+                        (self.facedict['R'], range(self.N), l2),
+                        (self.facedict['B'], range(self.N), l2),
+                        (self.facedict['L'], range(self.N), l2),
+                    ]
+                )
         if f == 'D':
             return self.move('U', l2, -d)
         if f == 'F':
             f2 = 'B'
             i2 = self.facedict[f2]
             for d in ds:
-                self._rotate([
-                    (self.facedict['U'], range(self.N), l),
-                    (self.facedict['L'], l2, range(self.N)),
-                    (self.facedict['D'], range(self.N)[::-1], l2),
-                    (self.facedict['R'], l, range(self.N)[::-1]),
-                ])
+                self._rotate(
+                    [
+                        (self.facedict['U'], range(self.N), l),
+                        (self.facedict['L'], l2, range(self.N)),
+                        (self.facedict['D'], range(self.N)[::-1], l2),
+                        (self.facedict['R'], l, range(self.N)[::-1]),
+                    ]
+                )
         if f == 'B':
             return self.move('F', l2, -d)
         if f == 'R':
             f2 = 'L'
             i2 = self.facedict[f2]
             for d in ds:
-                self._rotate([
-                    (self.facedict['U'], l2, range(self.N)),
-                    (self.facedict['F'], l2, range(self.N)),
-                    (self.facedict['D'], l2, range(self.N)),
-                    (self.facedict['B'], l, range(self.N)[::-1]),
-                ])
+                self._rotate(
+                    [
+                        (self.facedict['U'], l2, range(self.N)),
+                        (self.facedict['F'], l2, range(self.N)),
+                        (self.facedict['D'], l2, range(self.N)),
+                        (self.facedict['B'], l, range(self.N)[::-1]),
+                    ]
+                )
         if f == 'L':
             return self.move('R', l2, -d)
         for d in ds:
@@ -183,7 +187,9 @@ class Cube:
         return None
 
     def _rotate(self, args):
-        """Internal function for the `move()` function."""
+        """
+        Internal function for the `move()` function.
+        """
         a0 = args[0]
         foo = self.stickers[a0]
         a = a0
@@ -193,7 +199,9 @@ class Cube:
         self.stickers[a] = foo
 
     def randomize(self, number):
-        """Make `number` randomly chosen moves to scramble the cube."""
+        """
+        Make `number` randomly chosen moves to scramble the cube.
+        """
         for _t in range(number):
             f = self.dictface[np.random.randint(6)]
             l = np.random.randint(self.N)
@@ -202,9 +210,7 @@ class Cube:
 
     def _render_points(self, points, viewpoint):
         """
-        Internal function for the `render()` function.
-
-         Clunky
+        Internal function for the `render()` function.  Clunky
         projection from 3-d to 2-d, but also return a zorder variable.
         """
         v2 = np.dot(viewpoint, viewpoint)
@@ -216,7 +222,11 @@ class Cube:
         for p in points:
             dpoint = p - viewpoint
             dproj = 0.5 * dpoint * v2 / np.dot(dpoint, -1.0 * viewpoint)
-            result += [np.array([np.dot(xdir, dproj), np.dot(ydir, dproj), np.dot(zdir, dpoint / np.sqrt(v2))])]
+            result += [
+                np.array(
+                    [np.dot(xdir, dproj), np.dot(ydir, dproj), np.dot(zdir, dpoint / np.sqrt(v2))]
+                )
+            ]
         return result
 
     def render_views(self, ax):
@@ -240,7 +250,7 @@ class Cube:
                 if np.dot(zdir, viewpoint) < 0:
                     continue
                 xdir = self.xdirs[i]
-                ydir = np.cross(zdir, xdir)    # insanity: left-handed!
+                ydir = np.cross(zdir, xdir)  # insanity: left-handed!
                 psc = 1.0 - 2.0 * self.stickerthickness
                 corners = [
                     psc * zdir - psc * xdir - psc * ydir,
@@ -257,7 +267,9 @@ class Cube:
                         corners = self._stickerpolygon(xdir, ydir, zdir, csz, j, k)
                         projects = self._render_points(corners, viewpoint)
                         xys = [p[0:2] + shift for p in projects]
-                        ax.add_artist(Polygon(xys, ec='none', fc=self.stickercolors[self.stickers[i, j, k]]))
+                        ax.add_artist(
+                            Polygon(xys, ec='none', fc=self.stickercolors[self.stickers[i, j, k]])
+                        )
                 x0, y0, zorder = self._render_points(
                     [
                         1.5 * self.normals[i],
@@ -307,7 +319,8 @@ class Cube:
                             cs,
                             ec=self.plasticcolor,
                             fc=self.stickercolors[self.stickers[i, j, k]],
-                        ))
+                        )
+                    )
             ax.text(
                 x0 + 0.5,
                 y0 + 0.5,
@@ -333,7 +346,9 @@ class Cube:
             xlim = (-1.2, 3.2)
             ylim = (-1.2, 2.2)
         if not fig:
-            fig = plt.figure(figsize=((xlim[1] - xlim[0]) * self.N / 5.0, (ylim[1] - ylim[0]) * self.N / 5.0))
+            fig = plt.figure(
+                figsize=((xlim[1] - xlim[0]) * self.N / 5.0, (ylim[1] - ylim[0]) * self.N / 5.0)
+            )
         ax = fig.add_axes((0, 0, 1, 1), frameon=False, xticks=[], yticks=[])
         if views:
             self.render_views(ax)
@@ -385,3 +400,10 @@ def checkerboard(cube):
     if cube.N % 2 == 0:
         for l in ls:
             cube.move('F', l, 2)
+
+
+if __name__ == '__main__':
+    """
+    Functional testing.
+    """
+    # for _m in range(32):
