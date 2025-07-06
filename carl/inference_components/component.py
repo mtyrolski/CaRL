@@ -9,9 +9,8 @@ from loguru import logger
 from transformers import PreTrainedModel
 from transformers import Trainer as HFTrainer
 from transformers import TrainingArguments
-
+from typing import TypeAlias
 from carl.utils.training_metrics import MetricsHF
-
 
 @dataclass
 class TrainingModule:
@@ -19,10 +18,19 @@ class TrainingModule:
     trainer_args: Callable[..., TrainingArguments]
     metrics_for_component: MetricsHF
 
+RawSimpleComponent: TypeAlias = PreTrainedModel
+RawComplexComponent: TypeAlias = dict[str, PreTrainedModel]
+
+RawComponent: TypeAlias = RawSimpleComponent | RawComplexComponent
+
+ComplexTrainingModule: TypeAlias = dict[str, TrainingModule]
+
 
 class InferenceComponent(ABC):
+    device: str
+    
     @abstractmethod
-    def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+    def get_network(self) -> RawComponent:
         """
         Returns the networks.
 
@@ -38,7 +46,7 @@ class InferenceComponent(ABC):
 
         raise NotImplementedError
 
-    def get_component_training_module(self) -> TrainingModule | dict[str, TrainingModule] | None:
+    def get_component_training_module(self) -> TrainingModule | ComplexTrainingModule | None:
         """
         Returns the training module.
 
