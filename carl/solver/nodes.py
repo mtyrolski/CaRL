@@ -46,6 +46,9 @@ class SearchTreeNode:
         if self.parent_node is not None:
             self.parent_node.children.append(self)
 
+    def __repr__(self):
+        state_shape = self.state.shape if isinstance(self.state, np.ndarray) else f'({len(self.state)},)'
+        return f'SearchTreeNode(state.shape={state_shape}, value={round(self.value, 2)}, next_expand_k={self.next_expand_with_k_generator})'
 
 def copy_solving_node(solving_node: SearchTreeNode):
     reversed_node_path = []
@@ -174,7 +177,9 @@ class SafePriorityQueue:
 
     def empty(self):
         return self.queue.empty()
-
+    
+    def __len__(self):
+        return self.queue.qsize()
 
 def get_solving_path_data(solving_node: SearchTreeNode,
                           include_state_path: bool=True,

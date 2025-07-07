@@ -9,7 +9,7 @@ from transformers import PreTrainedModel
 from carl.utils.aliases import State
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
-from carl.inference_components.component import InferenceComponent
+from carl.inference_components.component import ComplexTrainingModule, InferenceComponent
 from carl.inference_components.component import TrainingModule
 from carl.utils.loggers import log_error_and_raise
 
@@ -84,7 +84,7 @@ class TransformerConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
             self.path_to_conditional_low_level_policy_weights,
         )
 
-    def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+    def get_network(self) -> PreTrainedModel | ComplexTrainingModule:
         if self.cllp is None:
             log_error_and_raise(
                 'Conditional low level policy network is not constructed. '
@@ -98,7 +98,6 @@ class TransformerConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
         return self.cllp
 
     def get_action(self, state: State, state_after_k: State) -> Tensor:
-
         encoded_boards = torch.cat([
             self.env.tokenizer.x_y_tokenizer(x=(state, subgoal), y=0, training_goal=TrainingGoal.CLLP)[0]
             for state, subgoal in zip([state], [state_after_k])

@@ -17,8 +17,8 @@ subgoal_generator:
     max_new_tokens: 55 # 9*6 + 1
     do_sample: False
     temperature: 1.0
-    num_beams: 4
-    num_return_sequences: 1
+    num_beams: 16
+    num_return_sequences: 2
   paths_to_generator_weights: ["./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639"]
   subgoal_generator_class:
     _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
@@ -86,7 +86,16 @@ carl_workers:
     algorithm._target_: carl.algorithms.solve_instances.SolveInstances
 
 carl_grid:
-  # AdaSubS (k=[8,4])
+  # AdaSubS (k=[4, 2])
+  - subgoal_generator.generator_k_list: [[4, 2]]
+    subgoal_generator.paths_to_generator_weights: [[
+        "./rl-data/validation/rubik/components/shuffle_70/generator/4/checkpoint-270710",
+        "./rl-data/validation/rubik/components/shuffle_70/generator/2/checkpoint-270710"
+    ]]
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/shuffle_70/cllp/4/checkpoint-141063"]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "AdaSubS", "solve", "k_42", "shuffle_general"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1]
+    validator.budget_for_achieving_subgoal: [6]
   - subgoal_generator.generator_k_list: [[8, 4]]
     subgoal_generator.paths_to_generator_weights: [[
         "./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639",

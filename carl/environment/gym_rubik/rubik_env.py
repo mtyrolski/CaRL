@@ -164,10 +164,10 @@ class RubikEnv(GameEnv):
     @staticmethod
     def cube_state_to_str(state: np.ndarray) -> str:
         # Converts a (6,3,3) ndarray to a canonical string of 54 chars
-        # Use the same face order as before, but flatten all faces
+        # Use the same face order and rotation as in cube_str_to_state
         ordered_faces = [state[i] for i in [0, 5, 2, 4, 3, 1]]
-        # No rotation unless you have a specific reason
-        flat = np.concatenate([face.flatten() for face in ordered_faces])
+        aligned_faces = [np.rot90(face, k=-1, axes=(0, 1)) for face in ordered_faces]
+        flat = np.concatenate([face.flatten() for face in aligned_faces])
         return ''.join(['ywrogb'[int(label)] for label in flat])
 
     @staticmethod
@@ -176,8 +176,14 @@ class RubikEnv(GameEnv):
         stickers = [RubikEnv.reverse_cube_labels()[x] for x in string_obs]
         indexes = np.eye(6)[stickers]
         faces = indexes.reshape((6, 3, 3, 6))
-        aligned_faces = np.array([np.rot90(face, k=-1, axes=(0, 1)) for face in faces])
-        ordered_faces = [aligned_faces[i] for i in [0, 5, 2, 4, 3, 1]]
+        # Reverse the rotation applied in cube_state_to_str
+        aligned_faces = [np.rot90(face, k=1, axes=(0, 1)) for face in faces]
+        # Reorder faces back to original order
+        # The order [0, 5, 2, 4, 3, 1] was used for serialization, so we need to invert it
+        # Find the mapping from [0, 5, 2, 4, 3, 1] to [0, 1, 2, 3, 4, 5]
+        face_order = [0, 5, 2, 4, 3, 1]
+        inverse_order = [face_order.index(i) for i in range(6)]
+        ordered_faces = [aligned_faces[i] for i in inverse_order]
         return np.argmax(np.array(ordered_faces), axis=-1)
 
     @staticmethod
