@@ -1,7 +1,6 @@
 import numpy as np
 
-from carl.environment.gym_rubik.cube import Actions
-from carl.environment.gym_rubik.cube import Cube
+from carl.environment.gym_rubik.cube import Actions, Cube
 
 
 class CubeletSet:
@@ -26,8 +25,7 @@ class CubeletSet:
 
     def make_position_table(self):
         self.position_table = [
-            sorted([tuple(place)
-                    for place in np.transpose(np.where(self.assign_table == i))])
+            sorted([tuple(place) for place in np.transpose(np.where(self.assign_table == i))])
             for i in range(self.count)
         ]
 
@@ -38,8 +36,8 @@ class CubeletSet:
             position = self.position_table[i]
             colours = [observation[place] for place in position]
             colours_sorted = tuple(sorted(colours))
-            _id = self.ids[colours_sorted]
-            res[_id, self.dim * i + np.argmin(colours)] = 1.0
+            id = self.ids[colours_sorted]
+            res[id, self.dim * i + np.argmin(colours)] = 1.0
 
         return res
 
@@ -77,14 +75,16 @@ class CubeConverter:
                 (1, 3, 4),
             ],
             is_even=[False, True, True, False, True, False, False, True],
-            assign_table=np.array([
-                [[0, x, 1], [x, x, x], [2, x, 3]],
-                [[5, x, 4], [x, x, x], [7, x, 6]],
-                [[4, x, 0], [x, x, x], [6, x, 2]],
-                [[7, x, 3], [x, x, x], [5, x, 1]],
-                [[6, x, 2], [x, x, x], [7, x, 3]],
-                [[5, x, 1], [x, x, x], [4, x, 0]],
-            ]),
+            assign_table=np.array(
+                [
+                    [[0, x, 1], [x, x, x], [2, x, 3]],
+                    [[5, x, 4], [x, x, x], [7, x, 6]],
+                    [[4, x, 0], [x, x, x], [6, x, 2]],
+                    [[7, x, 3], [x, x, x], [5, x, 1]],
+                    [[6, x, 2], [x, x, x], [7, x, 3]],
+                    [[5, x, 1], [x, x, x], [4, x, 0]],
+                ]
+            ),
         )
 
         self.edges = CubeletSet(
@@ -102,37 +102,45 @@ class CubeConverter:
                 (1, 3),
                 (1, 4),
             ],
-            assign_table=np.array([
-                [[x, 0, x], [1, x, 2], [x, 3, x]],
-                [[x, 8, x], [10, x, 9], [x, 11, x]],
-                [[x, 4, x], [9, x, 1], [x, 6, x]],
-                [[x, 7, x], [10, x, 2], [x, 5, x]],
-                [[x, 6, x], [11, x, 3], [x, 7, x]],
-                [[x, 5, x], [8, x, 0], [x, 4, x]],
-            ]),
+            assign_table=np.array(
+                [
+                    [[x, 0, x], [1, x, 2], [x, 3, x]],
+                    [[x, 8, x], [10, x, 9], [x, 11, x]],
+                    [[x, 4, x], [9, x, 1], [x, 6, x]],
+                    [[x, 7, x], [10, x, 2], [x, 5, x]],
+                    [[x, 6, x], [11, x, 3], [x, 7, x]],
+                    [[x, 5, x], [8, x, 0], [x, 4, x]],
+                ]
+            ),
         )
 
     def convert_basic_to_reduced(self, basic_observation, force_no_debug=False):
-        result = np.concatenate([self.corners.encode(basic_observation), self.edges.encode(basic_observation)], axis=0)
+        result = np.concatenate(
+            [self.corners.encode(basic_observation), self.edges.encode(basic_observation)], axis=0
+        )
 
         if self.debug and not force_no_debug:
             print('converter debug')
-            assert np.array_equal(basic_observation, self.convert_reduced_to_basic(result, force_no_debug=True))
+            assert np.array_equal(
+                basic_observation, self.convert_reduced_to_basic(result, force_no_debug=True)
+            )
 
         return result
 
     def convert_reduced_to_basic(self, reduced_observation, force_no_debug=False):
         result = np.zeros((6, 3, 3), dtype=np.float32)
 
-        self.corners.decode(reduced_observation[:self.corners.count, :], result)
-        self.edges.decode(reduced_observation[self.corners.count:, :], result)
+        self.corners.decode(reduced_observation[: self.corners.count, :], result)
+        self.edges.decode(reduced_observation[self.corners.count :, :], result)
 
         for i in range(6):
             result[i, 1, 1] = i
 
         if self.debug and not force_no_debug:
             print('converter debug')
-            assert np.array_equal(reduced_observation, self.convert_basic_to_reduced(result, force_no_debug=True))
+            assert np.array_equal(
+                reduced_observation, self.convert_basic_to_reduced(result, force_no_debug=True)
+            )
 
         return result
 
@@ -161,8 +169,8 @@ def test_converter():
             cube.move_by_action(ACTION_LOOKUP[np.random.randint(0, 12)])
 
         if not np.array_equal(
-                cube.get_state(),
-                c.convert_reduced_to_basic(c.convert_basic_to_reduced(cube.get_state())),
+            cube.get_state(),
+            c.convert_reduced_to_basic(c.convert_basic_to_reduced(cube.get_state())),
         ):
             print('TESTING FAILED')
             print(c.convert_basic_to_reduced(cube.get_state()))

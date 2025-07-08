@@ -11,8 +11,8 @@ from plotly import graph_objects as go
 from torch import Tensor
 
 from carl.environment.tokenizer import GameTokenizer
-
-ReadableReprT = TypeVar('RepresentationT', str, go.Figure, plt.Figure)
+from carl.utils.aliases import State
+ReadableReprT = TypeVar('ReadableReprT', str, go.Figure, plt.Figure)
 
 
 class RepresentationType(Enum):
@@ -33,7 +33,7 @@ class GameEnv(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def detect_action(self, board_before: np.ndarray, board_after: np.ndarray) -> int | None:
+    def detect_action(self, board_before: State, board_after: State) -> int | None:
         raise NotImplementedError
 
     @staticmethod
@@ -42,21 +42,21 @@ class GameEnv(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
+    def step(self, action: int) -> tuple[State, float, bool, dict]:
         raise NotImplementedError
 
     @abstractmethod
-    def next_state(self, state: np.ndarray, action: int) -> np.ndarray:
+    def next_state(self, state: State, action: int) -> State:
         raise NotImplementedError
 
     @abstractmethod
-    def is_solved(self, board: np.ndarray) -> bool:
+    def is_solved(self, board: State) -> bool:
         raise NotImplementedError
 
     @abstractmethod
     def state_to_repr(
         self,
-        state: np.ndarray,
+        state: State,
         title: str | None = None,
     ) -> ReadableReprT:
         pass
@@ -64,11 +64,11 @@ class GameEnv(ABC):
     @abstractmethod
     def many_states_to_repr(
         self,
-        states: list[np.ndarray],
+        states: list[State],
         title: str | None = None,
     ) -> ReadableReprT:
         pass
 
     @abstractmethod
-    def set_state(self, state: np.ndarray) -> None:
+    def set_state(self, state: State) -> None:
         raise NotImplementedError
