@@ -79,7 +79,7 @@ algorithm:
     problem_to_solve: ${algorithm.problems_to_solve}
     budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 1500, 2000, 3000, 4000, 5000]
   problems_to_solve: 100
-  n_parallel_workers: 1
+  n_parallel_workers: 4
 
 carl_workers:
   solve:

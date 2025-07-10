@@ -62,7 +62,10 @@ class AdasubsPlanner(Planner):
             logger.error('Planner decides which k-distances should be expanded, not the search itself')
             raise ValueError('Node during adding to queue should have next_expand_with_k_generator set to None')
 
-        self.seen_states.add(tuple(node.state.flatten()))
+        if isinstance(node.state, str):
+            self.seen_states.add(tuple(node.state))
+        elif isinstance(node.state, np.ndarray):
+            self.seen_states.add(tuple(node.state.flatten()))
 
         for k in self.generators_k_list:
             metadata = {'depth': node.parent_node.metadata['depth'] + 1}

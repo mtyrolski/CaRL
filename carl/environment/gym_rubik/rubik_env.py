@@ -110,16 +110,16 @@ class RubikEnv(GameEnv):
         # Set the cube to the given state, take the action, and return the new state as ndarray
         self.set_state(state)
         obs, _, _, _ = self.step(action)
-        logger.debug(f'Next state after action {action}: {obs.shape} {obs.dtype}')
+        # logger.debug(f'Next state after action {action}: {obs.shape} {obs.dtype}')
 
         if isinstance(obs, np.ndarray):
-            logger.debug(f'Next state is ndarray with shape {obs.shape} and dtype {obs.dtype}')
-            logger.debug(f'Input state was ndarray?: {isinstance(state, np.ndarray)}')
+            # logger.debug(f'Next state is ndarray with shape {obs.shape} and dtype {obs.dtype}')
+            # logger.debug(f'Input state was ndarray?: {isinstance(state, np.ndarray)}')
             return obs if isinstance(state, np.ndarray) else self.cube_bin_to_str(obs)
         else:
             assert isinstance(obs, str)
-            logger.debug(f'Next state is string with length {len(obs)}')
-            logger.debug(f'Input state was string?: {isinstance(state, str)}')
+            # logger.debug(f'Next state is string with length {len(obs)}')
+            # logger.debug(f'Input state was string?: {isinstance(state, str)}')
             # If the output is a string, convert it to ndarray if the input state was ndarray
             return self.cube_str_to_state(obs) if isinstance(state, np.ndarray) else obs
         
@@ -188,11 +188,6 @@ class RubikEnv(GameEnv):
         return cube_ndarray_state
 
     def set_state(self, state: State) -> None:
-        logger.debug(f'Setting cube state to: {type(state)}')
-        if isinstance(state, str):
-            logger.debug(f'Setting cube state from string: (len {len(state)}) {state}')
-        elif isinstance(state, np.ndarray):
-            logger.debug(f'Setting cube state from ndarray: shape {state.shape}, dtype {state.dtype}')
         self.cube.stickers = state if isinstance(state, np.ndarray) else self.cube_str_to_state(state)
 
     def restore_full_state_from_np_array_version(self, state: np.ndarray) -> None:
