@@ -9,6 +9,7 @@ from carl.environment.gym_rubik.converter import CubeConverter
 from carl.environment.gym_rubik.cube import Actions, Cube
 from carl.environment.gym_rubik.rubik_solver import Move as rubik_solver_moves
 from carl.environment.gym_rubik.tokenizer import RubikCubeTokenizer
+from carl.utils.aliases import State
 from carl.environment.tokenizer import GameTokenizer
 from joblib import dump
 from loguru import logger
@@ -38,10 +39,10 @@ ACTION_LOOKUP = {
 
 
 class RubikEnv(GameEnv):
-    def __init__(self, tokenizer: RubikCubeTokenizer, step_limit=100000000000000000000000, shuffles=50, obs_type='basic'):
+    def __init__(self, tokenizer: RubikCubeTokenizer, step_limit=100000000000000000000000, shuffles=50, obs_type='basic', target_solved_state: str | None = None) -> None:
         self._tokenizer = tokenizer
         self.cube = Cube(3, whiteplastic=False)
-        self.solved_state = 'yyyyyyyyybbbbbbbbbrrrrrrrrrgggggggggooooooooowwwwwwwww'
+        self.target_solved_state = target_solved_state or 'yyyyyyyyybbbbbbbbbrrrrrrrrrgggggggggooooooooowwwwwwwww'
         self.obs_type = obs_type
         self.converter = CubeConverter() if obs_type != 'basic' else None
         self.scramble = []
@@ -96,7 +97,7 @@ class RubikEnv(GameEnv):
         self.num_steps += 1
 
         observation = self._get_state()
-        solved = np.array_equal(self.cube.get_state(), self.solved_state)
+        solved = self.is_solved(observation)
 
         if solved:
             reward = 0
@@ -105,11 +106,27 @@ class RubikEnv(GameEnv):
 
         return observation, reward, episode_over, {}
 
-    def next_state(self, state: str, action: int) -> str:
-        # Set the cube to the given state, take the action, and return the new state as string
+    def next_state(self, state: State, action: int) -> State:
+        # Set the cube to the given state, take the action, and return the new state as ndarray
         self.set_state(state)
-        obs_str, _, _, _ = self.step(action)
-        return obs_str
+        obs, _, _, _ = self.step(action)
+        logger.debug(f'Next state after action {action}: {obs.shape} {obs.dtype}')
+
+        if isinstance(obs, np.ndarray):
+            logger.debug(f'Next state is ndarray with shape {obs.shape} and dtype {obs.dtype}')
+            logger.debug(f'Input state was ndarray?: {isinstance(state, np.ndarray)}')
+            return obs if isinstance(state, np.ndarray) else self.cube_bin_to_str(obs)
+        else:
+            assert isinstance(obs, str)
+            logger.debug(f'Next state is string with length {len(obs)}')
+            logger.debug(f'Input state was string?: {isinstance(state, str)}')
+            # If the output is a string, convert it to ndarray if the input state was ndarray
+            return self.cube_str_to_state(obs) if isinstance(state, np.ndarray) else obs
+        
+        # if isinstance(state, str) and isinstance(obs, np.ndarray):
+        #     # If the input state was a string, convert the output to string as well
+        #     return self.cube_bin_to_str(obs)
+        # return obs
 
     def reset(self) -> np.ndarray:
         self.cube = Cube(3, whiteplastic=False)
@@ -166,46 +183,49 @@ class RubikEnv(GameEnv):
     def _get_state(self):
         return self.cube.get_state()
 
-    def get_state(self) -> np.ndarray:
+    def get_state(self) -> State:
         cube_ndarray_state: np.ndarray = self.cube.get_state()
         return cube_ndarray_state
 
-    def set_state_str(self, state: str) -> None:
-        _stickers: np.ndarray = self.cube_str_to_state(state)
-        self.set_state(_stickers)
+    def set_state(self, state: State) -> None:
+        logger.debug(f'Setting cube state to: {type(state)}')
+        if isinstance(state, str):
+            logger.debug(f'Setting cube state from string: (len {len(state)}) {state}')
+        elif isinstance(state, np.ndarray):
+            logger.debug(f'Setting cube state from ndarray: shape {state.shape}, dtype {state.dtype}')
+        self.cube.stickers = state if isinstance(state, np.ndarray) else self.cube_str_to_state(state)
 
-    def set_state(self, state: np.ndarray) -> None:
-        self.cube.stickers = state
-
-    def restore_full_state_from_np_array_version(self, state: str) -> None:
+    def restore_full_state_from_np_array_version(self, state: np.ndarray) -> None:
         self.set_state(state)
 
-    def is_solved_str(self, board: str) -> bool:
-        # Accepts a string, converts to ndarray for comparison
-        return board == self.solved_state
     
-    def is_solved(self, state: np.ndarray) -> bool:
-        state_str = 
+    def is_solved(self, board: State) -> bool:
+        # Here, we optionally support also str without conversion for compatibility
+        if isinstance(board, str):
+            # If board is already a string, we can directly check if it is solved
+            return board == self.target_solved_state
+        state_str = self.cube_bin_to_str(board)
+        return state_str == self.target_solved_state
 
-    def detect_action(self, board_before: str, board_after: str) -> int | None:
+    def detect_action(self, board_before: State, board_after: State) -> int | None:
         # Try all actions and see which one leads from board_before to board_after
         for action in range(12):
             self.set_state(board_before)
             obs_str, _, _, _ = self.step(action)
             if obs_str == board_after:
                 return action
+        logger.warning(f"Could not detect single action from {board_before} to {board_after}")
         return None
 
     @staticmethod
     def distribution_to_action(distribution: Tensor) -> int:
-        return int(distribution.argmax())
-
+        return int(distribution.argmax().item())
 
     def cube_str_to_state(self, string_obs: str) -> np.ndarray:
         return np.argmax(self.cube_str_to_bin(string_obs), axis=-1)
 
     def cube_str_to_bin(self, string_obs: str) -> np.ndarray:
-        assert len(string_obs) == 54
+        assert len(string_obs) == 54, f"Expected 54 stickers, got {len(string_obs)} in {string_obs}"
 
         stickers: list[int] = [self.reverse_cube_labels()[x] for x in string_obs]
         indexes: np.ndarray = np.eye(6)[stickers]
@@ -215,16 +235,24 @@ class RubikEnv(GameEnv):
 
         return np.array(ordered_faces)
 
-    def cube_bin_to_str(self, binary_obs) -> str:
-        ordered_faces = [binary_obs[i] for i in [0, 5, 2, 4, 3, 1]]
-        aligned_faces: np.ndarray = np.array(
-            [np.rot90(face, axes=(0, 1)) for face in ordered_faces]
-        )
-        sticker_list: np.ndarray = aligned_faces.reshape((-1, 6))
-        string_obs: str = ''.join(
-            [self.cube_labels()[label] for label in np.where(sticker_list)[1]]
-        )
-        return string_obs
+    def cube_bin_to_str(self, stickers: np.ndarray) -> str:
+        """
+        stickers: ndarray of shape (6,3,3), with values 0–5 for ['y','w','r','o','g','b']
+        returns: 54-char string in face-order [0,5,2,4,3,1], each face rotated back.
+        """
+        # 1) reorder faces
+        face_order = [0, 5, 2, 4, 3, 1]
+        ordered = [stickers[i] for i in face_order]
+
+        # 2) rotate each face back to match cube_str_to_bin’s rotation
+        aligned = [np.rot90(face, k=1, axes=(0,1)) for face in ordered]
+
+        # 3) flatten to a single list of 54 IDs
+        ids = np.concatenate([face.flatten() for face in aligned])
+
+        # 4) map IDs→chars
+        labels = self.cube_labels()  # should be 'ywrogb'
+        return ''.join(labels[i] for i in ids)
 
     @staticmethod
     def reverse_cube_labels() -> dict[str, int]:
@@ -234,12 +262,12 @@ class RubikEnv(GameEnv):
     def cube_labels() -> str:
         return 'ywrogb'
 
-    def state_to_repr(self, state: str, title: str | None = None, repr_type=None):
+    def state_to_repr(self, state: str, title: str | None = None, repr_type=None):  # type: ignore
         # Minimal: just return the string, optionally with a title
         if title:
             return f"{title}: {state}"
         return state
 
-    def many_states_to_repr(self, states: list[str], titles: list[str], repr_type=None):
+    def many_states_to_repr(self, states: list[str], titles: list[str], repr_type=None): # type: ignore
         # Minimal: join all states with their titles
         return '\n'.join(f"{t}: {s}" for s, t in zip(states, titles))

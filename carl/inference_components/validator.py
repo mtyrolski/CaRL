@@ -84,9 +84,7 @@ class BasicValidator(Validator):
             distribution_over_actions: Tensor = self.cllp.get_action(state, subgoal)
             action: int = self.env.distribution_to_action(distribution_over_actions)
             action_path.append(action)
-            logger.warning(f'Step {step}, action {action} selected from state ({type(state)}): {state.shape if isinstance(state, np.ndarray) else len(state)}')
             state = self.env.next_state(state, action)
-            logger.warning(f'AFTER Action {action} taken, step {step}, state ({type(state)}): {state.shape if isinstance(state, np.ndarray) else len(state)}')
             if isinstance(state, str):
                 if state == subgoal:
                     return ValidationResult(True, is_solved, action_path, step, state)
