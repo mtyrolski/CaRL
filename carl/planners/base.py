@@ -5,7 +5,6 @@ from enum import StrEnum
 
 import numpy as np
 
-from carl.environment.sokoban.env import printable_sokoban_state
 from carl.solver.nodes import SearchTreeNode
 
 GeneratorIdx = int
@@ -153,7 +152,6 @@ def get_dead_end_data(dead_end_finder, seen_states_list, search_info):
 
         for state in state_path[::-1]:
             print('DEAD END SOLVING')
-            print(printable_sokoban_state(state))
 
             is_dead_end = dead_end_finder.check_bfs(state)
 

@@ -6,7 +6,6 @@ import numpy as np
 from loguru import logger
 
 from carl.environment.sokoban.env import SokobanEnv
-from carl.environment.sokoban.env import printable_sokoban_state
 from carl.utils.loggers import log_error_and_raise
 
 
@@ -249,7 +248,6 @@ def print_search_tree(root_node, max_depth=4):
 
         for node in nodes_to_print:
             print(f'Id: {node.metadata["print_id"]}')
-            print(printable_sokoban_state(node.state))
             print(f'value: {node.value}, path: {node.low_level_path}, metadata: {node.metadata}')
 
             if node.parent_node is not None:

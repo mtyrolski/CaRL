@@ -3,12 +3,12 @@ from abc import abstractmethod
 import numpy as np
 from torch import Tensor
 from transformers import PreTrainedModel
-
+from loguru import logger
 from carl.environment.env import GameEnv
 from carl.inference_components.component import InferenceComponent
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
 from carl.solver.nodes import ValidationResult
-
+from carl.utils.aliases import State
 
 class Validator(InferenceComponent):
     """
@@ -32,7 +32,7 @@ class Validator(InferenceComponent):
         raise NotImplementedError()
 
     @abstractmethod
-    def is_valid(self, state: np.ndarray | str, subgoal: np.ndarray | str, **kwargs) -> ValidationResult:
+    def is_valid(self, state: State, subgoal: State, **kwargs) -> ValidationResult:
         """
         Checks if a subgoal is achievable from a given state.
 
@@ -68,7 +68,7 @@ class BasicValidator(Validator):
     def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
         return self.cllp.get_network()
 
-    def is_valid(self, state: np.ndarray | str, subgoal: np.ndarray | str, steps_limit=None) -> ValidationResult:
+    def is_valid(self, state: State, subgoal: State, steps_limit=None) -> ValidationResult:
         step: int = 0
         action_path: list[int] = []
         is_solved: bool = False
@@ -84,7 +84,9 @@ class BasicValidator(Validator):
             distribution_over_actions: Tensor = self.cllp.get_action(state, subgoal)
             action: int = self.env.distribution_to_action(distribution_over_actions)
             action_path.append(action)
-            state: np.ndarray | str = self.env.next_state(state, action)
+            logger.warning(f'Step {step}, action {action} selected from state ({type(state)}): {state.shape if isinstance(state, np.ndarray) else len(state)}')
+            state = self.env.next_state(state, action)
+            logger.warning(f'AFTER Action {action} taken, step {step}, state ({type(state)}): {state.shape if isinstance(state, np.ndarray) else len(state)}')
             if isinstance(state, str):
                 if state == subgoal:
                     return ValidationResult(True, is_solved, action_path, step, state)
