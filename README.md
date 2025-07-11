@@ -381,14 +381,9 @@ For access to the full datasets used in various experiments, please contact the 
 | 34 | Sokoban | Policy      | N/A    | `policy/checkpoint-94820`                     | `./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820`            |
 | 35 | Sokoban | Value       | N/A    | `value/checkpoint-1343100`                    | `./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100`           |
 
-## Experiment Configurations Table
-
-## Evaluation / Reproducibility
 Made on version v1.0.0 of the CaRL library to ensure reproducibility of algorithms on selected environments, using the components listed above.
 
+**NPuzzle, Sokoban:** [notebooks with evaluation](notebooks/eval.ipynb)
 
-**NPuzzle:** [notebooks with evaluation](notebooks/eval_npuzzle.ipynb)
+For INT environment, please see [INT repository](https://github.com/mtyrolski/INT).
 
-**Sokoban:** [notebooks with evaluation](notebooks/eval_sokoban.ipynb)
-
-**Rubik:** [notebooks with evaluation](notebooks/eval_rubik.ipynb)
