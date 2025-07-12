@@ -4,7 +4,6 @@ import os
 import numpy as np
 from joblib import dump
 from loguru import logger
-from sympy import plot
 from torch import Tensor
 
 from carl.environment.env import GameEnv

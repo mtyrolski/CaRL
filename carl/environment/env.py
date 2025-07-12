@@ -4,7 +4,6 @@ from enum import Enum
 from enum import auto
 from typing import TypeVar
 
-import numpy as np
 # plotly fig
 from matplotlib import figure as plt
 from plotly import graph_objects as go

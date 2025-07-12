@@ -3,7 +3,6 @@ from abc import abstractmethod
 import numpy as np
 from torch import Tensor
 from transformers import PreTrainedModel
-from loguru import logger
 from carl.environment.env import GameEnv
 from carl.inference_components.component import InferenceComponent
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy

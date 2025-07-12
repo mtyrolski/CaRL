@@ -1,4 +1,3 @@
-import os
 from enum import Enum
 
 from matplotlib.figure import Figure
@@ -7,11 +6,9 @@ import numpy as np
 from carl.environment.env import GameEnv
 from carl.environment.gym_rubik.converter import CubeConverter
 from carl.environment.gym_rubik.cube import Actions, Cube
-from carl.environment.gym_rubik.rubik_solver import Move as rubik_solver_moves
 from carl.environment.gym_rubik.tokenizer import RubikCubeTokenizer
 from carl.utils.aliases import State
 from carl.environment.tokenizer import GameTokenizer
-from joblib import dump
 from loguru import logger
 from torch import Tensor
 
