@@ -1,3 +1,8 @@
+"""
+Utilities for creating and iterating over parameter grids in Carl configs,
+supporting worker-specific overrides.
+"""
+
 import copy
 import itertools
 from typing import Any, Dict, Generator
@@ -24,6 +29,7 @@ class NotInConfigError(Exception):
 
 
 class CarlGrid:
+    """Manage parameter grids and produce flattened configuration dictionaries."""
     grid_literal: str = 'carl_grid'
 
     def __init__(self, config: dict[str, Any]):
@@ -41,6 +47,8 @@ class CarlGrid:
 
     @classmethod
     def validate_config(cls, config: dict[str, Any]) -> None:
+        """Ensure 'carl_grid' entries are valid lists, non-empty, and keys exist in config."""
+        # skip if no grid defined
         if cls.grid_literal not in config:
             logger.debug(f'No {cls.grid_literal} found in config. Skipping validation.')
             return
@@ -77,6 +85,8 @@ class CarlGrid:
 
     @classmethod
     def from_file(cls, path: str) -> 'CarlGrid':
+        """Load a YAML file at the given path and instantiate CarlGrid."""
+        # read config from YAML
         with open(path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
         return cls(config)
@@ -84,10 +94,12 @@ class CarlGrid:
     def __len__(self) -> int:
         return len(list(self.iter_grid()))
 
-    def __iter__(self):
+    def __iter__(self) -> Generator[Dict[str, Any], None, None]:
+        """Alias for iter_grid to make the grid directly iterable."""
         return self.iter_grid()
 
-    def iter_workers(self, config: dict[str, Any]):
+    def iter_workers(self, config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Expand 'carl_workers' overrides into per-worker configuration dicts."""
         worker2overrides = config['carl_workers']
         workername2config_dict = {}
         for worker_name, overrides in worker2overrides.items():
@@ -101,7 +113,8 @@ class CarlGrid:
         return workername2config_dict
 
     def iter_grid(self) -> Generator[Dict[str, Any], None, None]:
-        # If there's no carl_grid, yield nothing (empty generator)
+        """Yield configurations by iterating over the Cartesian product defined under 'carl_grid'."""
+        # if no grid key, yield nothing
         if self.grid_literal not in self.config:
             return
 
@@ -119,6 +132,7 @@ class CarlGrid:
                     yield config_copy
 
     def iter_grid_without_workers(self) -> Generator[Dict[str, Any], None, None]:
+        """Yield flattened configurations without applying any worker overrides."""
         if self.grid_literal not in self.config:
             yield self.config
             return

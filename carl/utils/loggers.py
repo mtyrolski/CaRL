@@ -12,9 +12,9 @@ from omegaconf import ListConfig
 from omegaconf import OmegaConf
 from torch import Tensor
 from tqdm import tqdm
-from transformers import PreTrainedModel
-from transformers import TrainerCallback
-from transformers.integrations import NeptuneCallback
+from transformers.modeling_utils import PreTrainedModel
+from transformers.trainer_callback import TrainerCallback
+from transformers.integrations.integration_utils import NeptuneCallback
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal

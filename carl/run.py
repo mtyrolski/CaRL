@@ -1,3 +1,8 @@
+'''\
+Entry point for running experiments configured via Hydra and CarlGrid.
+Handles environment setup, logging, precision settings, and dispatch of algorithm runs.
+'''  # module docstring
+
 import os
 import pickle
 import sys
@@ -16,12 +21,19 @@ from carl.slurm.grid_search import CarlGrid
 from carl.utils.result_loggers import SubgoalSearchResultLogger
 
 HIGHEST_PROTOCOL = 5
-pickle.HIGHEST_PROTOCOL = HIGHEST_PROTOCOL
+pickle.HIGHEST_PROTOCOL = HIGHEST_PROTOCOL  # ensure highest pickle protocol is used
 DOTENV_PATH = './.tokens.env'
 logger.info(F'Ensuring pickle.HIGHEST_PROTOCOL is set to {HIGHEST_PROTOCOL}')
 
-def handle_logging(algorithm: Algorithm, config: DictConfig, logger_key_name: str = 'result_logger'):
-    pwd = os.getcwd()
+def handle_logging(
+    algorithm: Algorithm,
+    config: DictConfig,
+    logger_key_name: str = 'result_logger'
+) -> None:
+    """
+    Register experiment parameters and paths with the algorithm's external logger, if available.
+    """
+    pwd = os.getcwd()  # current working directory
     real_pwd = os.environ.get('NEPTUNEPWD')
     if not hasattr(algorithm, logger_key_name):
         logger.info(f'No {logger_key_name} found in algorithm, skipping logging to external services.')
@@ -37,13 +49,20 @@ def handle_logging(algorithm: Algorithm, config: DictConfig, logger_key_name: st
         'real_pwd': real_pwd,
     })
     
-def handle_precision(config: DictConfig):
+def handle_precision(config: DictConfig) -> None:
+    """
+    Adjust torch float32 matmul precision if specified in the config.
+    """
     if config.get('float32_matmul_precision', None) is not None:
         logger.info(f'Setting float32_matmul_precision to {config.float32_matmul_precision}')
         torch.set_float32_matmul_precision(config.float32_matmul_precision)
 
 def _instantiate_and_run(exp_config: DictConfig) -> None:
-    algorithm: Algorithm = hydra.utils.instantiate(exp_config.algorithm) # type: ignore[assignment]
+    """
+    Instantiate the Algorithm via Hydra and execute its run() method,
+    applying logging and recursion limit settings.
+    """
+    algorithm: Algorithm = hydra.utils.instantiate(exp_config.algorithm)  # type: ignore[assignment]
     assert isinstance(algorithm, Algorithm), \
         f'Expected algorithm to be of type Algorithm, but got {type(algorithm)}'
     logger.info(f'Registered algorithm: {algorithm}')
@@ -58,7 +77,11 @@ def _instantiate_and_run(exp_config: DictConfig) -> None:
 
    
 def run(config: DictConfig) -> None:
-    logger.info(OmegaConf.to_yaml(config))
+    """
+    Main runner: log config, load environment vars, verify tokens,
+    and execute all experiments in the CarlGrid.
+    """
+    logger.info(OmegaConf.to_yaml(config))  # dump config to logs
     load_dotenv(DOTENV_PATH, override=True)
     logger.info(f'CUDA_VISIBLE_DEVICES: {os.environ.get("CUDA_VISIBLE_DEVICES")}')
     logger.info(f'NEPTUNE_API_TOKEN: {os.environ.get("NEPTUNE_API_TOKEN")}')
@@ -80,9 +103,11 @@ def run(config: DictConfig) -> None:
         _instantiate_and_run(exp_dict_config)
 
 
-# pylint: disable=missing-function-docstring
 @hydra.main(version_base=None, config_path=None)
 def main(config: DictConfig) -> None:
+    """
+    Hydra entry point that calls run() with parsed DictConfig.
+    """
     run(config)
 
 

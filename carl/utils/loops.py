@@ -138,10 +138,6 @@ def update_buffer_with_experiences(replay_buffer: SimpleUniversalReplayBuffer, e
 def train_components(components: ComponentCollection, replay_buffer: SimpleUniversalReplayBuffer,
                      loop_control: LoopControl) -> Logs:
 
-    # for name, training_module in tqdm(components.iterate_training_modules(), desc="Training components", unit="component"):
-    #     logger.info(f"Training component {name}")
-    #     extr
-
     for component_name, component in components.components.items():
         logger.info(f"Training component {component_name}")
         training_module = component.get_component_training_module()
