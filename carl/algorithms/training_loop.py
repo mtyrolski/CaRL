@@ -35,7 +35,6 @@ from carl.memory.replay_buffer import OfflineReplayBuffer
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.solver.nodes import prune_experiences
 from carl.solver.subgoal_search import Solver
-from carl.solver.subgoal_search_batched import SubgoalSearchSolver
 from carl.utils.resources import dump_resource
 from carl.utils.resources import exists_resource
 from carl.utils.resources import get_latest_file

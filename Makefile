@@ -16,3 +16,7 @@ lint:
 	ruff . --fix
 	@echo
 	mypy .
+
+pyright:
+	@echo
+	pyright carl --pythonpath . --stats
