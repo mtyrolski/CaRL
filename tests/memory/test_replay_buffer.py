@@ -6,7 +6,9 @@ from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.memory.replay_buffer import SolvingPathConditionalLowLevelPolicyReplayBuffer
 from carl.memory.replay_buffer import SolvingPathGeneratorReplayBuffer
 from carl.memory.replay_buffer import SolvingPathValueReplayBuffer
-from carl.planners.base import Experience, SearchInfo, Solution
+from carl.planners.base import Experience
+from carl.planners.base import SearchInfo
+from carl.planners.base import Solution
 from tests.utils import assert_equal
 from tests.utils import assert_equal_sets
 from tests.utils import build_dummy_search_tree
