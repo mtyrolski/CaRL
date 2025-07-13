@@ -179,6 +179,10 @@ class SafePriorityQueue:
     
     def __len__(self):
         return self.queue.qsize()
+    
+    def size(self):
+        """Returns the size of the queue."""
+        return len(self)
 
 def get_solving_path_data(solving_node: SearchTreeNode,
                           include_state_path: bool=True,

@@ -1,4 +1,4 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
@@ -74,7 +74,7 @@ class Experience:
     solution: Solution
     search_info: SearchInfo
 
-class Planner:
+class Planner(ABC):
     """
     General Planner class.
 

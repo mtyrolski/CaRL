@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from carl.planners.adasubs import AdasubsPlanner, GreedyPlanner, BestFSPlanner, AstarPlanner, BfsPlanner
+from carl.planners.adasubs import AdasubsPlanner
+from carl.planners.greedy import GreedyPlanner, GreedyPlanner, BestFSPlanner, AstarPlanner, BfsPlanner
 from carl.planners.base import Experience, SearchInfo
 
 from carl.planners.base import SearchTreeNode
@@ -121,6 +122,16 @@ class TestGreedyPlanner:
         planner.add(root_node)
         assert planner.is_seen(root_state) == True
 
+    def test_greedy_selects_highest_value(self):
+        root = get_root_state()
+        planner = GreedyPlanner(root)
+        low = SearchTreeNode(root, 1, None, None)
+        high = SearchTreeNode(root, 10, None, None)
+        planner.add(low)
+        planner.add(high)
+        chosen = planner.get()
+        assert np.array_equal(chosen.state, high.state)
+
 
 # Tests for BestFSPlanner
 class TestBestFSPlanner:
@@ -174,6 +185,13 @@ class TestBestFSPlanner:
             retrieved_node = planner.get()
             assert np.array_equal(retrieved_node.state, expected_node.state)
 
+    def test_bestfs_priority_negative_value(self):
+        root = get_root_state()
+        planner = BestFSPlanner(root)
+        node = SearchTreeNode(root, 4.2, None, None)
+        priority = planner.get_node_priority(node)
+        assert priority == pytest.approx(-4.2)
+
 
 # Tests for AstarPlanner
 class TestAstarPlanner:
@@ -200,8 +218,12 @@ class TestAstarPlanner:
         for node in nodes:
             planner.add(node)
 
-        nodes = [planner.root_node, *nodes]
+        high_to_low = list(reversed(nodes))  # 17,16,…,0
+        expected = [*high_to_low, planner.root_node]
 
+        for expected_node in expected:
+            retrieved_node = planner.get()
+            assert np.array_equal(retrieved_node.state, expected_node.state)
 
 # Tests for BfsPlanner
 class TestBfsPlanner:
@@ -240,3 +262,44 @@ class TestBfsPlanner:
         planner = BfsPlanner(root_state)
         node = SearchTreeNode(root_state, 10, None, None)
         assert planner.get_node_priority(node) == 0.0    # BFS does not use node value for priority
+
+def test_adasubs_add_expands_all_k():
+    root = np.zeros((3,3))
+    ks = [1,2,3]
+    planner = AdasubsPlanner(root, ks)
+    # clear out the initial subgoal for setup
+    _ = planner.get()
+    before = planner.nodes_queue.size()  # assuming SafePriorityQueue.size()
+    node = SearchTreeNode(root, 5, [], planner.root_node, None, metadata={'depth':0})
+    planner.add(node)
+    assert planner.nodes_queue.size() == before + len(ks)
+    
+    
+def test_adasubs_selection_counters():
+    root = np.ones((2,2))
+    ks = [1,2]
+    planner = AdasubsPlanner(root, ks)
+    # each get() for k should bump that k’s counter
+    first = planner.get()
+    k1 = first.next_expand_with_k_generator
+    assert planner.subgoals_selected_for_expansion[k1] == 1
+    second = planner.get()
+    k2 = second.next_expand_with_k_generator
+    assert planner.subgoals_selected_for_expansion[k2] == 1
+    
+def test_adasubs_is_seen_after_add():
+    root = np.zeros((4,4))
+    planner = AdasubsPlanner(root, [1])
+    new_state = np.ones((4,4))
+    assert not planner.is_seen(new_state)
+    node = SearchTreeNode(new_state, 0, [], planner.root_node, None)
+    planner.add(node)
+    assert planner.is_seen(new_state)
+    
+def test_adasubs_get_solution_data_unsolved():
+    root = np.zeros((2,2))
+    planner = AdasubsPlanner(root, [1], prune_search_trees=True)
+    info = SearchInfo(finished_reason='timeout', low_level_nodes_visited=0)
+    exp = planner.get_solution_data(None, info)
+    assert exp.solution.solved is False
+    assert exp.search_info.finished_reason == 'timeout'

@@ -17,6 +17,6 @@ lint:
 	@echo
 	mypy .
 
-pyright:
-	@echo
-	pyright carl --pythonpath . --stats
+# pyright:
+#	@echo
+#	poetry run pyright carl --pythonpath . --stats

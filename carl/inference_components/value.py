@@ -109,10 +109,12 @@ class TransformerValue(Value):
         return self.value_network
 
     def expected_value(self, logits) -> float:
-        """Compute the expected value of the outputs."""
+        """Compute the expected value of the outputs, ensuring device consistency."""
+        # logits: Tensor of shape (batch_size, num_classes)
         distribution: Tensor = torch.softmax(logits, dim=1)
-
-        return ((distribution * torch.arange(0, distribution.shape[1], device=self.device)).sum().item())
+        # Use the distribution's device for index tensor
+        idx = torch.arange(distribution.shape[1], device=distribution.device)
+        return (distribution * idx).sum().item()
 
 
 class TransformerValueGeneration(Value):
@@ -134,7 +136,8 @@ class TransformerValueGeneration(Value):
     def construct_network(self) -> None:
         # We do not put the value on the eval mode, because "from_pretrained" does it for us.
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
-        self.value = self.value_network.from_pretrained(self.path_to_value_network_weights)
+        # Instantiate the generation model from pretrained weights
+        self.value = self.value_network_class.from_pretrained(self.path_to_value_network_weights)
         self.value.to(self.device)
 
     def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
@@ -161,6 +164,11 @@ class TransformerValueGeneration(Value):
         return expected_value
 
     def expected_value(self, logits) -> float:
-        """Compute the expected value of the outputs."""
-        distribution: Tensor = torch.softmax(logits, dim=1)
-        return ((distribution * torch.arange(0, distribution.shape[1], device=self.device)).sum().item())
+        """Compute the expected value of the outputs for generation logits."""
+        # Convert to tensor if logits is a list
+        tensor: Tensor = logits if isinstance(logits, Tensor) else torch.tensor(logits, device=self.device, dtype=torch.float)
+        # Apply softmax over the last dimension
+        distribution: Tensor = torch.softmax(tensor, dim=-1)
+        # Compute weighted sum of token indices
+        idx = torch.arange(tensor.shape[-1], device=distribution.device)
+        return (distribution * idx).sum().item()
