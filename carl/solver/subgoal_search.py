@@ -68,7 +68,6 @@ class Solver:
                 # There is nothing more to expand.
                 search_info.finished_reason = FinishReason.BUDGET_EXCEEDED.value
                 break
-
             subgoals = self.subgoal_generator.get_subgoals(current_node)
             subgoals_reachable_count_per_k = {}
             subgoals_unreachable_count_per_k = {}

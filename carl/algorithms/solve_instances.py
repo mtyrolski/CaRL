@@ -12,12 +12,10 @@ from carl.environment.instance_generator import BasicInstanceGenerator
 from carl.solver.subgoal_search import Solver
 from carl.utils.result_loggers import ResultLogger
 from carl.algorithms.algorithm import Algorithm
+from typing_extensions import TypeAlias
 
-
-
-
-Problem = Union[str, np.ndarray]
-Result = Tuple[Dict[str, Any], Dict[str, Any]]
+Problem: TypeAlias = Union[np.ndarray, str]
+Result: TypeAlias = Tuple[Dict[str, Any], Dict[str, Any]]
 CUDA_VISIBLE_DEVICES__ENV_VAR = 'CUDA_VISIBLE_DEVICES'
 
 
@@ -65,9 +63,9 @@ class SolveInstances(Algorithm):
         """
         if isinstance(problems, torch.Tensor):  # from GPU
             np_array = problems.detach().cpu().numpy()
-            return np_array.tolist()
+            return list(np_array)
         if isinstance(problems, np.ndarray):  # raw array
-            return problems.tolist()
+            return list(problems)
         # fallback for list-like iterables
         return list(problems)
 
@@ -88,7 +86,7 @@ class SolveInstances(Algorithm):
                 break
 
             # convert loader batch to a flat list of problems
-            conv_problems = self._normalize_problems(problems)
+            conv_problems: list[Problem] = self._normalize_problems(problems)
 
             num_problems = len(conv_problems)
             logger.info(f"Batch {batch_idx + 1}: {num_problems} problems")
@@ -99,7 +97,7 @@ class SolveInstances(Algorithm):
                 # sequential solve with progress logging
                 for idx, problem in enumerate(conv_problems, start=1):
                     logger.info(
-                        f"Solving problem {idx}/{num_problems} "
+                        f"Solving problem {idx}/{num_problems} (of type {type(problem).__name__})"
                         f"of batch {batch_idx + 1}"
                     )
                     result = self.solver.solve(problem)
@@ -107,7 +105,7 @@ class SolveInstances(Algorithm):
                     self.completed_problems += 1
             else:
                 # parallel execution across workers
-                results = Parallel(
+                results = Parallel( # type: ignore
                     n_jobs=self.n_parallel_workers,
                     verbose=50
                 )(delayed(self.solver.solve)(prob) for prob in conv_problems)
