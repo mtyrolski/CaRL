@@ -44,7 +44,7 @@ def test_SolvingPathGeneratorReplayBuffer():
     print('Testing SolvingPathGeneratorReplayBuffer...')
 
     env, solving_node = build_dummy_search_tree(6)
-    replay_buffer = SolvingPathGeneratorReplayBuffer(100, [3, 4], env) # k= [3, 4]
+    replay_buffer = SolvingPathGeneratorReplayBuffer(100, [3, 4], env)
     # Create Experience object
     search_info = SearchInfo(finished_reason="test", solving_node=solving_node)
     solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
