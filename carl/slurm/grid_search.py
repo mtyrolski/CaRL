@@ -8,6 +8,8 @@ from omegaconf import DictConfig
 from omegaconf import ListConfig
 from omegaconf import OmegaConf
 
+from carl.utils.loggers import log_error_and_raise
+
 
 class NotListError(Exception):
     pass
@@ -32,10 +34,9 @@ class CarlGrid:
     def _has_nested_key(config: DictConfig, dot_key: str) -> bool:
         """Check if a nested key (dot separated) exists in the config."""
         try:
-            # OmegaConf.select throws on missing key if throw_on_missing=True
-            OmegaConf.select(config, dot_key, throw_on_missing=True)
-            return True
-        except _:
+            value = OmegaConf.select(config, dot_key, throw_on_missing=True)
+            return value is not None
+        except Exception:
             return False
 
     @classmethod
@@ -46,27 +47,31 @@ class CarlGrid:
 
         c = 0
         logger.info(f'Validating {cls.grid_literal} syntax.')
-        config_omega = OmegaConf.create(config)
+        # Remove carl_grid from config for key checking
+        config_for_keys = {k: v for k, v in config.items() if k != cls.grid_literal}
+        config_omega = OmegaConf.create(config_for_keys)
         for cartesian_entry in config[cls.grid_literal]:
             logger.info(f'Validating cartesian entry: {cartesian_entry}')
             for key, value in cartesian_entry.items():
                 c += 1
                 if not isinstance(value, (list, ListConfig)):
-                    logger.error(f'All values of {cls.grid_literal} must be lists. Got {value} of key {key}')
-                    raise NotListError(f'All values of {cls.grid_literal} must be lists. Got {value} of key {key}')
+                    log_error_and_raise(
+                        f'All values of {cls.grid_literal} must be lists. Got {value} of key {key}',
+                        exception_cls=NotListError
+                    )
 
                 if len(value) == 0:
-                    logger.error(f'All lists of {cls.grid_literal} must have at least one element. Got {value} of key {key}')
-                    raise EmptyListError(f'All lists of {cls.grid_literal} must have at least one element. Got {value} of key {key}')
+                    log_error_and_raise(
+                        f'All lists of {cls.grid_literal} must have at least one element. Got {value} of key {key}',
+                        exception_cls=EmptyListError
+                    )
 
                 # Use improved nested key checking
-                logger.info(f'Validating key {key} in config {list(config.keys())}')
+                logger.info(f'Validating key {key} in config {list(config_for_keys.keys())}')
                 if not cls._has_nested_key(config_omega, key):
-                    logger.error(
-                        f'All keys of {cls.grid_literal} must be inside the config. Got {key}, keys are {list(config.keys())}'
-                    )
-                    raise NotInConfigError(
-                        f'All keys of {cls.grid_literal} must be inside the config. Got {key}, keys are {list(config.keys())}'
+                    log_error_and_raise(
+                        f'All keys of {cls.grid_literal} must be inside the config. Got {key}, keys are {list(config_for_keys.keys())}',
+                        exception_cls=NotInConfigError
                     )
         logger.success(f'Validated {c} entries of {cls.grid_literal}. Syntax is OK.')
 
@@ -96,8 +101,8 @@ class CarlGrid:
         return workername2config_dict
 
     def iter_grid(self) -> Generator[Dict[str, Any], None, None]:
+        # If there's no carl_grid, yield nothing (empty generator)
         if self.grid_literal not in self.config:
-            yield self.config
             return
 
         for cartesian_entry in self.config[self.grid_literal]:
@@ -108,7 +113,10 @@ class CarlGrid:
                     config_copy = OmegaConf.merge(config_copy, OmegaConf.from_dotlist([f'{key}={value}']))
                 if self.grid_literal in config_copy:
                     del config_copy[self.grid_literal]
-                yield self.iter_workers(config_copy)
+                if 'carl_workers' in config_copy:
+                    yield self.iter_workers(config_copy)
+                else:
+                    yield config_copy
 
     def iter_grid_without_workers(self) -> Generator[Dict[str, Any], None, None]:
         if self.grid_literal not in self.config:

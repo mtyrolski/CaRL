@@ -3,6 +3,7 @@ import pytest
 
 from carl.planners.adasubs import AdasubsPlanner
 from carl.planners.greedy import GreedyPlanner, BestFSPlanner, AstarPlanner, BfsPlanner
+from carl.planners.base import Experience, SearchInfo
 
 from carl.planners.base import SearchTreeNode
 from carl.solver.nodes import get_root_from_solving_node
@@ -60,12 +61,13 @@ def test_adasubs_planner_get_solution_data():
     root_node = get_root_from_solving_node(solving_node)
     planner = AdasubsPlanner(root_node.state, generators_k_list)
 
-    search_info = {}
-    solution, search_info = planner.get_solution_data(solving_node, search_info)
+    search_info = SearchInfo(finished_reason='solved', low_level_nodes_visited=7)
+    experience: Experience = planner.get_solution_data(solving_node, search_info)
 
-    assert solution['solved'] == True
-    assert search_info['solving_node'] == solving_node
-    assert solution['action_path'] == [1, 1, 1, 1, 1, 1]
+    assert experience.solution.solved == True
+    assert experience.search_info.finished_reason == 'solved'
+    assert experience.search_info.solving_node == solving_node
+    assert experience.solution.action_path == [1, 1, 1, 1, 1, 1]
 
 
 def get_root_state():

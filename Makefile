@@ -9,7 +9,7 @@ run_local_solve_gpu:
 	HYDRA_FULL_ERROR=1 python3 -m carl.run --config-dir=${dir} --config-name ${name}
 
 test:
-	pytest .
+	PYTHONPATH=. pytest .
 
 lint:
 	@echo

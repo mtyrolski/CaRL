@@ -19,7 +19,7 @@ class SearchTreeNode:
     """
     def __init__(
         self,
-        state,
+        state: str | np.ndarray,
         value,
         low_level_path,
         parent_node,
