@@ -1,0 +1,88 @@
+params:
+  env:
+    _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+    tokenizer:
+      _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+      cut_distance: 100
+      type_of_value_training: regression
+      size_of_board:
+        - 5
+        - 5
+  problems_to_solve: 200
+  policy_weights: "./rl-data/npuzzle/components/moe/policy/checkpoint-31552"
+  value_weights: "./rl-data/npuzzle/components/moe/value/checkpoint-2825298"
+  data_path: "./rl-data/validation/npuzzle/progress/fin"
+
+
+algorithm:
+
+  _target_: carl.algorithms.solve_instances.SolveInstances
+
+  # solver class
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 40000
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.AstarPlanner
+      depth_weight: 1.0
+
+    subgoal_generator:
+      _target_: carl.inference_components.policy.PolicyGeneratorWrapper
+      policy:
+        _target_: carl.inference_components.policy.TransformerPolicy
+        policy_network_class:
+          _target_: transformers.BertForSequenceClassification.from_pretrained
+          _partial_: true
+        path_to_policy_weights: ${params.policy_weights}
+        env: ${params.env}
+        n_actions: 4 # all possible actions
+      env: ${params.env}
+
+    # validator
+    validator:
+      _target_: carl.inference_components.validator.DummyValidator
+      env: ${params.env}
+
+    # value function
+    value_function:
+      _target_: carl.inference_components.value.TransformerValue
+      value_network_class:
+        _target_: transformers.BertForSequenceClassification.from_pretrained
+        _partial_: true
+      path_to_value_network_weights: ${params.value_weights}
+      type_of_evaluation: "regression"
+      noise_variance: 0.0
+      env: ${params.env}
+
+  # data loader class
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: ${params.data_path}
+    batch_size: 64
+
+  # result logger
+  result_logger:
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      name: "npuzzle_no_policy_astar"
+      description: ""
+      project: "pmtest/subexit"
+      tags: ["npuzzle", "astar", 'progress', "actions_all", "weight_grid"]
+      log_parameters: False
+    problem_to_solve: ${params.problems_to_solve}
+    budget_logs: [50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000, 10000, 20000, 25000, 30000, 40000, 50000]
+
+  problems_to_solve: ${params.problems_to_solve}
+
+  n_parallel_workers: 1
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+carl_grid:
+  - algorithm.n_parallel_workers: [1]

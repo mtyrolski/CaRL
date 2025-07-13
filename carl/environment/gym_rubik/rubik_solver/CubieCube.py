@@ -1,4 +1,5 @@
-from .Enums import Corner, Edge
+from .Enums import Corner
+from .Enums import Edge
 
 
 class DupedEdge(Exception):

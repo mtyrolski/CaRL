@@ -2,13 +2,81 @@ import copy
 import os
 
 import numpy as np
-from carl.environment.env import GameEnv, ReadableReprT, RepresentationType
-from carl.environment.n_puzzle.tokenizer import NPuzzleTokenizer
-from carl.environment.tokenizer import GameTokenizer
-from carl.environment.utilis import HashableState
 from joblib import dump
 from loguru import logger
 from torch import Tensor
+
+from carl.environment.env import GameEnv
+from carl.environment.env import ReadableReprT
+from carl.environment.env import RepresentationType
+from carl.environment.n_puzzle.tokenizer import NPuzzleTokenizer
+from carl.environment.tokenizer import GameTokenizer
+from carl.environment.utilis import HashableState
+
+import numpy as np
+import plotly.graph_objects as go
+
+from carl.utils.aliases import State
+
+def plot_n_puzzle(state: np.ndarray) -> go.Figure:
+    """
+    Plots the N-Puzzle board using Plotly given the state as a 1D ndarray of shape (N*N,).
+    Only one number per tile, using only annotations. The empty cell (value 0) is left blank.
+    """
+    size = int(np.sqrt(state.size))
+    board = state.reshape((size, size))
+
+    # Dummy heatmap for grid background only
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=np.ones_like(board),
+            colorscale=[[0, "white"], [1, "white"]],
+            showscale=False,
+            hoverinfo="skip",
+            text=None,
+            texttemplate=None
+        )
+    )
+    fig.update_layout(
+        xaxis=dict(
+            showgrid=False, showticklabels=False, zeroline=False, scaleanchor="y", constrain="domain"
+        ),
+        yaxis=dict(
+            showgrid=False, showticklabels=False, zeroline=False, autorange='reversed', scaleanchor="x"
+        ),
+        plot_bgcolor='white',
+        margin=dict(l=0, r=0, t=0, b=0),
+        width=80*size,
+        height=80*size,
+    )
+
+    for i in range(size):
+        for j in range(size):
+            value = board[i, j]
+            if value != 0:
+                fig.add_annotation(
+                    x=j, y=i,
+                    text=f"<b>{value}</b>",
+                    showarrow=False,
+                    font=dict(size=34, color="black", family="Arial Black"),
+                    xanchor="center", yanchor="middle"
+                )
+
+    # Draw grid lines
+    for i in range(size+1):
+        # Horizontal lines
+        fig.add_shape(type="line",
+                      x0=-0.5, x1=size-0.5, y0=i-0.5, y1=i-0.5,
+                      line=dict(color="black", width=3))
+        # Vertical lines
+        fig.add_shape(type="line",
+                      x0=i-0.5, x1=i-0.5, y0=-0.5, y1=size-0.5,
+                      line=dict(color="black", width=3))
+
+    fig.update_xaxes(range=[-0.5, size-0.5])
+    fig.update_yaxes(range=[-0.5, size-0.5])
+
+    return fig
 
 
 class NPuzzleCore:
@@ -231,9 +299,22 @@ class NPuzzleCore:
 
         return trajectories, staring_states
 
+def is_ndarray_state(state: State) -> bool:
+    """
+    Checks if the given state is a numpy ndarray.
+    
+    Args:
+        state (State): The state to check.
+        
+    Returns:
+        bool: True if the state is a numpy ndarray, False otherwise.
+    """
+    return isinstance(state, np.ndarray)
 
 class NPuzzleEnv(GameEnv):
-    name: str = 'n_puzzle'
+    @property
+    def name(self) -> str:
+        return 'n_puzzle'
 
     def __init__(self, tokenizer: NPuzzleTokenizer) -> None:
         self._tokenizer = tokenizer
@@ -244,7 +325,7 @@ class NPuzzleEnv(GameEnv):
     def tokenizer(self) -> GameTokenizer:
         return self._tokenizer
 
-    def detect_action(self, board_before: np.ndarray, board_after: np.ndarray) -> int:
+    def detect_action(self, board_before: State, board_after: State) -> int:
         """Detects the action that was taken to go from board_before to board_after."""
 
         empty_before: int = int(np.where(board_before == 0)[0][0])
@@ -264,55 +345,78 @@ class NPuzzleEnv(GameEnv):
     def distribution_to_action(distribution: Tensor) -> int:
         """Converts a distribution to an action."""
 
-        return distribution.argmax().item()
+        return int(distribution.argmax().item())
 
-    def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
+    def step(self, action: int) -> tuple[State, float, bool, dict]:
         """
         Performs an action and returns the next state, the reward, whether the game is over and some info.
         """
 
-        self.internal_state: np.ndarray = self.next_state(self.internal_state, action)
+        self.internal_state = self.next_state(self.internal_state, action)
         reward: float = 0.0
         done: bool = self.is_solved(self.internal_state)
         info: dict = {}
 
         return self.internal_state, reward, done, info
 
-    def restore_full_state_from_np_array_version(self, state: np.ndarray) -> None:
-        self.internal_state = state
+    def restore_full_state_from_np_array_version(self, state: State) -> None:
+        assert is_ndarray_state(state), 'State must be a numpy array'
+        self.internal_state = state # type: ignore
 
-    def next_state(self, state: np.ndarray, action: int) -> np.ndarray:
-        return self.core.next_step(state, action)
+    def next_state(self, state: State, action: int) -> State:
+        assert is_ndarray_state(state), 'State must be a numpy array'
+        return self.core.next_step(state, action) # type: ignore
 
-    def get_state(self) -> np.ndarray:
-        return self.internal_state
+    def get_state(self) -> State:
+        assert self.internal_state is not None, 'Internal state is not set'
+        return self.internal_state # type: ignore
 
-    def is_solved(self, board: np.ndarray) -> bool:
-        return self.core.is_solved(board)
+    def is_solved(self, board: State) -> bool:
+        assert is_ndarray_state(board), 'Board must be a numpy array'
+        return self.core.is_solved(board) # type: ignore
 
     def state_to_repr(
         self,
-        state: np.ndarray,
+        state: State,
         title: str | None = None,
         repr_type: RepresentationType = RepresentationType.STR,
     ) -> ReadableReprT:
-        if repr_type != RepresentationType.STR:
-            logger.warning(f'Only {RepresentationType.STR} is supported, not {repr_type}')
+        _supported_repr_types: list[RepresentationType] = [RepresentationType.STR, RepresentationType.GO_FIGURE]
+        logger.warning(f'Representation type: {repr_type} with value {repr_type.value}')
+        logger.warning(f'Supported representation types: {_supported_repr_types} with values {[x.value for x in _supported_repr_types]}')
+        
+        if repr_type.value not in map(lambda x: x.value, _supported_repr_types):
+            logger.warning(f'Only {_supported_repr_types} are supported, not {repr_type}')
             repr_type = RepresentationType.STR
 
-        return f'{title}: {state}'
+        if repr_type.value == RepresentationType.GO_FIGURE.value:
+            return plot_n_puzzle(state) # type: ignore
+        else:
+            assert repr_type.value == RepresentationType.STR.value
+            return f'{title}: {state}' if title else str(state) # type: ignore
+        
 
     def many_states_to_repr(
         self,
-        states: list[np.ndarray],
+        states: list[State],
         titles: list[str],
         repr_type: RepresentationType = RepresentationType.STR,
     ) -> ReadableReprT:
-        if repr_type != RepresentationType.STR:
-            logger.warning(f'Only {RepresentationType.STR} is supported, not {repr_type}')
+        _supported_repr_types: list[RepresentationType] = [RepresentationType.STR, RepresentationType.GO_FIGURE]
+        
+        if repr_type.value not in map(lambda x: x.value, _supported_repr_types):
+            logger.warning(f'Only {_supported_repr_types} are supported, not {repr_type}')
             repr_type = RepresentationType.STR
 
-        return '\n'.join(f'{title}: {state}' for state, title in zip(states, titles))
 
-    def set_state(self, state: np.ndarray) -> None:
-        raise NotImplementedError
+        if repr_type.value == RepresentationType.GO_FIGURE.value:
+            go_figures: list[go.Figure] = [plot_n_puzzle(state) for state in states] # type: ignore
+            return go.Figure(data=go_figures) # type: ignore
+        else:
+            assert repr_type.value == RepresentationType.STR.value
+            return '\n'.join(f'{title}: {state}' for state, title in zip(states, titles)) # type: ignore
+
+    def set_state(self, state: State) -> None:
+        assert isinstance(state, np.ndarray), 'State must be a numpy array'
+        assert state.shape == self.core.size_of_board, f'State must be of shape {self.core.size_of_board}, not {state.shape}'
+        self.internal_state = state

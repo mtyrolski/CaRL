@@ -85,9 +85,9 @@ algorithm:
 
   # result logger
   result_logger:
-    _target_: carl.solve_instances.result_loggers.SubgoalSearchResultLogger
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
     custom_logger:
-      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
       name: "SUBEXIT-22355_50_t_0.00005"
       description: ""
       project: "pmtest/subexit"

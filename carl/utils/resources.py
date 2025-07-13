@@ -1,127 +1,123 @@
+"""
+Resource utilities: dumping, loading, and managing joblib-based resources with logging.
+"""
+
 import os
 import sys
-from functools import partial
-from typing import Any
+from typing import Any, List, Optional
 from uuid import uuid4
 
 import joblib as jl
 from loguru import logger
 
 
-def increase_limit():
-    recursion_limit = 2147483640
-    curr_recursion_limit = sys.getrecursionlimit()
-
-    if curr_recursion_limit < recursion_limit:
-        sys.setrecursionlimit(recursion_limit)
+def increase_limit() -> None:
+    """Increase recursion limit to a high threshold if not already set."""
+    target_limit = 2_147_483_640
+    current = sys.getrecursionlimit()
+    if current < target_limit:
+        sys.setrecursionlimit(target_limit)
 
 
 NOT_READY_LABEL = 'not_ready'
 stop_signal = '.carl_stop_signal'
 
 
-def match_label(f: str, label) -> bool:
-    return f.startswith(label)
+def match_label(filename: str, label: str) -> bool:
+    """Check if filename starts with the given label."""
+    return filename.startswith(label)
 
 
-def load_experiences(f):
+def load_experiences(file_path: str) -> Optional[Any]:
+    """Load a joblib file, catching errors and returning None on failure."""
     increase_limit()
     try:
-        return jl.load(f)
-    except:
-        logger.error(f'Error while loading {f}.')
+        return jl.load(file_path)
+    except Exception as e:
+        logger.error(f'Error loading {file_path}: {e}')
         return None
 
 
-def get_latest_file(file_paths):
+def get_latest_file(file_paths: List[str]) -> Optional[str]:
+    """Return the most recently modified file from a list, or None if empty."""
     if not file_paths:
         return None
-
-    # Get the file with the maximum modification time
     return max(file_paths, key=os.path.getmtime)
 
 
-def dump_resource(resource: Any, label: str):    # type: ignore
-    """Dumps a resource to a file."""
-    short_uuid = str(uuid4())[:8]
-    filename = f'{label}_{short_uuid}.jl'
-    tmp_filename = f'{NOT_READY_LABEL}_{filename}'
-    jl.dump(resource, tmp_filename)
-
-    # Rename file
-    # Note: this trick is for avoiding reading not ready resources
-    os.rename(tmp_filename, filename)
+def dump_resource(resource: Any, label: str) -> None:
+    """Atomically dump an object to a joblib file with a unique label."""
+    short_id = uuid4().hex[:8]
+    filename = f'{label}_{short_id}.jl'
+    tmp_name = f'{NOT_READY_LABEL}_{filename}'
+    jl.dump(resource, tmp_name)
+    os.replace(tmp_name, filename)
     logger.debug(f'Dumped resource {label} to {filename}')
 
 
 def read_resource_and_delete(
     label: str,
     flatten: bool = True,
-    limit_resources_to_read: int | None = None,
+    limit_resources_to_read: Optional[int] = None,
     parallel: bool = False,
-) -> Any:
-    """Reads a resource from a file and deletes it.
-
-    It is not thread safe.
-    """
-    fs = list(filter(partial(match_label, label=label), os.listdir('.')))
+) -> List[Any]:
+    """Reads resources matching label, deletes files, and returns list of objects."""
+    files = [f for f in os.listdir('.') if match_label(f, label)]
 
     if not parallel:
-        objs = [jl.load(f) for f in fs]
+        objs = [jl.load(f) for f in files]
     else:
-        objs = jl.Parallel(n_jobs=-1)(jl.delayed(load_experiences)(f) for f in fs)
+        objs = jl.Parallel(n_jobs=-1)(jl.delayed(load_experiences)(f) for f in files)
 
-    # Limit resources to read
     if limit_resources_to_read is not None:
         objs = objs[:limit_resources_to_read]
-        fs = fs[:limit_resources_to_read]
+        files = files[:limit_resources_to_read]
 
-    # Delete files
-    for f in fs:
+    for f in files:
         os.remove(f)
 
     if flatten:
-        objs = [obj for sublist in objs for obj in sublist]
+        objs = [item for sub in objs for item in sub]  # type: ignore
 
-    logger.debug(f'Read and deleted {len(objs)} resources with label {label}')
-    return objs
+    logger.debug(f'Read and deleted {len(objs)} resources labeled {label}')
+    return objs  # type: ignore
 
 
-def read_resource(label: str,
-                  path='.',
-                  parallel: bool = True,
-                  n_jobs: int | None = None,
-                  limit: int | None = None) -> Any:
-    """Reads a resource from a file."""
-    fs = [os.path.join(path, f) for f in filter(partial(match_label, label=label), os.listdir(path))]
+def read_resource(
+    label: str,
+    path: str = '.',
+    parallel: bool = True,
+    n_jobs: Optional[int] = None,
+    limit: Optional[int] = None,
+) -> List[Any]:
+    """Load and return resources matching label from a directory, optionally in parallel."""
+    files = [os.path.join(path, f) for f in os.listdir(path) if match_label(f, label)]
 
-    logger.info(f'Found {len(fs)} resources with label {label}')
+    logger.info(f'Found {len(files)} resources with label {label}')
 
     if limit is not None:
         logger.info(f'Limiting resources to read to {limit}')
-        fs = fs[:limit]
+        files = files[:limit]
 
     if not parallel:
-        objs = [jl.load(f) for f in fs]
+        objs = [jl.load(f) for f in files]
     else:
-        print('parallel')
-        n_jobs = n_jobs if n_jobs is not None else 10
-        objs = jl.Parallel(n_jobs=n_jobs, verbose=1)(jl.delayed(load_experiences)(f) for f in fs)
+        workers = n_jobs or 10
+        logger.info(f'Loading resources in parallel with {workers} jobs')
+        objs = jl.Parallel(n_jobs=workers, verbose=1)(jl.delayed(load_experiences)(f) for f in files)
 
-    # Filtering out None's so we skip incorrect files
-    objs = list(filter(lambda x: x is not None, objs))
-    objs = [obj for sublist in objs for obj in sublist]
-
-    return objs
+    # filter out failures and flatten
+    valid = [o for o in objs if o is not None]
+    return [item for sub in valid for item in (sub if isinstance(sub, list) else [sub])]
 
 
 def exists_resource(label: str) -> bool:
-    """Checks if a resource exists."""
+    """Checks if a resource exists with the given label in current directory."""
 
-    logger.debug(f'Checking if resource {label} exists')
+    logger.debug(f'Checking if resources start with label: {label}')
 
-    fs = list(filter(match_label, os.listdir('.')))
+    files = [f for f in os.listdir('.') if match_label(f, label)]
 
-    logger.debug(f'Resource {label} exists: {len(fs) > 0}, {fs}')
+    logger.debug(f'Found {len(files)} files with label: {label}')
 
-    return len(fs) > 0
+    return bool(files)

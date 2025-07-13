@@ -1,24 +1,27 @@
 import os
-from os.path import isdir, join
-from typing import Generator
-from numpy import ndarray
-from dataclasses import dataclass, field
-from tqdm import tqdm
-import joblib
-from torch.utils.data import DataLoader
+from dataclasses import dataclass
+from dataclasses import field
+from os.path import isdir
+from os.path import join
+from typing import Generator, Iterator
 
+import joblib
 from loguru import logger
+from numpy import ndarray
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
 from carl.algorithms.training_loop.flow_control import LoopControl
-from carl.inference_components.component import InferenceComponent
-from carl.solver.planners import Experience
-from carl.solver.subgoal_search import Solver
-from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.environment.instance_generator import InstanceGenerator
-from carl.utils.metrics import extract_metrics_from_experiences, extract_metrics_from_buffer_logs
-from typing import Iterator
+from carl.inference_components.component import InferenceComponent
 from carl.inference_components.component import TrainingModule
-from carl.utils.training import iterate_networks_for_training
 from carl.memory.replay_buffer import OfflineReplayBuffer
+from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
+from carl.planners.base import Experience
+from carl.solver.subgoal_search import Solver
+from carl.utils.training import iterate_networks_for_training
+from carl.utils.training_metrics import extract_metrics_from_buffer_logs
+from carl.utils.training_metrics import extract_metrics_from_experiences
 
 
 class ComponentCollection:
@@ -134,10 +137,6 @@ def update_buffer_with_experiences(replay_buffer: SimpleUniversalReplayBuffer, e
 
 def train_components(components: ComponentCollection, replay_buffer: SimpleUniversalReplayBuffer,
                      loop_control: LoopControl) -> Logs:
-
-    # for name, training_module in tqdm(components.iterate_training_modules(), desc="Training components", unit="component"):
-    #     logger.info(f"Training component {name}")
-    #     extr
 
     for component_name, component in components.components.items():
         logger.info(f"Training component {component_name}")

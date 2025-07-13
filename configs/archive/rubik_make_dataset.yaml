@@ -4,7 +4,7 @@ algorithm:
   _target_: carl.utils.create_dataset.CreateDataset
 
   env:
-    _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+    _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
     tokenizer:
       _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
       cut_distance: 20

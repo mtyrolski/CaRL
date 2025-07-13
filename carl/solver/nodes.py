@@ -5,7 +5,8 @@ from collections import namedtuple
 import numpy as np
 from loguru import logger
 
-from carl.environment.sokoban.env import printable_sokoban_state
+from carl.environment.sokoban.env import SokobanEnv
+from carl.utils.loggers import log_error_and_raise
 
 
 class SearchTreeNode:
@@ -18,7 +19,7 @@ class SearchTreeNode:
     """
     def __init__(
         self,
-        state,
+        state: str | np.ndarray,
         value,
         low_level_path,
         parent_node,
@@ -44,6 +45,9 @@ class SearchTreeNode:
         if self.parent_node is not None:
             self.parent_node.children.append(self)
 
+    def __repr__(self):
+        state_shape = self.state.shape if isinstance(self.state, np.ndarray) else f'({len(self.state)},)'
+        return f'SearchTreeNode(state.shape={state_shape}, value={round(self.value, 2)}, next_expand_k={self.next_expand_with_k_generator})'
 
 def copy_solving_node(solving_node: SearchTreeNode):
     reversed_node_path = []
@@ -172,12 +176,30 @@ class SafePriorityQueue:
 
     def empty(self):
         return self.queue.empty()
+    
+    def __len__(self):
+        return self.queue.qsize()
+    
+    def size(self):
+        """Returns the size of the queue."""
+        return len(self)
 
-
-def get_solving_path_data(solving_node, include_state_path=True, env=None):
-    subgoal_path = []
-    action_path = []
-    values = []
+def get_solving_path_data(solving_node: SearchTreeNode,
+                          include_state_path: bool=True,
+                          env: SokobanEnv=None) -> tuple[list[np.ndarray], list[int], list[float], list[int], list[np.ndarray] | None]:
+    """
+    Extracts the solving path data from the solving node.
+    Returns the subgoal path, action path, values, k_used, and state path if include_state_path is True.
+    If env is None and include_state_path is True, raises an error.
+    """
+    subgoal_path: list[np.ndarray] = []
+    action_path: list[int] = []
+    values: list[float] = []
+    k_used: list[int] = []
+    if env is None and include_state_path:
+        log_error_and_raise(
+            'Environment is required to include state path in the solving path data.'
+        )
     state_path = None
 
     current_node = solving_node
@@ -185,6 +207,7 @@ def get_solving_path_data(solving_node, include_state_path=True, env=None):
     while current_node.parent_node is not None:
         subgoal_path.append(current_node.state)
         values.append(current_node.value)
+        k_used.append(current_node.next_expand_with_k_generator)
         current_node.is_on_solving_path = True
 
         if current_node.low_level_path is not None:
@@ -192,22 +215,23 @@ def get_solving_path_data(solving_node, include_state_path=True, env=None):
 
         current_node = current_node.parent_node
 
-    subgoal_path.append(current_node.state)
     current_node.is_on_solving_path = True
 
     subgoal_path.reverse()
+    values.reverse()
+    k_used.reverse()
     action_path.reverse()
     action_path = flatten(action_path)
 
     if include_state_path:
-        env.restore_full_state_from_np_array_version(subgoal_path[0])
+        env.restore_full_state_from_np_array_version(current_node.state)
         state_path = [env.get_state()]
 
         for action in action_path:
             state, _, _, _ = env.step(action)
             state_path.append(state)
 
-    return subgoal_path, action_path, values, state_path
+    return subgoal_path, action_path, values, k_used, state_path
 
 
 def flatten(l):
@@ -227,7 +251,6 @@ def print_search_tree(root_node, max_depth=4):
 
         for node in nodes_to_print:
             print(f'Id: {node.metadata["print_id"]}')
-            print(printable_sokoban_state(node.state))
             print(f'value: {node.value}, path: {node.low_level_path}, metadata: {node.metadata}')
 
             if node.parent_node is not None:

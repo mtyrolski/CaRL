@@ -4,23 +4,17 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Any
 
-from loguru import logger
-
 import neptune
 import numpy as np
 import torch
+from loguru import logger
 from omegaconf import ListConfig
 from omegaconf import OmegaConf
 from torch import Tensor
 from tqdm import tqdm
-from transformers import PreTrainedModel
-from transformers import TrainerCallback
-from carl.environment.env import GameEnv
-from carl.environment.training_goal import TrainingGoal
-from torch import Tensor
-from tqdm import tqdm
-from transformers import PreTrainedModel, TrainerCallback
-from transformers.integrations import NeptuneCallback
+from transformers.modeling_utils import PreTrainedModel
+from transformers.trainer_callback import TrainerCallback
+from transformers.integrations.integration_utils import NeptuneCallback
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
@@ -192,3 +186,8 @@ class CLLPTestLogger(TrainerCallback):
         with torch.no_grad():
             output: torch.Tensor = self.model(encoded_boards).logits
         return output.softmax(dim=-1)[0]
+
+def log_error_and_raise(message: str, exception_cls: type[Exception] = ValueError) -> None:
+    """Logs an error message and raises a RuntimeError."""
+    logger.error(message)
+    raise exception_cls(message)

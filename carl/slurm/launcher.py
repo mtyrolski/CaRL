@@ -12,8 +12,8 @@ from loguru import logger
 from omegaconf import OmegaConf
 from wonderwords import RandomWord
 
-from carl.slurm.grid_search import CarlGrid
 from carl.slurm.connection import Connection
+from carl.slurm.grid_search import CarlGrid
 from carl.slurm.specification import ClusterSpec
 from carl.slurm.specification import JobSpec
 from carl.slurm.specification import WorkerTypeSpec
@@ -96,7 +96,7 @@ pids=\"\" """.format(
 
         carl_env_vars = ' '.join([
             f'CARL_ALL_NODES_COUNT={all_workers}',
-            'CARL_HET_GROUP_ID={het_group}',
+            f'CARL_HET_GROUP_ID={het_group}',
             f'CARL_LOCAL_WORKER_ID={worker_number}',
             f'CARL_N_NODES_IN_GROUP={worker_type_spec.num_workers}',
         ])

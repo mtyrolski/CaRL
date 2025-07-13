@@ -77,7 +77,7 @@ algorithm:
   result_logger:
     _target_: carl.solve_instances.result_loggers.MCTSResultLogger
     custom_logger:
-      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
       name: "mcts_n_puzzle_moe_1000"
       description: "mcts_n_puzzle_moe_1000"
       project: "pmtest/subexit"

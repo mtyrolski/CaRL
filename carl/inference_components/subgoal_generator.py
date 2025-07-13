@@ -74,6 +74,7 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
         self.sub_generator = self.instantiate_network(self.generator, self.path_to_generator_weights)
 
     def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+        assert self.sub_generator is not None, "Subgoal generator network is not constructed."
         return self.sub_generator
 
     def get_subgoals(self, node: SearchTreeNode) -> list[GeneratedSubgoal]:
@@ -106,7 +107,6 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
                 do_sample=do_sample,
                 temperature=temperature,
             ).tolist()
-
         subgoals: list[GeneratedSubgoal] = []
 
         for output in outputs:

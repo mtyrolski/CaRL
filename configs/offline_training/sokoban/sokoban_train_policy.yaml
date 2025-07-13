@@ -5,7 +5,7 @@
 algorithm:
   _target_: carl.algorithms.train_supervised.TrainSupervisedHF
   custom_logger:
-    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "sokoban_train_policy_verification_num_of_trajectories_100"
     description: "sokoban_train_policy_verification_big_model_num_of_trajectories_100"
     project: "pmtest/subexit"

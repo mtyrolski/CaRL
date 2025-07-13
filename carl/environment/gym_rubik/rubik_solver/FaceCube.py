@@ -1,5 +1,8 @@
 from .CubieCube import CubieCube
-from .Enums import Color, Corner, Edge, Facelet
+from .Enums import Color
+from .Enums import Corner
+from .Enums import Edge
+from .Enums import Facelet
 
 
 class FaceCube:

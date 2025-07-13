@@ -1,5 +1,7 @@
 import pytest
-from carl.solver.nodes import GeneratedSubgoal, SearchTreeNode
+
+from carl.solver.nodes import GeneratedSubgoal
+from carl.solver.nodes import SearchTreeNode
 from tests.utils import build_dummy_search_tree
 
 

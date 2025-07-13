@@ -2,8 +2,9 @@ from abc import ABC
 from abc import abstractmethod
 
 import numpy as np
-from carl.environment.training_goal import TrainingGoal
 from torch import Tensor
+
+from carl.environment.training_goal import TrainingGoal
 
 
 class GameTokenizer(ABC):

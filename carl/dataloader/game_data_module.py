@@ -20,8 +20,15 @@ from carl.environment.training_goal import TrainingGoal
 UntokenizedTrajectory: TypeAlias = list[np.ndarray] | list[str]
 
 
+"""
+Data module for preparing game trajectories for various training goals.
+Supports policy, value, subgoal, and generator training data.
+"""
 class GameDataModule(pl.LightningDataModule):
-    """Data module for training a TrainingGoal (which can be: value network, policy network, conditional low level policy network, or generator)."""
+    """
+    Prepare and load tokenized game trajectory data for different TrainingGoal types.
+    Handles loading raw trajectories, tokenization, train/val split, and DataLoader setup.
+    """
     def __init__(
         self,
         env: GameEnv,
@@ -47,10 +54,10 @@ class GameDataModule(pl.LightningDataModule):
         self.env = env
         assert (untokenized_data or dataset_path), 'Please provide either actual data or a path to its location.'
 
-        if dataset_path is None:
-            self.dataset_path = None
-        else:
-            self.dataset_path = (dataset_path if isinstance(dataset_path, Path) else Path(dataset_path))
+        # Determine dataset path if provided
+        self.dataset_path: Path | None = None
+        if dataset_path is not None:
+            self.dataset_path = Path(dataset_path) if not isinstance(dataset_path, Path) else dataset_path
 
         self.training_goal = (training_goal if isinstance(training_goal, TrainingGoal) else TrainingGoal(training_goal))
 
@@ -75,23 +82,8 @@ class GameDataModule(pl.LightningDataModule):
         self._test_dataset: GameDataset | None = None
 
     def prepare_data(self) -> None:
-        untokenized_data: dict[int, UntokenizedTrajectory] = {}
-
-        if self.untokenized_data is not None:
-            untokenized_data = self.untokenized_data
-
-        elif self.dataset_path.is_dir():
-            for file in tqdm(self.dataset_path.iterdir()):
-                logger.info(f'Loading data from file {file}.')
-                part_dict: dict[int, UntokenizedTrajectory] = joblib.load(file)
-                untokenized_data.update(part_dict)
-
-                if self.num_of_trajectories is not None and len(untokenized_data) >= self.num_of_trajectories:
-                    break
-        else:
-            with open(self.dataset_path, 'rb') as file:
-                logger.info(f'Loading data from file {self.dataset_path}.')
-                untokenized_data = joblib.load(file)
+        # Load raw trajectory data into a dictionary
+        untokenized_data: dict[int, UntokenizedTrajectory] = self._load_untokenized()
 
         untokenized_data = dict(list(untokenized_data.items())[:self.num_of_trajectories])
         logger.info(f'Number of trajectories: {len(untokenized_data)}')
@@ -177,6 +169,7 @@ class GameDataModule(pl.LightningDataModule):
         os.makedirs(os.path.join('.', 'models_weights', self.training_goal.value), exist_ok=True)
 
     def setup(self, stage: str | None = None) -> None:
+        """Create datasets for specified stage: fit, validate, or test."""
         if stage == 'fit':
             x_train, y_train = joblib.load(
                 os.path.join(
@@ -236,7 +229,29 @@ class GameDataModule(pl.LightningDataModule):
         return self._val_dataset
 
     def get_test_dataset(self) -> Dataset:
-        raise self._test_dataset
+        return self._test_dataset
+
+    def _load_untokenized(self) -> dict[int, UntokenizedTrajectory]:
+        """Load untokenized trajectory data from files or provided dictionary."""
+        untokenized_data: dict[int, UntokenizedTrajectory] = {}
+
+        if self.untokenized_data is not None:
+            untokenized_data = self.untokenized_data
+
+        elif self.dataset_path.is_dir():
+            for file in tqdm(self.dataset_path.iterdir()):
+                logger.info(f'Loading data from file {file}.')
+                part_dict: dict[int, UntokenizedTrajectory] = joblib.load(file)
+                untokenized_data.update(part_dict)
+
+                if self.num_of_trajectories is not None and len(untokenized_data) >= self.num_of_trajectories:
+                    break
+        else:
+            with open(self.dataset_path, 'rb') as file:
+                logger.info(f'Loading data from file {self.dataset_path}.')
+                untokenized_data = joblib.load(file)
+
+        return untokenized_data
 
     def _policy_tokenize(
             self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:

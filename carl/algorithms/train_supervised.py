@@ -12,18 +12,12 @@ from transformers import PretrainedConfig
 from transformers import PreTrainedModel
 from transformers import Trainer as HFTrainer
 from transformers import TrainerCallback
+from loguru import logger
 
 from carl.algorithms.algorithm import Algorithm
-from carl.components.metrics import MetricsHF
-from carl.utils.loggers import CaRLLogger
 from carl.dataloader.game_data_module import GameDataModule
-from carl.logs import info, debug, success
-from joblib import load
-from lightning import LightningDataModule, LightningModule, Trainer
-from torch.utils.data import Dataset
-from transformers import PretrainedConfig, PreTrainedModel
-from transformers import Trainer as HFTrainer
-from transformers import TrainerCallback
+from carl.utils.loggers import CaRLLogger
+from carl.utils.training_metrics import MetricsHF
 
 
 class TrainSupervised(Algorithm):
@@ -42,7 +36,7 @@ class TrainSupervised(Algorithm):
         self.custom_logger = custom_logger
 
     def run(self) -> None:
-        info('Starting training')
+        logger.info('Starting training')
         self.trainer.fit(self.component, self.datamodule)
         # Consider adding a callback for component evaluation here.
 
@@ -77,11 +71,11 @@ class TrainSupervisedHF(Algorithm):
             assert config is not None, 'config must be provided if do_finetune is False'
             self.config = config
             self.model_to_train = model(config=self.config)
-            success('Instantiated raw model from config')
+            logger.success('Instantiated raw model from config')
         else:
             assert (path_to_model_weights is not None), 'path_to_model_weights must be provided if do_finetune is True'
             self.model_to_train = model.from_pretrained(path_to_model_weights)
-            success('Loaded model checkpoint (arch+weights) over the config')
+            logger.success('Loaded model checkpoint (arch+weights) over the config')
 
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None
         compute_metrics: Callable[[torch.Tensor, torch.Tensor], dict[str, torch.Tensor]] | None
@@ -91,12 +85,12 @@ class TrainSupervisedHF(Algorithm):
         else:
             preprocess_logits_for_metrics = None
             compute_metrics = None
-        info('Setting up datasets')
+        logger.info('Setting up datasets')
         self.datamodule.prepare_data()
         self.datamodule.setup('fit')
         train_dataset: Dataset = self.datamodule.get_train_dataset()
         validation_dataset: Dataset = self.datamodule.get_val_dataset()
-        debug(f'Datasets are ready, train: {train_dataset}, validation: {validation_dataset}')
+        logger.debug(f'Datasets are ready, train: {train_dataset}, validation: {validation_dataset}')
         self.ready_trainer = trainer(
             model=self.model_to_train,
             compute_metrics=compute_metrics,
@@ -105,7 +99,7 @@ class TrainSupervisedHF(Algorithm):
             train_dataset=train_dataset,
             eval_dataset=validation_dataset,
         )
-        success('Trainer is ready')
+        logger.success('Trainer is ready')
 
         if self.custom_logger is not None:
             logger: Any = self.custom_logger.return_logger()
@@ -131,5 +125,5 @@ class TrainSupervisedHF(Algorithm):
         }
 
     def run(self) -> None:
-        info('Training model')
+        logger.info('Training model')
         self.ready_trainer.train()

@@ -3,12 +3,11 @@ from abc import abstractmethod
 import numpy as np
 from torch import Tensor
 from transformers import PreTrainedModel
-
 from carl.environment.env import GameEnv
 from carl.inference_components.component import InferenceComponent
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
 from carl.solver.nodes import ValidationResult
-
+from carl.utils.aliases import State
 
 class Validator(InferenceComponent):
     """
@@ -32,7 +31,7 @@ class Validator(InferenceComponent):
         raise NotImplementedError()
 
     @abstractmethod
-    def is_valid(self, state: np.ndarray | str, subgoal: np.ndarray | str) -> ValidationResult:
+    def is_valid(self, state: State, subgoal: State, **kwargs) -> ValidationResult:
         """
         Checks if a subgoal is achievable from a given state.
 
@@ -68,7 +67,7 @@ class BasicValidator(Validator):
     def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
         return self.cllp.get_network()
 
-    def is_valid(self, state: np.ndarray | str, subgoal: np.ndarray | str, steps_limit=None) -> ValidationResult:
+    def is_valid(self, state: State, subgoal: State, steps_limit=None) -> ValidationResult:
         step: int = 0
         action_path: list[int] = []
         is_solved: bool = False
@@ -77,14 +76,14 @@ class BasicValidator(Validator):
             is_solved = True
 
         if steps_limit is None:
-            steps_limit = self.budget_for_achieving_subgoal
+            steps_limit = self.budget_for_achieving_subgoal + 1
 
         while step < steps_limit:
             step += 1
             distribution_over_actions: Tensor = self.cllp.get_action(state, subgoal)
             action: int = self.env.distribution_to_action(distribution_over_actions)
             action_path.append(action)
-            state: np.ndarray | str = self.env.next_state(state, action)
+            state = self.env.next_state(state, action)
             if isinstance(state, str):
                 if state == subgoal:
                     return ValidationResult(True, is_solved, action_path, step, state)

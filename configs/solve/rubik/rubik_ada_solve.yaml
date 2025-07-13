@@ -1,0 +1,121 @@
+# make run_local_solve dir=configs/rubik name=rubik_ada_solve
+components_prefix: "./rl-data/validation/rubik/components/moe_uniform"
+
+params:
+  env:
+    _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
+    tokenizer:
+      _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
+      cut_distance: 20
+      type_of_value_training: "regression"
+
+subgoal_generator:
+  _target_: carl.inference_components.subgoal_generator.AdaptiveSubgoalGenerator
+  generator_k_list: [8]
+  env: ${params.env}
+  subgoal_generation_kwargs:
+    max_new_tokens: 55 # 9*6 + 1
+    do_sample: False
+    temperature: 1.0
+    num_beams: 16
+    num_return_sequences: 2
+  paths_to_generator_weights: ["./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639"]
+  subgoal_generator_class:
+    _target_: carl.inference_components.subgoal_generator.TransformerSubgoalGenerator
+    generator_network_class:
+      _target_: transformers.BartForConditionalGeneration.from_pretrained
+      _partial_: true
+    _partial_: true
+
+value_function:
+  _target_: carl.inference_components.value.TransformerValue
+  value_network_class:
+    _target_: transformers.BertForSequenceClassification.from_pretrained
+    _partial_: true
+  path_to_value_network_weights: "./rl-data/validation/rubik/components/moe_uniform/value/checkpoint-14504490"
+  type_of_evaluation: "regression"
+  noise_variance: 0.0
+  env: ${params.env}
+
+validator:
+  _target_: carl.inference_components.validator.BasicValidator
+  env: ${params.env}
+  cllp:
+    _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+    conditional_low_level_policy_class:
+      _target_: transformers.BertForSequenceClassification.from_pretrained
+      _partial_: true
+    path_to_conditional_low_level_policy_weights: "./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"
+    env: ${params.env}
+  budget_for_achieving_subgoal: 10
+
+algorithm:
+  _target_: carl.algorithms.solve_instances.SolveInstances
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 1000
+    planner_class:
+      _partial_: true
+      _target_: carl.planners.adasubs.AdasubsPlanner
+      generators_k_list: ${algorithm.solver.subgoal_generator.generator_k_list}
+    subgoal_generator: ${subgoal_generator}
+    validator: ${validator}
+    value_function: ${value_function}
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "./rl-data/validation/rubik/progress/shuffle_general"
+    batch_size: 20
+  result_logger:
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      name: "adasubs solve"
+      description: "adasubs solve"
+      project: "mtyrol/drop"
+      tags: ["inner_eval", "rubik", "KSubS", "solve", "k_8", "shuffle_general"]
+      log_parameters: True
+    problem_to_solve: ${algorithm.problems_to_solve}
+    budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 1500, 2000, 3000, 4000, 5000]
+  problems_to_solve: 100
+  n_parallel_workers: 4
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+carl_grid:
+  # AdaSubS (k=[4, 2])
+  - subgoal_generator.generator_k_list: [[4, 2]]
+    subgoal_generator.paths_to_generator_weights: [[
+        "./rl-data/validation/rubik/components/shuffle_70/generator/4/checkpoint-270710",
+        "./rl-data/validation/rubik/components/shuffle_70/generator/2/checkpoint-270710"
+    ]]
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/shuffle_70/cllp/4/checkpoint-141063"]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "AdaSubS", "solve", "k_42", "shuffle_general"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1]
+    validator.budget_for_achieving_subgoal: [6]
+  - subgoal_generator.generator_k_list: [[8, 4]]
+    subgoal_generator.paths_to_generator_weights: [[
+        "./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639",
+        "./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497"
+    ]]
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "AdaSubS", "solve", "k_84", "shuffle_general"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [1]
+    validator.budget_for_achieving_subgoal: [10]
+  # kSubS (k=8)
+  - subgoal_generator.generator_k_list: [[8]]
+    subgoal_generator.paths_to_generator_weights: [["./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639"]]
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720"]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "KSubS", "solve", "k_8", "shuffle_general"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [2, 4]
+    validator.budget_for_achieving_subgoal: [10]
+  # kSubS (k=4)
+  - subgoal_generator.generator_k_list: [[4]]
+    subgoal_generator.paths_to_generator_weights: [["./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497"]]
+    validator.cllp.path_to_conditional_low_level_policy_weights: ["./rl-data/validation/rubik/components/moe_uniform/cllp/4/checkpoint-2372409"]
+    algorithm.result_logger.custom_logger.tags: [["inner_eval", "rubik", "KSubS", "solve", "k_4", "shuffle_general"]]
+    subgoal_generator.subgoal_generation_kwargs.num_return_sequences: [2, 4]
+    validator.budget_for_achieving_subgoal: [6]

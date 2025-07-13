@@ -177,7 +177,7 @@ algorithm:
 
   # custom logger:
   custom_logger:
-    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "rlloop n_puzzle - weak baseline - init buffers - 1000 - subgoals 4"
     description: "rlloop n_puzzle - weak baseline - init buffers - 1000 - subgoals 4"
     project: "pmtest/subexit"

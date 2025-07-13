@@ -6,6 +6,7 @@ import torch
 from carl.algorithms.algorithm import Algorithm
 from carl.utils.resources import dump_resource
 
+
 class DummyProducer(Algorithm):
     def __init__(self, seed: int, janpawel, var) -> None:
         super().__init__()

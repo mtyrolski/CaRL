@@ -57,7 +57,7 @@ algorithm:
   result_logger:
     _target_: carl.solve_instances.result_loggers.MCTSResultLogger
     custom_logger:
-      _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
       name: "mcts_sokoban_big_budget"
       description: "MCTS for sokoban_big_budget"
       project: "pmtest/subexit"

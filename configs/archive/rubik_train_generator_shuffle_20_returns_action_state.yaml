@@ -4,7 +4,7 @@
 algorithm:
   _target_: carl.algorithms.train_supervised.TrainSupervisedHF
   custom_logger:
-    _target_: carl.custom_logger.loggers.NeptuneCaRLLogger
+    _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "rubik_generator_training_n_500k_length_of_trajectories_20_returns_action_state"
     description: "rubik_generator_training_n_500k_length_of_trajectories_20_returns_action_state"
     project: "pmtest/subexit"
@@ -13,7 +13,7 @@ algorithm:
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
     env:
-      _target_: carl.environment.gym_rubik.rubik_env.RubikCubeEnv
+      _target_: carl.environment.gym_rubik.rubik_env.RubikEnv
       tokenizer:
         _target_: carl.environment.gym_rubik.tokenizer.RubikCubeTokenizer
         cut_distance: 20

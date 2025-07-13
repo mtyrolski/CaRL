@@ -1,0 +1,25 @@
+{
+  // which files/dirs to type-check at all
+  "include": [
+    "carl"
+  ],
+
+  // which files/dirs to completely ignore
+  "exclude": [
+    "build",
+    "venv",
+    "migrations",
+    "**/__pycache__",
+    "tests/**"
+  ],
+
+  // (optional) if you want them to still be importable but skip type-checking:
+  "excludeFiles": [
+    "legacy/**/*.py",
+    "carl/environment/sokoban/core.py"
+  ],
+
+  // your other settings...
+  "reportMissingImports": true,
+  "pythonVersion": "3.11"
+}

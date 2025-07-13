@@ -1,21 +1,25 @@
+from dataclasses import dataclass
+from os import listdir
+from os.path import exists
+from os.path import join
+from pickle import HIGHEST_PROTOCOL
+from random import choices
 from typing import Any
 
-from carl.inference_components.value import TransformerValue, Value
+import plotly.express as px
+import plotly.graph_objects as go
+from joblib import dump
+from joblib import load
+from loguru import logger
+from numpy import ndarray
+from tqdm import tqdm
+from transformers import BertForSequenceClassification
+
 from carl.algorithms.algorithm import Algorithm
 from carl.environment.sokoban.env import SokobanEnv
 from carl.environment.sokoban.tokenizer import SokobanTokenizer
-from joblib import load, dump
-from os.path import join, exists
-from os import listdir
-from dataclasses import dataclass
-from transformers import BertForSequenceClassification
-from numpy import ndarray
-from pickle import HIGHEST_PROTOCOL
-from tqdm import tqdm
-from loguru import logger
-import plotly.express as px
-from random import choices
-import plotly.graph_objects as go
+from carl.inference_components.value import TransformerValue
+from carl.inference_components.value import Value
 
 HIGHEST_K: int = 10
 

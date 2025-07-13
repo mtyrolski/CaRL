@@ -1,0 +1,90 @@
+# make run_local_solve dir=configs/solve/npuzzle name=npuzzle_astar_solve
+components_prefix: "./rl-data/validation/npuzzle/components/full_data"
+
+params:
+  env:
+    _target_: carl.environment.n_puzzle.env.NPuzzleEnv
+    tokenizer:
+      _target_: carl.environment.n_puzzle.tokenizer.NPuzzleTokenizer
+      size_of_board:
+        - 5
+        - 5
+
+subgoal_generator:
+  _target_: carl.inference_components.policy.PolicyGeneratorWrapper
+  policy:
+    _target_: carl.inference_components.policy.TransformerPolicy
+    policy_network_class:
+      _target_: transformers.BertForSequenceClassification.from_pretrained
+      _partial_: true
+    path_to_policy_weights: "./rl-data/validation/npuzzle/components/moe/policy/checkpoint-31552"
+    env: ${params.env}
+    confidence_threshold: 0.85
+  env: ${params.env}
+
+value_function:
+  _target_: carl.inference_components.value.TransformerValue
+  value_network_class:
+    _target_: transformers.BertForSequenceClassification.from_pretrained
+    _partial_: true
+  path_to_value_network_weights: "./rl-data/validation/npuzzle/components/moe/value/checkpoint-2825298"
+  type_of_evaluation: "regression"
+  noise_variance: 0.0
+  env: ${params.env}
+
+validator:
+  _target_: carl.inference_components.validator.DummyValidator
+  env: ${params.env}
+
+algorithm:
+  _target_: carl.algorithms.solve_instances.SolveInstances
+
+  # solver class
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 1000
+    planner_class:
+      _partial_: true
+      _target_: carl.solver.planners.AstarPlanner
+      depth_weight: 0.0
+      value_weight: 150.0
+    subgoal_generator: ${subgoal_generator}
+    validator: ${validator}
+    value_function: ${value_function}
+
+  # data loader class
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "./rl-data/validation/npuzzle/progress/fin"
+    batch_size: 25
+
+  # result logger
+  result_logger:
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      name: "astar solve"
+      description: "astar solve"
+      project: "mtyrol/drop"
+      tags: ["inner_eval", "npuzzle", "AStar", "solve", "5x5"]
+      log_parameters: True
+    problem_to_solve: ${algorithm.problems_to_solve}
+    budget_logs: [1, 2, 5, 10, 15, 20, 35, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500, 600, 800, 1000, 2000, 2500, 3000, 4000, 5000]
+  problems_to_solve: 100
+  n_parallel_workers: 6
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+carl_grid:
+  # AStar variants
+  - algorithm.solver.planner_class._target_: [carl.planners.greedy.AstarPlanner]
+    algorithm.solver.planner_class.depth_weight: [-100, -50, -1, 0, 1, 50, 100]
+    algorithm.solver.planner_class.value_weight: [100.0]
+    algorithm.result_logger.custom_logger.tags: [["npuzzle", "astar", "grid", "5x5"]]
+  # BestFS variants
+  # - algorithm.solver.planner_class._target_: [carl.planners.greedy.BestFSPlanner]
+  #   algorithm.result_logger.custom_logger.tags: [["npuzzle", "bestfs", "grid", "5x5"]]

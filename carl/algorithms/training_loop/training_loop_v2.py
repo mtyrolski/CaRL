@@ -1,14 +1,17 @@
-from loguru import logger
 from itertools import cycle
 
-from carl.algorithms.algorithm import Algorithm
-from carl.solver.planners import Experience
-from carl.solver.subgoal_search import Solver
+from loguru import logger
+
 import carl.utils.loops as loop_utils
+from carl.algorithms.algorithm import Algorithm
 from carl.algorithms.training_loop.flow_control import LoopControl
-from carl.utils.loops import ComponentCollection, Logs, ProblemInstance
 from carl.environment.instance_generator import InstanceGenerator
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
+from carl.planners.base import Experience
+from carl.solver.subgoal_search import Solver
+from carl.utils.loops import ComponentCollection
+from carl.utils.loops import Logs
+from carl.utils.loops import ProblemInstance
 
 
 class TrainingLoop(Algorithm):

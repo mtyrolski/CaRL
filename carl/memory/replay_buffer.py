@@ -10,9 +10,7 @@ from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import get_solving_path_data
-from carl.environment.env import GameEnv
-from carl.environment.training_goal import TrainingGoal
-from torch import Tensor
+from carl.planners.base import Experience, SearchInfo, Solution
 
 
 class UniversalReplayBuffer(ABC):
@@ -59,7 +57,7 @@ class SimpleUniversalReplayBuffer(UniversalReplayBuffer):
         buffer.add(data)
         return {f'{buffer_name}/size': len(buffer), f'{buffer_name}/size_changed': len(buffer) - size_before}
 
-    def add(self, data: tuple[dict, dict]) -> dict[str, int]:
+    def add(self, data: Experience) -> dict[str, int]:
         metrics = {}
         if isinstance(self.generator_buffer, SolvingPathGeneratorReplayBuffer):
             metrics.update(self.add_metrics(self.generator_buffer, 'generator', metrics, data))
@@ -162,15 +160,14 @@ class SolvingPathGeneratorReplayBuffer(OfflineReplayBuffer):
         self.env = env
         self.training_goal: TrainingGoal = TrainingGoal.GENERATOR
 
-    def add(self, data: tuple[dict, dict]):
-        _, search_info = data
-        if search_info['solving_node'] is None:
+    def add(self, data: Experience):
+        search_info = data.search_info
+        if search_info.solving_node is None:
             return
-        _, _, _, state_path = get_solving_path_data(search_info['solving_node'], include_state_path=True, env=self.env)
+        _, _, _, _, state_path = get_solving_path_data(search_info.solving_node, include_state_path=True, env=self.env)
 
         for xy in self.preprocess_trajectory(state_path):
             self.buffer.append(xy)
-
             if len(self.buffer) > self.max_size:
                 self.buffer.pop(0)
 
@@ -222,18 +219,15 @@ class SolvingPathValueReplayBuffer(OfflineReplayBuffer):
         self.env = env
         self.training_goal: TrainingGoal = TrainingGoal.VALUE
 
-    def add(self, data: tuple[dict, dict]) -> None:
-        search_info: dict
-        _, search_info = data
-        if search_info['solving_node'] is None:
+    def add(self, data: Experience) -> None:
+        search_info = data.search_info
+        if search_info.solving_node is None:
             return
 
-        state_path: list[np.ndarray]
-        _, _, _, state_path = get_solving_path_data(search_info['solving_node'], include_state_path=True, env=self.env)
+        _, _, _, _, state_path = get_solving_path_data(search_info.solving_node, include_state_path=True, env=self.env)
 
         for x, y in self.preprocess_trajectory(state_path):
             self.buffer.append((x, y))
-
             if len(self.buffer) > self.max_size:
                 self.buffer.pop(0)
 
@@ -282,21 +276,16 @@ class SolvingPathConditionalLowLevelPolicyReplayBuffer(OfflineReplayBuffer):
         self.env = env
         self.training_goal: TrainingGoal = TrainingGoal.CLLP
 
-    def add(self, data: tuple[dict, dict]) -> None:
-        search_info: dict
-        _, search_info = data
-        if search_info['solving_node'] is None:
+    def add(self, data: Experience) -> None:
+        search_info = data.search_info
+        if search_info.solving_node is None:
             return
 
-        action_path: list[int]
-        state_path: list[np.ndarray]
-        _, action_path, _, state_path = get_solving_path_data(search_info['solving_node'],
+        _, action_path, _, _, state_path = get_solving_path_data(search_info.solving_node,
                                                               include_state_path=True,
                                                               env=self.env)
-
         for xy in self.preprocess_trajectory(state_path, action_path):
             self.buffer.append(xy)
-
             if len(self.buffer) > self.max_size:
                 self.buffer.pop(0)
 
