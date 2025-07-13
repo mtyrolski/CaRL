@@ -6,6 +6,7 @@ from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
 from carl.memory.replay_buffer import SolvingPathConditionalLowLevelPolicyReplayBuffer
 from carl.memory.replay_buffer import SolvingPathGeneratorReplayBuffer
 from carl.memory.replay_buffer import SolvingPathValueReplayBuffer
+from carl.planners.base import Experience, SearchInfo, Solution
 from tests.utils import assert_equal
 from tests.utils import assert_equal_sets
 from tests.utils import build_dummy_search_tree
@@ -40,13 +41,14 @@ def test_SolvingPathGeneratorReplayBuffer():
 
     print('Testing SolvingPathGeneratorReplayBuffer...')
 
-    env, solving_node = build_dummy_search_tree()
-
-    replay_buffer = SolvingPathGeneratorReplayBuffer(100, (3, 4), env)
-
+    env, solving_node = build_dummy_search_tree(6)
+    replay_buffer = SolvingPathGeneratorReplayBuffer(100, [3, 4], env) # k= [3, 4]
+    # Create Experience object
+    search_info = SearchInfo(finished_reason="test", solving_node=solving_node)
+    solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
+    exp = Experience(solution=solution, search_info=search_info)
     # Add a new solution
-    replay_buffer.add(({}, {'solving_node': solving_node}))
-
+    replay_buffer.add(exp)
     # Check the replay buffer
     assert_equal(
         replay_buffer.buffer,
@@ -62,12 +64,12 @@ def test_SolvingPathValueReplayBuffer():
     print('Testing SolvingPathValueReplayBuffer...')
 
     env, solving_node = build_dummy_search_tree()
-
     replay_buffer = SolvingPathValueReplayBuffer(100, env)
-
+    search_info = SearchInfo(finished_reason="test", solving_node=solving_node)
+    solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
+    exp = Experience(solution=solution, search_info=search_info)
     # Add a new solution
-    replay_buffer.add(({}, {'solving_node': solving_node}))
-
+    replay_buffer.add(exp)
     # Check the replay buffer
     assert_equal(replay_buffer.buffer, [(0, 6), (1, 5), (2, 4), (3, 3), (4, 2), (5, 1), (6, 0)])
 
@@ -80,12 +82,12 @@ def test_SolvingPathPolicyReplayBuffer():
     print('Testing SolvingPathConditionalLowLevelPolicyReplayBuffer...')
 
     env, solving_node = build_dummy_search_tree()
-
     replay_buffer = SolvingPathConditionalLowLevelPolicyReplayBuffer(100, 3, env)
-
+    search_info = SearchInfo(finished_reason="test", solving_node=solving_node)
+    solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
+    exp = Experience(solution=solution, search_info=search_info)
     # Add a new solution
-    replay_buffer.add(({}, {'solving_node': solving_node}))
-
+    replay_buffer.add(exp)
     # Check the replay buffer
     assert_equal_sets(
         replay_buffer.buffer,
@@ -100,13 +102,16 @@ def get_replay_buffers(target):
     generator_buffer = SolvingPathGeneratorReplayBuffer(100, [3, 4], env1)
     value_buffer = SolvingPathValueReplayBuffer(100, env1)
     cllp_buffer = SolvingPathConditionalLowLevelPolicyReplayBuffer(100, 3, env1)
-    return SimpleUniversalReplayBuffer(generator_buffer, value_buffer, cllp_buffer), node1
+    return SimpleUniversalReplayBuffer(generator_buffer, value_buffer, cllp_buffer), env1, node1
 
 
 def test_add_empty_data():
     """Test adding empty data does not modify buffers."""
-    buffer, _ = get_replay_buffers(14)
-    buffer.add(({}, {'solving_node': None}))
+    buffer, env, _ = get_replay_buffers(14)
+    search_info = SearchInfo(finished_reason="test", solving_node=None)
+    solution = Solution(solved=False)
+    exp = Experience(solution=solution, search_info=search_info)
+    buffer.add(exp)
     assert len(buffer.get_buffer_for_generator(None)) == 0
     assert len(buffer.get_buffer_for_value()) == 0
     assert len(buffer.get_buffer_for_policy()) == 0
@@ -114,15 +119,18 @@ def test_add_empty_data():
 
 def test_buffer_overflow():
     """Test buffer handles overflow by removing oldest data."""
-    buffer, node = get_replay_buffers(14)
+    buffer, env, node = get_replay_buffers(14)
+    search_info = SearchInfo(finished_reason="test", solving_node=node)
+    solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
+    exp = Experience(solution=solution, search_info=search_info)
     for _ in range(150):    # exceed buffer size
-        buffer.add(({}, {'solving_node': node}))
+        buffer.add(exp)
     assert len(buffer.get_buffer_for_generator(None)) <= 100
 
 
 def test_sampling_from_empty_buffer():
     """Ensure sampling from an empty buffer raises an appropriate error or returns empty array."""
-    buffer, _ = get_replay_buffers(14)
+    buffer, env, _ = get_replay_buffers(14)
     with pytest.raises(Exception):
         buffer.sample_for_generator(1)    # Modify according to actual implementation
 
@@ -132,14 +140,20 @@ def test_add_various_targets(target):
     """Test adding data with various targets to ensure buffer handles diverse scenarios."""
     env, node = build_dummy_search_tree(target)
     buffer = SolvingPathGeneratorReplayBuffer(100, [3, 4], env)
-    buffer.add(({}, {'solving_node': node}))
+    search_info = SearchInfo(finished_reason="test", solving_node=node)
+    solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
+    exp = Experience(solution=solution, search_info=search_info)
+    buffer.add(exp)
     assert len(buffer.buffer) > 0    # Length check to confirm addition
 
 
 def test_multibuffer_addition():
     """Test that data is added correctly to multiple buffers in `SimpleUniversalReplayBuffer`."""
-    buffer, node = get_replay_buffers(14)
-    buffer.add(({}, {'solving_node': node}))
+    buffer, env, node = get_replay_buffers(14)
+    search_info = SearchInfo(finished_reason="test", solving_node=node)
+    solution = Solution(solved=True, subgoal_path=[], action_path=[], subgoal_distance_path=[])
+    exp = Experience(solution=solution, search_info=search_info)
+    buffer.add(exp)
     assert len(buffer.get_buffer_for_generator(None)) > 0
     assert len(buffer.get_buffer_for_value()) > 0
     assert len(buffer.get_buffer_for_policy()) > 0
@@ -147,7 +161,7 @@ def test_multibuffer_addition():
 
 def test_trajectory_addition():
     """Test adding trajectories directly to buffers."""
-    buffer, _ = get_replay_buffers(14)
+    buffer, _, _ = get_replay_buffers(14)
     trajectory = [i for i in range(6)]
     buffer.generator_buffer.add_from_trajectories([trajectory])
     assert len(buffer.generator_buffer.buffer) > 0

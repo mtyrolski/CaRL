@@ -211,7 +211,6 @@ def get_solving_path_data(solving_node: SearchTreeNode,
 
         current_node = current_node.parent_node
 
-    # subgoal_path.append(current_node.state)
     current_node.is_on_solving_path = True
 
     subgoal_path.reverse()
@@ -221,7 +220,7 @@ def get_solving_path_data(solving_node: SearchTreeNode,
     action_path = flatten(action_path)
 
     if include_state_path:
-        env.restore_full_state_from_np_array_version(subgoal_path[0])
+        env.restore_full_state_from_np_array_version(current_node.state)
         state_path = [env.get_state()]
 
         for action in action_path:
