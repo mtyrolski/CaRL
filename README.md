@@ -2,7 +2,6 @@
 
 - [CaRL Library README](#carl-library-readme)
   - [Introduction](#introduction)
-  - [CaRL leverages key components of SLURM, enabling the deployment of tasks across multiple nodes with varying specifications (heterogeneous job support). It offers a flexible way to define and execute tasks using a custom deployer that extends the Hydra Config syntax. Remote computation is handled via Apptainer (formerly Singularity) images, which are automatically generated. Experiment tracking is managed using Neptune.](#carl-leverages-key-components-of-slurm-enabling-the-deployment-of-tasks-across-multiple-nodes-with-varying-specifications-heterogeneous-job-support-it-offers-a-flexible-way-to-define-and-execute-tasks-using-a-custom-deployer-that-extends-the-hydra-config-syntax-remote-computation-is-handled-via-apptainer-formerly-singularity-images-which-are-automatically-generated-experiment-tracking-is-managed-using-neptune)
   - [Architecture Overview](#architecture-overview)
   - [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl)
   - [Codebase Authors](#codebase-authors)
@@ -53,8 +52,8 @@ CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation
 ---
 ## Codebase Authors
 
-From late 2022 to 2024, this codebase was actively developed by various subgroups of our team. Here are the contributors and authors of the codebase:
-Michał Tyrolski, Emilia Wiśnios, Gracjan Góral, Franek Budrowski, Michał Zawalski  
+From late 2022 to 2024, this codebase was actively developed by various subgroups of our team. Here are the contributors and authors of the codebase (chronologically ordered):
+Michał Tyrolski, Emilia Wiśnios, Michał Zawalski, Gracjan Góral, Franek Budrowski  
 
 
 
