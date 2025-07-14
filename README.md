@@ -1,9 +1,12 @@
 # CaRL Library README
 
-- -CaRL Library README](#carl-library-readme)
+- [CaRL Library README](#carl-library-readme)
   - [Introduction](#introduction)
+  - [Architecture Overview](#architecture-overview)
   - [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl)
   - [Codebase Authors](#codebase-authors)
+  - [Datasets Demo](#datasets-demo)
+  - [Open Source Components](#open-source-components)
   - [Quick Start](#quick-start)
   - [CaRL Extension Over Hydra Config](#carl-extension-over-hydra-config)
     - [Starting Point (`algorithm`)](#starting-point-algorithm)
@@ -13,25 +16,29 @@
   - [Local Execution Options](#local-execution-options)
     - [Notebook](#notebook)
     - [Command Line (cmd)](#command-line-cmd)
+      - [Via Makefile Shortcut](#via-makefile-shortcut)
   - [Deploying Remote Experiments with the CaRL Launcher](#deploying-remote-experiments-with-the-carl-launcher)
     - [Image Build](#image-build)
     - [Cluster Configuration](#cluster-configuration)
     - [Examples of Running Experiments](#examples-of-running-experiments)
     - [Syncing Multiple Clusters](#syncing-multiple-clusters)
     - [Cluster Synchronization Script](#cluster-synchronization-script)
-  - [Datasets Demo](#datasets-demo)
-  - [Open Source Components](#open-source-components)
-  - [Evaluation Results](#evaluation-results)
 
 ---
 
 ## Introduction
 
 **Why?**  
-The **CaRL (Combinatorial Reinforcement Learning) Library** is designed for developing and scaling offline and online reinforcement learning experiments. It provides a comprehensive suite of tools for planning in **combinatorial problems**, including environments, data handling, inference components, training loops, and AI-guided search algorithms. The library comes with interactive notebooks in the `examples` folder, showcasing inference components used in published research. It includes fully operational environments such as `Sokoban`, `NPuzzle`, `Rubik`, and `INT`. Additionally, we provide **35 open-source models** of various types: `Generator`, `Value`, `Conditional Low-Level Policy`, and `Policy` (see [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl) and the full list in the [Open Source Components](#open-source-components) section).
+The **CaRL (Combinatorial Reinforcement Learning) Library** is designed for developing and scaling offline and online reinforcement/imitation learning experiments in combinatorial planning problems. It provides a comprehensive suite of tools for planning in **combinatorial problems**, including environments, data handling, inference components, training loops, and AI-guided search algorithms. The library comes with interactive notebooks in the `examples` folder, showcasing inference components used in published research. It includes fully operational environments such as `Sokoban`, `NPuzzle`, `Rubik`, and `INT`. Additionally, we provide **35 open-source models** of various types: `Generator`, `Value`, `Conditional Low-Level Policy`, and `Policy` (see [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl) and the full list in the [Open Source Components](#open-source-components) section).
 
 **How?**  
 CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation.html), enabling the deployment of tasks across multiple nodes with varying specifications (heterogeneous job support). It offers a flexible way to define and execute tasks using a custom deployer that extends the [Hydra Config](https://github.com/facebookresearch/hydra) syntax. Remote computation is handled via [Apptainer](https://apptainer.org/) (formerly Singularity) images, which are automatically generated. Experiment tracking is managed using [Neptune](https://neptune.ai).
+
+![Planning problem](img/planning.png)
+
+
+## Architecture Overview
+
 
 ---
 
@@ -43,11 +50,79 @@ CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation
 - Selected works cited in the above papers.
 
 ---
-
 ## Codebase Authors
 
-From late 2022 to 2024, this codebase was actively developed by various subgroups of our team. Here are the contributors and authors of the codebase:
-Michał Tyrolski, Emilia Wiśnios, Gracjan Góral, Franek Budrowski, Michał Zawalski  
+From late 2022 to 2024, this codebase was actively developed by various subgroups of our team. Here are the contributors and authors of the codebase (chronologically ordered):
+Michał Tyrolski, Emilia Wiśnios, Michał Zawalski, Gracjan Góral, Franek Budrowski  
+
+
+
+## Datasets Demo
+
+Here are some dataset samples for exploring the codebase:
+
+- **NPuzzle:**
+  - Offline trajectories: `./rl-data/validation/npuzzle/offline/basic_solver`
+  - Problem instances (evaluation): `./rl-data/validation/npuzzle/progress/fin`
+- **Sokoban:**
+  - Offline trajectories: `./rl-data/validation/sokoban/offline/12-12-4/`
+  - Problem instances: `./rl-data/validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.35`, `boards_1000_b6_gs100_c300_p0.35`, `boards_1000_b7_gs100_c300_p0.35`
+- **Rubik:**
+  - Offline trajectories: `./rl-data/validation/rubik/offline/mixture_uniform`
+  - Problem instances (evaluation): `./rl-data/validation/rubik/progress/shuffle_general`
+
+For access to the full datasets used in various experiments, please contact the codebase authors.
+
+---
+
+## Open Source Components
+![Components](img/components.png)
+
+|    | Env     | Component   | Dist   | Checkpoint                                    | Full Path                                                                   |
+|---:|:--------|:------------|:-------|:----------------------------------------------|:----------------------------------------------------------------------------|
+|  0 | NPuzzle | CLLP        | 4      | `cllp/4/checkpoint-294075`                    | `./rl-data/validation/npuzzle/components/moe/cllp/4/checkpoint-294075`                 |
+|  1 | NPuzzle | CLLP        | 8      | `cllp/8/checkpoint-225736`                    | `./rl-data/validation/npuzzle/components/moe/cllp/8/checkpoint-225736`                 |
+|  2 | NPuzzle | Generator   | 4      | `generator/4/checkpoint-48314`                | `./rl-data/validation/npuzzle/components/moe/generator/4/checkpoint-48314`             |
+|  3 | NPuzzle | Generator   | 8      | `generator/8/checkpoint-64090`                | `./rl-data/validation/npuzzle/components/moe/generator/8/checkpoint-64090`             |
+|  4 | NPuzzle | Policy      | N/A    | `policy/checkpoint-31552`                     | `./rl-data/validation/npuzzle/components/moe/policy/checkpoint-31552`                  |
+|  5 | NPuzzle | Value       | N/A    | `value/checkpoint-2825298`                    | `./rl-data/validation/npuzzle/components/moe/value/checkpoint-2825298`                 |
+|  6 | Rubik   | CLLP        | 4      | `cllp/4/checkpoint-2372409`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/4/checkpoint-2372409`          |
+|  7 | Rubik   | CLLP        | 5      | `cllp/5/checkpoint-2181045`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/5/checkpoint-2181045`          |
+|  8 | Rubik   | CLLP        | 6      | `cllp/6/checkpoint-2080640`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/6/checkpoint-2080640`          |
+|  9 | Rubik   | CLLP        | 7      | `cllp/7/checkpoint-2062690`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/7/checkpoint-2062690`          |
+| 10 | Rubik   | CLLP        | 8      | `cllp/8/checkpoint-1904720`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720`          |
+| 11 | Rubik   | Generator   | 1      | `generator/1/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/1/checkpoint-217497`      |
+| 12 | Rubik   | Generator   | 2      | `generator/2/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/2/checkpoint-217497`      |
+| 13 | Rubik   | Generator   | 3      | `generator/3/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/3/checkpoint-217497`      |
+| 14 | Rubik   | Generator   | 4      | `generator/4/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497`      |
+| 15 | Rubik   | Generator   | 5      | `generator/5/checkpoint-310710`               | `./rl-data/validation/rubik/components/moe_uniform/generator/5/checkpoint-310710`      |
+| 16 | Rubik   | Generator   | 6      | `generator/6/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/6/checkpoint-279639`      |
+| 17 | Rubik   | Generator   | 7      | `generator/7/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/7/checkpoint-279639`      |
+| 18 | Rubik   | Generator   | 8      | `generator/8/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639`      |
+| 19 | Rubik   | Policy      | N/A    | `policy/checkpoint-763128`                    | `./rl-data/validation/rubik/components/moe_uniform/policy/checkpoint-763128`           |
+| 20 | Rubik   | Value       | N/A    | `value/checkpoint-14504490`                   | `./rl-data/validation/rubik/components/moe_uniform/value/checkpoint-14504490`          |
+| 21 | Sokoban | CLLP        | 1      | `cllp/1/checkpoint-149248`                    | `./rl-data/validation/sokoban/components/full_data/cllp/1/checkpoint-149248`           |
+| 22 | Sokoban | CLLP        | 16     | `cllp/16/checkpoint-37224`                    | `./rl-data/validation/sokoban/components/full_data/cllp/16/checkpoint-37224`           |
+| 23 | Sokoban | CLLP        | 32     | `cllp/32/checkpoint-20045`                    | `./rl-data/validation/sokoban/components/full_data/cllp/32/checkpoint-20045`           |
+| 24 | Sokoban | CLLP        | 4      | `cllp/4/checkpoint-587940`                    | `./rl-data/validation/sokoban/components/full_data/cllp/4/checkpoint-587940`           |
+| 25 | Sokoban | CLLP        | 8      | `cllp/8/checkpoint-167585`                    | `./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585`           |
+| 26 | Sokoban | Generator   | 1      | `generator/border/1/checkpoint-151712`        | `./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712`|
+| 27 | Sokoban | Generator   | 16     | `generator/border/16/checkpoint-52150`        | `./rl-data/validation/sokoban/components/full_data/generator/border/16/checkpoint-52150`|
+| 28 | Sokoban | Generator   | 32     | `generator/border/32/checkpoint-31290`        | `./rl-data/validation/sokoban/components/full_data/generator/border/32/checkpoint-31290`|
+| 29 | Sokoban | Generator   | 4      | `generator/border/4/checkpoint-75856`         | `./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856`|
+| 30 | Sokoban | Generator   | 8      | `generator/border/8/checkpoint-75856`         | `./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856`|
+| 31 | Sokoban | Generator   | 1      | `generator/no_border/1/checkpoint-284460`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/1/checkpoint-284460`|
+| 32 | Sokoban | Generator   | 4      | `generator/no_border/4/checkpoint-360316`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/4/checkpoint-360316`|
+| 33 | Sokoban | Generator   | 8      | `generator/no_border/8/checkpoint-284460`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/8/checkpoint-284460`|
+| 34 | Sokoban | Policy      | N/A    | `policy/checkpoint-94820`                     | `./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820`            |
+| 35 | Sokoban | Value       | N/A    | `value/checkpoint-1343100`                    | `./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100`           |
+
+Made on version v1.0.0 of the CaRL library to ensure reproducibility of algorithms on selected environments, using the components listed above.
+
+**NPuzzle, Sokoban:** [notebooks with evaluation](notebooks/eval.ipynb)
+
+For INT environment, please see [INT repository](https://github.com/mtyrolski/INT).
+
 
 ---
 
@@ -67,9 +142,19 @@ Michał Tyrolski, Emilia Wiśnios, Gracjan Góral, Franek Budrowski, Michał Zaw
    ```
 
 3. **Mount demonstrative data**:  
-   Link the data under `./rl-data` (download and link using `ln -s`) to run notebooks from the `examples/` folder. **You can now explore the notebooks.**
+   Link the data under `./rl-data` (download and link using `ln -s`) to run notebooks from the `examples/` folder. **You can download datasets and components from the [rl-data](rl-data).**
 
-4. **Run experiments from config**:  
+4. **Explore example notebooks**:
+   The `examples/` directory contains several Jupyter notebooks showcasing CaRL features:
+   - `adaptive_solve_sokoban.ipynb`: step-by-step adaptive subgoal search solving Sokoban puzzles.
+   - `crafter_demo.ipynb`: integration demo with the Crafter environment, visualizing learned policies and value estimates.
+   - `eval.ipynb`: benchmark evaluation on NPuzzle, Sokoban environments with pre-trained components.
+   - `inference.ipynb`: hands-on use of inference components (Generator, CLLP, Value, Policy) to predict actions and subgoals.
+   - `ood_instances.ipynb`: generation and solving of out-of-distribution problem instances to test generalization.
+   - `ood_evaluation.ipynb`: analysis of model performance on OOD instances, including success rate and difficulty plots.
+   - `subgoal_search_npuzzle.ipynb`: detailed walkthrough of subgoal generation and search in the NPuzzle environment.
+
+5. **Run experiments from config**:  
    To execute experiments from a configuration file (required for remote or multi-node execution), follow these steps:
    - Understand the config structure: [CaRL Extension Over Hydra Config](#carl-extension-over-hydra-config).
    - Learn about [heterogeneous jobs](#heterogeneous-job-support) and how to run them remotely using the SLURM CaRL launcher.
@@ -79,7 +164,7 @@ Michał Tyrolski, Emilia Wiśnios, Gracjan Góral, Franek Budrowski, Michał Zaw
 
 ## CaRL Extension Over Hydra Config
 
-The CaRL library extends the **Hydra configuration system** to provide a flexible and scalable way to define and execute reinforcement learning experiments. This extension allows users to specify complex configurations for algorithms, workers, and grid searches, which are essential for running experiments in both local and distributed environments. Below, we break down the key components of the CaRL extension using simplified examples.
+The CaRL library extends the **Hydra configuration system** to provide a flexible and scalable way to define and execute reinforcement learning/imitation learning experiments for combintorial planning problems. This extension allows users to specify complex configurations for algorithms, workers, and grid searches, which are essential for running experiments in both local and distributed environments. Below, we break down the key components of the CaRL extension using simplified examples.
 
 ### Starting Point (`algorithm`)
 
@@ -191,6 +276,18 @@ python3 -m carl.run --config-dir experiments --config-name adaptive_subgoal_sear
 ```
 
 This method is suitable for quick tests or environments where a Jupyter Notebook is unavailable.
+
+#### Via Makefile Shortcut
+For convenience, you can invoke a local solve using the Makefile target:
+```sh
+make run_local_solve dir=configs/solve/sokoban name=sokoban_ada_solve
+```
+Under the hood this sets:
+```sh
+export HYDRA_FULL_ERROR=1 CUDA_VISIBLE_DEVICES=""
+python3 -m carl.run --config-dir=${dir} --config-name ${name}
+```
+and provides a quick shortcut for local execution.
 
 ---
 
@@ -321,69 +418,3 @@ python sync_clusters.py -c path/to/config.json -s source_cluster -t target_clust
 equivalent to `rsync -uvar ...`.
 
 ---
-
-## Datasets Demo
-
-Here are some dataset samples for exploring the codebase:
-
-- **NPuzzle:**
-  - Offline trajectories: `./rl-data/validation/npuzzle/offline/basic_solver`
-  - Problem instances (evaluation): `./rl-data/validation/npuzzle/progress/fin`
-- **Sokoban:**
-  - Offline trajectories: `./rl-data/validation/sokoban/offline/12-12-4/`
-  - Problem instances: `./rl-data/validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.35`, `boards_1000_b6_gs100_c300_p0.35`, `boards_1000_b7_gs100_c300_p0.35`
-- **Rubik:**
-  - Offline trajectories: `./rl-data/validation/rubik/offline/mixture_uniform`
-  - Problem instances (evaluation): `./rl-data/validation/rubik/progress/shuffle_general`
-
-For access to the full datasets used in various experiments, please contact the codebase authors.
-
----
-
-## Open Source Components
-
-|    | Env     | Component   | Dist   | Checkpoint                                    | Full Path                                                                   |
-|---:|:--------|:------------|:-------|:----------------------------------------------|:----------------------------------------------------------------------------|
-|  0 | NPuzzle | CLLP        | 4      | `cllp/4/checkpoint-294075`                    | `./rl-data/validation/npuzzle/components/moe/cllp/4/checkpoint-294075`                 |
-|  1 | NPuzzle | CLLP        | 8      | `cllp/8/checkpoint-225736`                    | `./rl-data/validation/npuzzle/components/moe/cllp/8/checkpoint-225736`                 |
-|  2 | NPuzzle | Generator   | 4      | `generator/4/checkpoint-48314`                | `./rl-data/validation/npuzzle/components/moe/generator/4/checkpoint-48314`             |
-|  3 | NPuzzle | Generator   | 8      | `generator/8/checkpoint-64090`                | `./rl-data/validation/npuzzle/components/moe/generator/8/checkpoint-64090`             |
-|  4 | NPuzzle | Policy      | N/A    | `policy/checkpoint-31552`                     | `./rl-data/validation/npuzzle/components/moe/policy/checkpoint-31552`                  |
-|  5 | NPuzzle | Value       | N/A    | `value/checkpoint-2825298`                    | `./rl-data/validation/npuzzle/components/moe/value/checkpoint-2825298`                 |
-|  6 | Rubik   | CLLP        | 4      | `cllp/4/checkpoint-2372409`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/4/checkpoint-2372409`          |
-|  7 | Rubik   | CLLP        | 5      | `cllp/5/checkpoint-2181045`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/5/checkpoint-2181045`          |
-|  8 | Rubik   | CLLP        | 6      | `cllp/6/checkpoint-2080640`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/6/checkpoint-2080640`          |
-|  9 | Rubik   | CLLP        | 7      | `cllp/7/checkpoint-2062690`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/7/checkpoint-2062690`          |
-| 10 | Rubik   | CLLP        | 8      | `cllp/8/checkpoint-1904720`                   | `./rl-data/validation/rubik/components/moe_uniform/cllp/8/checkpoint-1904720`          |
-| 11 | Rubik   | Generator   | 1      | `generator/1/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/1/checkpoint-217497`      |
-| 12 | Rubik   | Generator   | 2      | `generator/2/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/2/checkpoint-217497`      |
-| 13 | Rubik   | Generator   | 3      | `generator/3/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/3/checkpoint-217497`      |
-| 14 | Rubik   | Generator   | 4      | `generator/4/checkpoint-217497`               | `./rl-data/validation/rubik/components/moe_uniform/generator/4/checkpoint-217497`      |
-| 15 | Rubik   | Generator   | 5      | `generator/5/checkpoint-310710`               | `./rl-data/validation/rubik/components/moe_uniform/generator/5/checkpoint-310710`      |
-| 16 | Rubik   | Generator   | 6      | `generator/6/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/6/checkpoint-279639`      |
-| 17 | Rubik   | Generator   | 7      | `generator/7/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/7/checkpoint-279639`      |
-| 18 | Rubik   | Generator   | 8      | `generator/8/checkpoint-279639`               | `./rl-data/validation/rubik/components/moe_uniform/generator/8/checkpoint-279639`      |
-| 19 | Rubik   | Policy      | N/A    | `policy/checkpoint-763128`                    | `./rl-data/validation/rubik/components/moe_uniform/policy/checkpoint-763128`           |
-| 20 | Rubik   | Value       | N/A    | `value/checkpoint-14504490`                   | `./rl-data/validation/rubik/components/moe_uniform/value/checkpoint-14504490`          |
-| 21 | Sokoban | CLLP        | 1      | `cllp/1/checkpoint-149248`                    | `./rl-data/validation/sokoban/components/full_data/cllp/1/checkpoint-149248`           |
-| 22 | Sokoban | CLLP        | 16     | `cllp/16/checkpoint-37224`                    | `./rl-data/validation/sokoban/components/full_data/cllp/16/checkpoint-37224`           |
-| 23 | Sokoban | CLLP        | 32     | `cllp/32/checkpoint-20045`                    | `./rl-data/validation/sokoban/components/full_data/cllp/32/checkpoint-20045`           |
-| 24 | Sokoban | CLLP        | 4      | `cllp/4/checkpoint-587940`                    | `./rl-data/validation/sokoban/components/full_data/cllp/4/checkpoint-587940`           |
-| 25 | Sokoban | CLLP        | 8      | `cllp/8/checkpoint-167585`                    | `./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585`           |
-| 26 | Sokoban | Generator   | 1      | `generator/border/1/checkpoint-151712`        | `./rl-data/validation/sokoban/components/full_data/generator/border/1/checkpoint-151712`|
-| 27 | Sokoban | Generator   | 16     | `generator/border/16/checkpoint-52150`        | `./rl-data/validation/sokoban/components/full_data/generator/border/16/checkpoint-52150`|
-| 28 | Sokoban | Generator   | 32     | `generator/border/32/checkpoint-31290`        | `./rl-data/validation/sokoban/components/full_data/generator/border/32/checkpoint-31290`|
-| 29 | Sokoban | Generator   | 4      | `generator/border/4/checkpoint-75856`         | `./rl-data/validation/sokoban/components/full_data/generator/border/4/checkpoint-75856`|
-| 30 | Sokoban | Generator   | 8      | `generator/border/8/checkpoint-75856`         | `./rl-data/validation/sokoban/components/full_data/generator/border/8/checkpoint-75856`|
-| 31 | Sokoban | Generator   | 1      | `generator/no_border/1/checkpoint-284460`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/1/checkpoint-284460`|
-| 32 | Sokoban | Generator   | 4      | `generator/no_border/4/checkpoint-360316`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/4/checkpoint-360316`|
-| 33 | Sokoban | Generator   | 8      | `generator/no_border/8/checkpoint-284460`     | `./rl-data/validation/sokoban/components/full_data/generator/no_border/8/checkpoint-284460`|
-| 34 | Sokoban | Policy      | N/A    | `policy/checkpoint-94820`                     | `./rl-data/validation/sokoban/components/full_data/policy/checkpoint-94820`            |
-| 35 | Sokoban | Value       | N/A    | `value/checkpoint-1343100`                    | `./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100`           |
-
-Made on version v1.0.0 of the CaRL library to ensure reproducibility of algorithms on selected environments, using the components listed above.
-
-**NPuzzle, Sokoban:** [notebooks with evaluation](notebooks/eval.ipynb)
-
-For INT environment, please see [INT repository](https://github.com/mtyrolski/INT).
-
