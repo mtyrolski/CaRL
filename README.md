@@ -2,6 +2,7 @@
 
 - [CaRL Library README](#carl-library-readme)
   - [Introduction](#introduction)
+  - [CaRL leverages key components of SLURM, enabling the deployment of tasks across multiple nodes with varying specifications (heterogeneous job support). It offers a flexible way to define and execute tasks using a custom deployer that extends the Hydra Config syntax. Remote computation is handled via Apptainer (formerly Singularity) images, which are automatically generated. Experiment tracking is managed using Neptune.](#carl-leverages-key-components-of-slurm-enabling-the-deployment-of-tasks-across-multiple-nodes-with-varying-specifications-heterogeneous-job-support-it-offers-a-flexible-way-to-define-and-execute-tasks-using-a-custom-deployer-that-extends-the-hydra-config-syntax-remote-computation-is-handled-via-apptainer-formerly-singularity-images-which-are-automatically-generated-experiment-tracking-is-managed-using-neptune)
   - [Architecture Overview](#architecture-overview)
   - [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl)
   - [Codebase Authors](#codebase-authors)
@@ -29,74 +30,16 @@
 ## Introduction
 
 **Why?**  
-The **CaRL (Combinatorial Reinforcement Learning) Library** is designed for developing and scaling offline and online reinforcement learning experiments. It provides a comprehensive suite of tools for planning in **combinatorial problems**, including environments, data handling, inference components, training loops, and AI-guided search algorithms. The library comes with interactive notebooks in the `examples` folder, showcasing inference components used in published research. It includes fully operational environments such as `Sokoban`, `NPuzzle`, `Rubik`, and `INT`. Additionally, we provide **35 open-source models** of various types: `Generator`, `Value`, `Conditional Low-Level Policy`, and `Policy` (see [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl) and the full list in the [Open Source Components](#open-source-components) section).
+The **CaRL (Combinatorial Reinforcement Learning) Library** is designed for developing and scaling offline and online reinforcement/imitation learning experiments in combinatorial planning problems. It provides a comprehensive suite of tools for planning in **combinatorial problems**, including environments, data handling, inference components, training loops, and AI-guided search algorithms. The library comes with interactive notebooks in the `examples` folder, showcasing inference components used in published research. It includes fully operational environments such as `Sokoban`, `NPuzzle`, `Rubik`, and `INT`. Additionally, we provide **35 open-source models** of various types: `Generator`, `Value`, `Conditional Low-Level Policy`, and `Policy` (see [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl) and the full list in the [Open Source Components](#open-source-components) section).
 
 **How?**  
 CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation.html), enabling the deployment of tasks across multiple nodes with varying specifications (heterogeneous job support). It offers a flexible way to define and execute tasks using a custom deployer that extends the [Hydra Config](https://github.com/facebookresearch/hydra) syntax. Remote computation is handled via [Apptainer](https://apptainer.org/) (formerly Singularity) images, which are automatically generated. Experiment tracking is managed using [Neptune](https://neptune.ai).
 
----
-## Architecture Overview
-```mermaid
-flowchart LR
-  subgraph Environments
-    E1[NPuzzle]
-    E2[Sokoban]
-    E3[Rubik]
-    E4[INT]
-  end
-  subgraph Data & Trajectories
-    D1[Dataset]
-    DL[Dataloader]
-    TR[Trajectories/Instances]
-  end
-  subgraph Inference Components
-    direction TB
-    SG[Subgoal Generator]
-    CLLP[CLLP]
-    VAL[Value]
-    POL[Policy]
-  end
-  subgraph Execution
-    subgraph Planners
-      ASP[AdaptiveSubgoalPlanner]
-      GP[GreedyPlanner]
-      AST[A*Planner]
-      BFS[BFSPlanner]
-      TL[Training Loop]
-    end
-    subgraph Algorithms
-      FOS[FindOptimalSolutions]
-      DED[Dead-EndDetector]
-      SOL[SolveInstances]
-    end
-  end
-  subgraph Config & Deployment
-    HYDRA[Hydra Config]
-    SLURM[SLURM Launcher]
-    SD[Single-Node Deployment]
-    MD[Multi-Node Deployment]
-    GS[Grid Search]
-    LE[Local Execution]
-  end
+![Planning problem](img/planning.png)
 
-  E1 & E2 & E3 & E4 --> DL
-  DL --> D1 & TR
-  D1 --> DL
-  TR --> SG
-  Inference_Components["Inference Components"]
-  Algorithms_Block["Algorithms"]
-  SG & CLLP & VAL & POL --> Inference_Components
-  Inference_Components --> Algorithms_Block
-  Algorithms_Block --> GS
-  Algorithms_Block --> TL
-  TL --> GS
-  HYDRA --> TL & GS
-  HYDRA --> LE
-  LE --> TL
-  HYDRA --> SLURM
-  SLURM --> SD & MD
-```
----
+
+## Architecture Overview
+
 
 ---
 
@@ -222,7 +165,7 @@ For INT environment, please see [INT repository](https://github.com/mtyrolski/IN
 
 ## CaRL Extension Over Hydra Config
 
-The CaRL library extends the **Hydra configuration system** to provide a flexible and scalable way to define and execute reinforcement learning experiments. This extension allows users to specify complex configurations for algorithms, workers, and grid searches, which are essential for running experiments in both local and distributed environments. Below, we break down the key components of the CaRL extension using simplified examples.
+The CaRL library extends the **Hydra configuration system** to provide a flexible and scalable way to define and execute reinforcement learning/imitation learning experiments for combintorial planning problems. This extension allows users to specify complex configurations for algorithms, workers, and grid searches, which are essential for running experiments in both local and distributed environments. Below, we break down the key components of the CaRL extension using simplified examples.
 
 ### Starting Point (`algorithm`)
 
