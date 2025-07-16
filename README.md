@@ -39,6 +39,7 @@ CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation
 
 ## Architecture Overview
 
+![Architecture Overview](img/architecture.png)
 
 ---
 
@@ -54,7 +55,6 @@ CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation
 
 From late 2022 to 2024, this codebase was actively developed by various subgroups of our team. Here are the contributors and authors of the codebase (chronologically ordered):
 Michał Tyrolski, Emilia Wiśnios, Michał Zawalski, Gracjan Góral, Franek Budrowski  
-
 
 
 ## Datasets Demo
