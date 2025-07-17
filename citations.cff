@@ -1,0 +1,102 @@
+cff-version: 1.2.0
+message: "If you use the CaRL Library in your research, please cite this software as below."
+title: "CaRL Library: Combinatorial Reinforcement Learning for Planning and Imitation"
+abstract: |
+  The CaRL (Combinatorial Reinforcement Learning) Library is designed for developing and scaling offline and online reinforcement/imitation learning experiments in combinatorial planning problems. It provides tools for environments, data handling, inference, training loops, and AI-guided search algorithms, with support for distributed computation (SLURM, Apptainer), and comes with open-source models and interactive examples.
+authors:
+  - family-names: Tyrolski
+    given-names: Michał
+    orcid: "0000-0002-6244-0239"
+  - family-names: Wiśnios
+    given-names: Emilia
+  - family-names: Zawalski
+    given-names: Michał
+  - family-names: Góral
+    given-names: Gracjan
+  - family-names: Budrowski
+    given-names: Franek
+keywords:
+  - reinforcement learning
+  - combinatorial optimization
+  - imitation learning
+  - AI planning
+  - distributed computation
+  - SLURM
+  - Hydra
+  - Apptainer
+  - open source
+license: "Apache-2.0"
+repository-code: "https://github.com/mtyrolski/CaRL"
+contact:
+  - email: mtyrolski@gmail.com
+    name: Michał Tyrolski
+version: "1.0.0"
+date-released: "2024-06-15"
+url: "https://github.com/mtyrolski/CaRL"
+references:
+  - type: article
+    authors:
+      - family-names: Zawalski
+        given-names: Michał
+      - family-names: Góral
+        given-names: Gracjan
+      - family-names: Tyrolski
+        given-names: Michał
+      - family-names: Wiśnios
+        given-names: Emilia
+      - family-names: Budrowski
+        given-names: Franek
+      - family-names: Kuciński
+        given-names: Łukasz
+      - family-names: Miłoś
+        given-names: Piotr
+    title: "What Matters in Hierarchical Search for Combinatorial Reasoning Problems?"
+    year: 2024
+    url: "https://arxiv.org/abs/2406.03361"
+  - type: article
+    authors:
+      - family-names: Zawalski
+        given-names: Michał
+      - family-names: Tyrolski
+        given-names: Michał
+      - family-names: Czechowski
+        given-names: Kacper
+      - family-names: Odrzygóźdź
+        given-names: Tomasz
+      - family-names: Stachura
+        given-names: Dominik
+      - family-names: Piękos
+        given-names: Paweł
+      - family-names: Wu
+        given-names: Yuhuai
+      - family-names: Kuciński
+        given-names: Łukasz
+      - family-names: Miłoś
+        given-names: Piotr
+    title: "Fast and Precise: Adjusting Planning Horizon with Adaptive Subgoal Search"
+    year: 2022
+    url: "https://arxiv.org/abs/2206.00702"
+  - type: article
+    authors:
+      - family-names: Czechowski
+        given-names: Kacper
+      - family-names: Odrzygóźdź
+        given-names: Tomasz
+      - family-names: Zbysiński
+        given-names: Maciej
+      - family-names: Zawalski
+        given-names: Michał
+      - family-names: Olejnik
+        given-names: Kamil
+      - family-names: Wu
+        given-names: Yuhuai
+      - family-names: Kuciński
+        given-names: Łukasz
+      - family-names: Miłoś
+        given-names: Piotr
+    title: "Subgoal Search for Complex Reasoning Tasks"
+    year: 2021
+    journal: "Advances in Neural Information Processing Systems"
+    volume: "34"
+    pages: "624–638"
+    url: "https://papers.nips.cc/paper/2021/hash/29e6eb1e1e2e5a6a2b5e5e9c9e1e1d0b-Abstract.html"
