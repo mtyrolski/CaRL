@@ -1,5 +1,5 @@
 # Experiment name: sokoban_train_state_embedding_vae
-# Description: Train variational autoencoder for state embeddings in Sokoban domain
+# Description: Train HuggingFace BERT-based VAE for state embeddings in Sokoban domain
 # This enables regularized hierarchical latent space search with uncertainty modeling
 
 args:
@@ -22,9 +22,9 @@ algorithm:
   custom_logger:
     _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "sokoban_train_state_embedding_vae"
-    description: "Training variational autoencoder for Sokoban state embeddings"
+    description: "Training HuggingFace BERT-based VAE for Sokoban state embeddings"
     project: "pmtest/subexit"
-    tags: ["sokoban", "vae", "state_embedding", "12_12_4"]
+    tags: ["sokoban", "vae", "state_embedding", "12_12_4", "huggingface"]
     log_parameters: False
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
@@ -47,7 +47,7 @@ algorithm:
       eval_strategy: epoch
       per_device_train_batch_size: ${batch_size}
       per_device_eval_batch_size: ${batch_size}
-      learning_rate: 1e-3
+      learning_rate: 1e-4
       weight_decay: 0.001
       num_train_epochs: 150
       lr_scheduler_type: cosine
@@ -56,20 +56,24 @@ algorithm:
       save_strategy: epoch
       save_total_limit: 3
       load_best_model_at_end: True
-      metric_for_best_model: eval_reconstruction_mse
+      metric_for_best_model: eval_loss
       greater_is_better: False
       report_to: none
       warmup_steps: 500
       dataloader_num_workers: 4
   model:
     _partial_: True
-    _target_: carl.components.state_embeddings.StateVAE
-    input_dim: 144  # 12x12 board flattened
-    embedding_dim: 64
-    hidden_dims: [512, 256, 128]
-    dropout: 0.1
+    _target_: carl.components.state_embeddings.HFStateVAE
+  config:
+    _target_: carl.components.state_embeddings.StateEmbeddingConfig
+    vocab_size: 144  # 12x12 board flattened
+    hidden_size: 512
+    num_hidden_layers: 6
+    num_attention_heads: 8
+    intermediate_size: 2048
+    hidden_dropout_prob: 0.1
+    latent_dim: 64
     beta: 1.0  # KL divergence weight
-  config: null  # Not using HuggingFace config for custom PyTorch model
   
   do_finetune: False
   path_to_model_weights: null

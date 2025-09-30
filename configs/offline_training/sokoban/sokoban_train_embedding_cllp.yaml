@@ -1,5 +1,5 @@
 # Experiment name: sokoban_train_embedding_cllp
-# Description: Train conditional low-level policy conditioned on state and subgoal embeddings
+# Description: Train HuggingFace BERT-based conditional low-level policy conditioned on state and subgoal embeddings
 # This enables hierarchical navigation in latent space rather than discrete state space
 
 args:
@@ -22,9 +22,9 @@ algorithm:
   custom_logger:
     _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "sokoban_train_embedding_cllp"
-    description: "Training embedding-conditioned CLLP for Sokoban hierarchical navigation"
+    description: "Training HuggingFace BERT-based embedding-conditioned CLLP for Sokoban hierarchical navigation"
     project: "pmtest/subexit"
-    tags: ["sokoban", "embedding_cllp", "hierarchical", "12_12_4"]
+    tags: ["sokoban", "embedding_cllp", "hierarchical", "12_12_4", "huggingface", "bert"]
     log_parameters: False
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
@@ -57,20 +57,26 @@ algorithm:
       save_strategy: epoch
       save_total_limit: 3
       load_best_model_at_end: True
-      metric_for_best_model: eval_action_accuracy
-      greater_is_better: True
+      metric_for_best_model: eval_loss
+      greater_is_better: False
       report_to: none
       warmup_steps: 1000
       dataloader_num_workers: 4
   model:
     _partial_: True
-    _target_: carl.components.embedding_cllp.EmbeddingConditionedCLLP
+    _target_: carl.components.embedding_cllp.HFEmbeddingConditionedCLLP
+  config:
+    _target_: carl.components.embedding_cllp.EmbeddingCLLPConfig
+    vocab_size: 144
+    hidden_size: 512
+    num_hidden_layers: 6
+    num_attention_heads: 8
+    intermediate_size: 2048
     embedding_dim: 64  # Must match autoencoder embedding dimension
-    num_actions: 4  # Sokoban has 4 actions: up, down, left, right
-    hidden_dims: [512, 256]
-    dropout: 0.1
+    num_labels: 4  # Sokoban has 4 actions: up, down, left, right
     use_attention: True
-  config: null  # Not using HuggingFace config for custom PyTorch model
+    hidden_dropout_prob: 0.1
+    attention_probs_dropout_prob: 0.1
   
   do_finetune: False
   path_to_model_weights: null

@@ -1,114 +1,155 @@
-"""Embedding-conditioned Conditional Low-Level Policy for hierarchical navigation.
+"""Embedding-conditioned Conditional Low-Level Policy using HuggingFace transformers.
 
-This module implements CLLPs that operate on state embeddings rather than
-explicit states, enabling hierarchical latent space search and navigation
-to subgoals specified in embedding space.
+This module implements CLLPs that operate on state embeddings using BERT
+as the backbone architecture, following CaRL's established patterns.
 """
 
-from typing import Optional
-
+from typing import Dict, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from transformers import (
+    PreTrainedModel,
+    BertForSequenceClassification,
+    BertConfig,
+    BertModel,
+    AutoConfig,
+)
 
 
-class EmbeddingConditionedCLLP(nn.Module):
-    """Conditional Low-Level Policy conditioned on state and subgoal embeddings.
+class HFEmbeddingConditionedCLLP(BertForSequenceClassification):
+    """HuggingFace BERT-based CLLP conditioned on state and subgoal embeddings.
     
-    Takes current state embedding and target subgoal embedding to produce
-    action probabilities for navigating to the subgoal in embedding space.
+    Uses BERT architecture to process combined state and subgoal embeddings
+    and predict actions, following the same pattern as existing CLLPs in CaRL.
     """
     
-    def __init__(
-        self,
-        embedding_dim: int,
-        num_actions: int,
-        hidden_dims: Optional[list[int]] = None,
-        dropout: float = 0.1,
-        use_attention: bool = True,
-    ) -> None:
-        super().__init__()
-        self.embedding_dim = embedding_dim
-        self.num_actions = num_actions
-        self.hidden_dims = hidden_dims or [512, 256]
-        self.dropout = dropout
-        self.use_attention = use_attention
+    def __init__(self, config):
+        super().__init__(config)
         
-        # Embedding processing layers
-        self.state_proj = nn.Linear(embedding_dim, embedding_dim)
-        self.subgoal_proj = nn.Linear(embedding_dim, embedding_dim)
+        # Additional layers for embedding processing
+        self.state_projection = nn.Linear(config.embedding_dim, config.hidden_size)
+        self.subgoal_projection = nn.Linear(config.embedding_dim, config.hidden_size)
         
         # Cross-attention between state and subgoal embeddings
-        if use_attention:
+        if getattr(config, 'use_attention', True):
             self.cross_attention = nn.MultiheadAttention(
-                embed_dim=embedding_dim,
-                num_heads=8,
-                dropout=dropout,
+                embed_dim=config.hidden_size,
+                num_heads=config.num_attention_heads,
+                dropout=config.attention_probs_dropout_prob,
                 batch_first=True,
             )
-            self.attention_norm = nn.LayerNorm(embedding_dim)
+            self.attention_norm = nn.LayerNorm(config.hidden_size)
         
-        # Policy network
-        input_dim = embedding_dim * 2  # Concatenated state and subgoal embeddings
-        if use_attention:
-            input_dim += embedding_dim  # Add attended features
-            
-        layers = []
-        in_dim = input_dim
-        for hidden_dim in self.hidden_dims:
-            layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-                nn.LayerNorm(hidden_dim),
-            ])
-            in_dim = hidden_dim
-            
-        # Output layer for action probabilities
-        layers.append(nn.Linear(in_dim, num_actions))
-        
-        self.policy_network = nn.Sequential(*layers)
+        # Initialize weights
+        self.init_weights()
         
     def forward(
-        self, 
-        state_embedding: Tensor, 
-        subgoal_embedding: Tensor
-    ) -> Tensor:
-        """Predict action probabilities given state and subgoal embeddings.
+        self,
+        input_ids: Optional[Tensor] = None,
+        attention_mask: Optional[Tensor] = None,
+        token_type_ids: Optional[Tensor] = None,
+        position_ids: Optional[Tensor] = None,
+        head_mask: Optional[Tensor] = None,
+        inputs_embeds: Optional[Tensor] = None,
+        labels: Optional[Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        state_embedding: Optional[Tensor] = None,
+        subgoal_embedding: Optional[Tensor] = None,
+    ) -> Dict[str, Tensor]:
+        """Forward pass for action prediction given state and subgoal embeddings."""
         
-        Args:
-            state_embedding: Current state embedding [batch_size, embedding_dim]
-            subgoal_embedding: Target subgoal embedding [batch_size, embedding_dim]
-            
-        Returns:
-            Action logits [batch_size, num_actions]
-        """
-        # Process embeddings
-        state_proj = self.state_proj(state_embedding)
-        subgoal_proj = self.subgoal_proj(subgoal_embedding)
+        # If we have embeddings directly, process them
+        if state_embedding is not None and subgoal_embedding is not None:
+            return self._forward_embeddings(
+                state_embedding, subgoal_embedding, labels, return_dict
+            )
         
-        # Apply cross-attention if enabled
-        if self.use_attention:
+        # Otherwise, use standard BERT forward pass
+        return super().forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            labels=labels,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+    
+    def _forward_embeddings(
+        self,
+        state_embedding: Tensor,
+        subgoal_embedding: Tensor, 
+        labels: Optional[Tensor] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Dict[str, Tensor]:
+        """Process state and subgoal embeddings to predict actions."""
+        
+        # Project embeddings to BERT hidden size
+        state_proj = self.state_projection(state_embedding)
+        subgoal_proj = self.subgoal_projection(subgoal_embedding)
+        
+        # Apply cross-attention if configured
+        if hasattr(self, 'cross_attention'):
             attended, _ = self.cross_attention(
                 state_proj.unsqueeze(1),
                 subgoal_proj.unsqueeze(1),
                 subgoal_proj.unsqueeze(1),
             )
-            attended_features = attended.squeeze(1)
-            attended_features = self.attention_norm(attended_features)
+            attended_features = self.attention_norm(attended.squeeze(1))
             
-            # Concatenate all features
+            # Concatenate features
             combined_features = torch.cat([
                 state_proj, subgoal_proj, attended_features
             ], dim=-1)
+            
+            # Project back to hidden size
+            combined_features = nn.Linear(
+                combined_features.size(-1), 
+                self.config.hidden_size,
+                device=combined_features.device
+            )(combined_features)
         else:
+            # Simple concatenation and projection
             combined_features = torch.cat([state_proj, subgoal_proj], dim=-1)
+            combined_features = nn.Linear(
+                combined_features.size(-1),
+                self.config.hidden_size,
+                device=combined_features.device
+            )(combined_features)
         
-        # Generate action logits
-        action_logits = self.policy_network(combined_features)
+        # Pass through BERT classifier
+        # Create fake sequence with combined features as CLS token
+        inputs_embeds = combined_features.unsqueeze(1)  # [batch, 1, hidden_size]
+        attention_mask = torch.ones(
+            inputs_embeds.size(0), 1, 
+            device=inputs_embeds.device
+        )
         
-        return action_logits
+        outputs = self.bert(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+        )
+        
+        pooled_output = outputs.pooler_output
+        pooled_output = self.dropout(pooled_output)
+        action_logits = self.classifier(pooled_output)
+        
+        loss = None
+        if labels is not None:
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(action_logits.view(-1, self.num_labels), labels.view(-1))
+        
+        return {
+            'loss': loss,
+            'logits': action_logits,
+        }
     
     def get_action_probs(
         self, 
@@ -116,8 +157,8 @@ class EmbeddingConditionedCLLP(nn.Module):
         subgoal_embedding: Tensor
     ) -> Tensor:
         """Get action probabilities (softmax of logits)."""
-        logits = self.forward(state_embedding, subgoal_embedding)
-        return F.softmax(logits, dim=-1)
+        outputs = self._forward_embeddings(state_embedding, subgoal_embedding)
+        return F.softmax(outputs['logits'], dim=-1)
     
     def sample_action(
         self, 
@@ -126,7 +167,8 @@ class EmbeddingConditionedCLLP(nn.Module):
         temperature: float = 1.0,
     ) -> Tensor:
         """Sample action from policy distribution."""
-        logits = self.forward(state_embedding, subgoal_embedding) / temperature
+        outputs = self._forward_embeddings(state_embedding, subgoal_embedding)
+        logits = outputs['logits'] / temperature
         action_probs = F.softmax(logits, dim=-1)
         
         # Sample from categorical distribution
@@ -134,90 +176,58 @@ class EmbeddingConditionedCLLP(nn.Module):
         return action
 
 
-class HierarchicalEmbeddingCLLP(nn.Module):
-    """Hierarchical CLLP that handles multiple levels of subgoals in embedding space.
+class HFHierarchicalEmbeddingCLLP(PreTrainedModel):
+    """Hierarchical CLLP using BERT that handles multiple levels of subgoals."""
     
-    Can condition on both immediate and long-term subgoals for better
-    hierarchical navigation in complex environments.
-    """
-    
-    def __init__(
-        self,
-        embedding_dim: int,
-        num_actions: int,
-        num_hierarchy_levels: int = 2,
-        hidden_dims: Optional[list[int]] = None,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__()
-        self.embedding_dim = embedding_dim
-        self.num_actions = num_actions
-        self.num_hierarchy_levels = num_hierarchy_levels
-        self.hidden_dims = hidden_dims or [512, 256]
-        self.dropout = dropout
+    def __init__(self, config):
+        super().__init__(config)
         
-        # Separate projections for each hierarchy level
-        self.state_proj = nn.Linear(embedding_dim, embedding_dim)
+        # BERT backbone
+        self.bert = BertModel(config, add_pooling_layer=True)
+        
+        # Embedding projections for different hierarchy levels
+        self.state_projection = nn.Linear(config.embedding_dim, config.hidden_size)
         self.subgoal_projections = nn.ModuleList([
-            nn.Linear(embedding_dim, embedding_dim) 
-            for _ in range(num_hierarchy_levels)
+            nn.Linear(config.embedding_dim, config.hidden_size) 
+            for _ in range(config.num_hierarchy_levels)
         ])
         
         # Hierarchical attention
         self.hierarchy_attention = nn.ModuleList([
             nn.MultiheadAttention(
-                embed_dim=embedding_dim,
-                num_heads=4,
-                dropout=dropout,
+                embed_dim=config.hidden_size,
+                num_heads=config.num_attention_heads // 2,  # Fewer heads per level
+                dropout=config.attention_probs_dropout_prob,
                 batch_first=True,
-            ) for _ in range(num_hierarchy_levels)
+            ) for _ in range(config.num_hierarchy_levels)
         ])
         
         self.attention_norms = nn.ModuleList([
-            nn.LayerNorm(embedding_dim) 
-            for _ in range(num_hierarchy_levels)
+            nn.LayerNorm(config.hidden_size) 
+            for _ in range(config.num_hierarchy_levels)
         ])
         
-        # Hierarchy fusion
-        fusion_input_dim = embedding_dim * (1 + num_hierarchy_levels * 2)  # state + (subgoal + attended) per level
-        self.hierarchy_fusion = nn.Sequential(
-            nn.Linear(fusion_input_dim, embedding_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-        )
+        # Fusion and classifier
+        fusion_input_dim = config.hidden_size * (1 + config.num_hierarchy_levels * 2)
+        self.hierarchy_fusion = nn.Linear(fusion_input_dim, config.hidden_size)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
         
-        # Policy network
-        layers = []
-        in_dim = embedding_dim
-        for hidden_dim in self.hidden_dims:
-            layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-                nn.LayerNorm(hidden_dim),
-            ])
-            in_dim = hidden_dim
-            
-        layers.append(nn.Linear(in_dim, num_actions))
-        self.policy_network = nn.Sequential(*layers)
+        # Initialize weights
+        self.init_weights()
         
     def forward(
-        self, 
-        state_embedding: Tensor, 
-        subgoal_embeddings: list[Tensor]
-    ) -> Tensor:
-        """Predict actions given state and hierarchical subgoal embeddings.
+        self,
+        state_embedding: Tensor,
+        subgoal_embeddings: list[Tensor],
+        labels: Optional[Tensor] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Dict[str, Tensor]:
+        """Predict actions given state and hierarchical subgoal embeddings."""
         
-        Args:
-            state_embedding: Current state embedding [batch_size, embedding_dim]
-            subgoal_embeddings: List of subgoal embeddings for each hierarchy level
-            
-        Returns:
-            Action logits [batch_size, num_actions]
-        """
-        assert len(subgoal_embeddings) == self.num_hierarchy_levels
+        assert len(subgoal_embeddings) == self.config.num_hierarchy_levels
         
-        state_proj = self.state_proj(state_embedding)
+        state_proj = self.state_projection(state_embedding)
         hierarchy_features = [state_proj]
         
         # Process each hierarchy level
@@ -240,171 +250,148 @@ class HierarchicalEmbeddingCLLP(nn.Module):
         fused_features = self.hierarchy_fusion(combined_features)
         
         # Generate action logits
-        action_logits = self.policy_network(fused_features)
+        pooled_output = self.dropout(fused_features)
+        action_logits = self.classifier(pooled_output)
         
-        return action_logits
+        loss = None
+        if labels is not None:
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(action_logits.view(-1, self.config.num_labels), labels.view(-1))
+        
+        return {
+            'loss': loss,
+            'logits': action_logits,
+        }
 
 
-class ProgressAwareCLLP(nn.Module):
-    """CLLP that tracks progress towards subgoals in embedding space.
+class HFProgressAwareCLLP(PreTrainedModel):
+    """BERT-based CLLP that tracks progress towards subgoals."""
     
-    Maintains an estimate of progress and adjusts actions accordingly,
-    useful for long-horizon navigation tasks.
-    """
-    
-    def __init__(
-        self,
-        embedding_dim: int,
-        num_actions: int,
-        hidden_dims: Optional[list[int]] = None,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__()
-        self.embedding_dim = embedding_dim
-        self.num_actions = num_actions
-        self.hidden_dims = hidden_dims or [512, 256]
-        self.dropout = dropout
+    def __init__(self, config):
+        super().__init__(config)
+        
+        # BERT backbone
+        self.bert = BertModel(config, add_pooling_layer=True)
         
         # Embedding processing
-        self.state_proj = nn.Linear(embedding_dim, embedding_dim)
-        self.subgoal_proj = nn.Linear(embedding_dim, embedding_dim)
+        self.state_projection = nn.Linear(config.embedding_dim, config.hidden_size)
+        self.subgoal_projection = nn.Linear(config.embedding_dim, config.hidden_size)
         
         # Progress estimation
         self.progress_estimator = nn.Sequential(
-            nn.Linear(embedding_dim * 2, 128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(128, 1),
+            nn.Linear(config.hidden_size * 2, config.intermediate_size // 4),
+            nn.ReLU(),
+            nn.Dropout(config.hidden_dropout_prob),
+            nn.Linear(config.intermediate_size // 4, 1),
             nn.Sigmoid(),
         )
         
         # Progress-aware policy
-        input_dim = embedding_dim * 2 + 1  # state + subgoal + progress
-        layers = []
-        in_dim = input_dim
-        for hidden_dim in self.hidden_dims:
-            layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-                nn.LayerNorm(hidden_dim),
-            ])
-            in_dim = hidden_dim
-            
-        layers.append(nn.Linear(in_dim, num_actions))
-        self.policy_network = nn.Sequential(*layers)
+        self.classifier = nn.Linear(config.hidden_size * 2 + 1, config.num_labels)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        
+        # Initialize weights
+        self.init_weights()
         
     def forward(
-        self, 
-        state_embedding: Tensor, 
-        subgoal_embedding: Tensor
-    ) -> tuple[Tensor, Tensor]:
-        """Predict actions and progress towards subgoal.
+        self,
+        state_embedding: Tensor,
+        subgoal_embedding: Tensor,
+        labels: Optional[Tensor] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Dict[str, Tensor]:
+        """Predict actions and progress towards subgoal."""
         
-        Returns:
-            Tuple of (action_logits, progress_estimate)
-        """
-        state_proj = self.state_proj(state_embedding)
-        subgoal_proj = self.subgoal_proj(subgoal_embedding)
+        state_proj = self.state_projection(state_embedding)
+        subgoal_proj = self.subgoal_projection(subgoal_embedding)
         
         # Estimate progress
         combined_for_progress = torch.cat([state_proj, subgoal_proj], dim=-1)
-        progress = self.progress_estimator(combined_for_progress)
+        progress = self.progress_estimator(combined_for_progress).squeeze(-1)
         
         # Generate actions with progress awareness
-        combined_for_policy = torch.cat([state_proj, subgoal_proj, progress], dim=-1)
-        action_logits = self.policy_network(combined_for_policy)
+        combined_for_policy = torch.cat([state_proj, subgoal_proj, progress.unsqueeze(-1)], dim=-1)
+        combined_for_policy = self.dropout(combined_for_policy)
+        action_logits = self.classifier(combined_for_policy)
         
-        return action_logits, progress.squeeze(-1)
+        loss = None
+        if labels is not None:
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(action_logits.view(-1, self.config.num_labels), labels.view(-1))
+        
+        return {
+            'loss': loss,
+            'logits': action_logits,
+            'progress': progress,
+        }
 
 
-class ResidualEmbeddingCLLP(nn.Module):
-    """CLLP with residual connections for better gradient flow.
-    
-    Particularly useful for deep networks and complex navigation tasks.
-    """
+# Configuration class for embedding CLLPs
+class EmbeddingCLLPConfig(BertConfig):
+    """Configuration for embedding-conditioned CLLPs."""
     
     def __init__(
         self,
-        embedding_dim: int,
-        num_actions: int,
-        num_residual_blocks: int = 3,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__()
+        vocab_size=144,  # State vocabulary size
+        hidden_size=512,
+        num_hidden_layers=6,
+        num_attention_heads=8,
+        intermediate_size=2048,
+        embedding_dim=64,  # Embedding space dimension
+        num_labels=4,  # Number of actions (e.g., 4 for Sokoban)
+        use_attention=True,  # Whether to use cross-attention
+        num_hierarchy_levels=2,  # For hierarchical CLLP
+        hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1,
+        **kwargs
+    ):
+        super().__init__(
+            vocab_size=vocab_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
+            num_labels=num_labels,
+            hidden_dropout_prob=hidden_dropout_prob,
+            attention_probs_dropout_prob=attention_probs_dropout_prob,
+            **kwargs
+        )
         self.embedding_dim = embedding_dim
-        self.num_actions = num_actions
-        self.num_residual_blocks = num_residual_blocks
-        
-        # Input projections
-        self.state_proj = nn.Linear(embedding_dim, embedding_dim)
-        self.subgoal_proj = nn.Linear(embedding_dim, embedding_dim)
-        
-        # Initial fusion
-        self.input_fusion = nn.Sequential(
-            nn.Linear(embedding_dim * 2, embedding_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-        )
-        
-        # Residual blocks
-        self.residual_blocks = nn.ModuleList([
-            self._make_residual_block(embedding_dim, dropout)
-            for _ in range(num_residual_blocks)
-        ])
-        
-        # Output layer
-        self.output_layer = nn.Linear(embedding_dim, num_actions)
-        
-    def _make_residual_block(self, dim: int, dropout: float) -> nn.Module:
-        """Create a residual block."""
-        return nn.Sequential(
-            nn.Linear(dim, dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(dim, dim),
-            nn.Dropout(dropout),
-        )
-        
-    def forward(
-        self, 
-        state_embedding: Tensor, 
-        subgoal_embedding: Tensor
-    ) -> Tensor:
-        """Forward pass with residual connections."""
-        state_proj = self.state_proj(state_embedding)
-        subgoal_proj = self.subgoal_proj(subgoal_embedding)
-        
-        # Initial fusion
-        x = self.input_fusion(torch.cat([state_proj, subgoal_proj], dim=-1))
-        
-        # Apply residual blocks
-        for block in self.residual_blocks:
-            residual = x
-            x = block(x) + residual
-            x = F.relu(x)
-        
-        # Output
-        action_logits = self.output_layer(x)
-        
-        return action_logits
+        self.use_attention = use_attention
+        self.num_hierarchy_levels = num_hierarchy_levels
+
+
+# Register with transformers
+AutoConfig.register("embedding_cllp", EmbeddingCLLPConfig)
+
+
+# Convenience functions
+def create_embedding_cllp_config(**kwargs) -> EmbeddingCLLPConfig:
+    """Create configuration for embedding CLLP."""
+    return EmbeddingCLLPConfig(**kwargs)
 
 
 # Loss functions for embedding CLLP training
-def cllp_loss(action_logits: Tensor, target_actions: Tensor) -> Tensor:
+def cllp_loss(outputs: Dict[str, Tensor], labels: Tensor) -> Tensor:
     """Standard cross-entropy loss for CLLP training."""
-    return F.cross_entropy(action_logits, target_actions)
+    if 'loss' in outputs and outputs['loss'] is not None:
+        return outputs['loss']
+    
+    logits = outputs['logits']
+    return F.cross_entropy(logits, labels)
 
 
 def progress_aware_cllp_loss(
-    action_logits: Tensor, 
-    progress_estimate: Tensor,
-    target_actions: Tensor,
-    target_progress: Tensor,
+    outputs: Dict[str, Tensor],
+    labels: Tensor,
+    target_progress: Optional[Tensor] = None,
     progress_weight: float = 0.1,
 ) -> Tensor:
     """Combined loss for progress-aware CLLP."""
-    action_loss = F.cross_entropy(action_logits, target_actions)
-    progress_loss = F.mse_loss(progress_estimate, target_progress)
+    action_loss = cllp_loss(outputs, labels)
     
-    return action_loss + progress_weight * progress_loss
+    if 'progress' in outputs and target_progress is not None:
+        progress_loss = F.mse_loss(outputs['progress'], target_progress)
+        return action_loss + progress_weight * progress_loss
+    
+    return action_loss

@@ -1,164 +1,125 @@
-"""State embedding models for hierarchical latent space search.
+"""State embedding models using HuggingFace transformers for hierarchical latent space search.
 
 This module implements Autoencoder (AE) and Variational Autoencoder (VAE)
-models for learning compressed latent embeddings of game states, particularly
-for Sokoban domain. These embeddings enable hierarchical planning in continuous
-latent space rather than discrete state space.
+models using HuggingFace transformer backbones for learning compressed latent 
+embeddings of game states, particularly for Sokoban domain.
 """
 
-from abc import ABC, abstractmethod
-from typing import Optional, Tuple
-
+from typing import Optional, Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from transformers import (
+    PreTrainedModel, 
+    BertModel, 
+    BertConfig,
+    AutoModel,
+    AutoConfig
+)
 
 
-class BaseStateEmbedding(nn.Module, ABC):
-    """Base class for state embedding models."""
+class HFStateAutoencoder(PreTrainedModel):
+    """HuggingFace-based autoencoder for state embeddings.
     
-    def __init__(
-        self,
-        input_dim: int,
-        embedding_dim: int,
-        hidden_dims: Optional[list[int]] = None,
-    ) -> None:
-        super().__init__()
-        self.input_dim = input_dim
-        self.embedding_dim = embedding_dim
-        self.hidden_dims = hidden_dims or [512, 256]
-        
-    @abstractmethod
-    def encode(self, x: Tensor) -> Tensor:
-        """Encode state to embedding."""
-        raise NotImplementedError
-        
-    @abstractmethod
-    def decode(self, z: Tensor) -> Tensor:
-        """Decode embedding back to state."""
-        raise NotImplementedError
-        
-    @abstractmethod
-    def forward(self, x: Tensor) -> dict[str, Tensor]:
-        """Forward pass returning reconstruction and other outputs."""
-        raise NotImplementedError
-
-
-class StateAutoencoder(BaseStateEmbedding):
-    """Standard autoencoder for state embeddings.
-    
-    Learns a deterministic mapping from states to latent embeddings
-    that can be used for hierarchical planning.
+    Uses BERT encoder as the backbone and adds a decoder head for reconstruction.
+    This follows the HuggingFace patterns used throughout CaRL.
     """
     
-    def __init__(
-        self,
-        input_dim: int,
-        embedding_dim: int,
-        hidden_dims: Optional[list[int]] = None,
-        dropout: float = 0.1,
-    ) -> None:
-        super().__init__(input_dim, embedding_dim, hidden_dims)
-        self.dropout = dropout
+    def __init__(self, config):
+        super().__init__(config)
         
-        # Build encoder
-        encoder_layers = []
-        in_dim = input_dim
-        for hidden_dim in self.hidden_dims:
-            encoder_layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-            ])
-            in_dim = hidden_dim
-        encoder_layers.append(nn.Linear(in_dim, embedding_dim))
-        self.encoder = nn.Sequential(*encoder_layers)
+        # Use BERT encoder as backbone
+        self.encoder = BertModel(config, add_pooling_layer=False)
         
-        # Build decoder  
-        decoder_layers = []
-        in_dim = embedding_dim
-        for hidden_dim in reversed(self.hidden_dims):
-            decoder_layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-            ])
-            in_dim = hidden_dim
-        decoder_layers.append(nn.Linear(in_dim, input_dim))
-        self.decoder = nn.Sequential(*decoder_layers)
+        # Decoder layers to reconstruct from hidden states
+        self.decoder = nn.Sequential(
+            nn.Linear(config.hidden_size, config.intermediate_size),
+            nn.ReLU(),
+            nn.Dropout(config.hidden_dropout_prob),
+            nn.Linear(config.intermediate_size, config.vocab_size),
+        )
         
-    def encode(self, x: Tensor) -> Tensor:
-        """Encode state to embedding."""
-        return self.encoder(x)
+        # Initialize weights
+        self.init_weights()
         
-    def decode(self, z: Tensor) -> Tensor:
-        """Decode embedding back to state."""
-        return self.decoder(z)
+    def encode(self, input_ids: Tensor, attention_mask: Optional[Tensor] = None) -> Tensor:
+        """Encode input to embedding using BERT encoder."""
+        outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        # Use CLS token embedding as state embedding
+        return outputs.last_hidden_state[:, 0, :]  # [batch_size, hidden_size]
         
-    def forward(self, x: Tensor) -> dict[str, Tensor]:
-        """Forward pass returning reconstruction."""
-        embedding = self.encode(x)
-        reconstruction = self.decode(embedding)
+    def decode(self, embeddings: Tensor) -> Tensor:
+        """Decode embeddings back to token space."""
+        return self.decoder(embeddings)
+        
+    def forward(
+        self, 
+        input_ids: Tensor, 
+        attention_mask: Optional[Tensor] = None,
+        labels: Optional[Tensor] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Dict[str, Tensor]:
+        """Forward pass returning reconstruction and embedding."""
+        # Encode to embedding
+        embedding = self.encode(input_ids, attention_mask)
+        
+        # Decode back to token space
+        reconstruction_logits = self.decode(embedding)
+        
+        loss = None
+        if labels is not None:
+            # Reconstruction loss
+            loss_fct = nn.CrossEntropyLoss()
+            loss = loss_fct(reconstruction_logits.view(-1, self.config.vocab_size), 
+                          labels.view(-1))
+        
         return {
-            'reconstruction': reconstruction,
+            'loss': loss,
+            'logits': reconstruction_logits,
             'embedding': embedding,
+            'reconstruction': reconstruction_logits,
         }
 
 
-class StateVAE(BaseStateEmbedding):
-    """Variational autoencoder for state embeddings.
+class HFStateVAE(PreTrainedModel):
+    """HuggingFace-based Variational Autoencoder for state embeddings.
     
-    Learns a probabilistic mapping from states to latent embeddings
-    with regularization via KL divergence to prior distribution.
+    Uses BERT encoder as backbone with additional VAE components.
     """
     
-    def __init__(
-        self,
-        input_dim: int,
-        embedding_dim: int,
-        hidden_dims: Optional[list[int]] = None,
-        dropout: float = 0.1,
-        beta: float = 1.0,
-    ) -> None:
-        super().__init__(input_dim, embedding_dim, hidden_dims)
-        self.dropout = dropout
-        self.beta = beta  # KL divergence weight
+    def __init__(self, config):
+        super().__init__(config)
         
-        # Build encoder
-        encoder_layers = []
-        in_dim = input_dim
-        for hidden_dim in self.hidden_dims:
-            encoder_layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-            ])
-            in_dim = hidden_dim
-        self.encoder_backbone = nn.Sequential(*encoder_layers)
+        # Use BERT encoder as backbone
+        self.encoder = BertModel(config, add_pooling_layer=False)
         
-        # Mean and log variance heads
-        self.mu_head = nn.Linear(in_dim, embedding_dim)
-        self.logvar_head = nn.Linear(in_dim, embedding_dim)
+        # VAE components
+        self.mu_head = nn.Linear(config.hidden_size, config.latent_dim)
+        self.logvar_head = nn.Linear(config.hidden_size, config.latent_dim)
         
-        # Build decoder
-        decoder_layers = []
-        in_dim = embedding_dim
-        for hidden_dim in reversed(self.hidden_dims):
-            decoder_layers.extend([
-                nn.Linear(in_dim, hidden_dim),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-            ])
-            in_dim = hidden_dim
-        decoder_layers.append(nn.Linear(in_dim, input_dim))
-        self.decoder = nn.Sequential(*decoder_layers)
+        # Decoder from latent space back to token space
+        self.decoder = nn.Sequential(
+            nn.Linear(config.latent_dim, config.intermediate_size),
+            nn.ReLU(),
+            nn.Dropout(config.hidden_dropout_prob),
+            nn.Linear(config.intermediate_size, config.vocab_size),
+        )
         
-    def encode(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        """Encode state to mean and log variance."""
-        features = self.encoder_backbone(x)
-        mu = self.mu_head(features)
-        logvar = self.logvar_head(features)
+        # KL weight
+        self.beta = getattr(config, 'beta', 1.0)
+        
+        # Initialize weights
+        self.init_weights()
+        
+    def encode(self, input_ids: Tensor, attention_mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor]:
+        """Encode input to mean and log variance."""
+        outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        hidden_state = outputs.last_hidden_state[:, 0, :]  # CLS token
+        
+        mu = self.mu_head(hidden_state)
+        logvar = self.logvar_head(hidden_state)
+        
         return mu, logvar
         
     def reparameterize(self, mu: Tensor, logvar: Tensor) -> Tensor:
@@ -168,165 +129,123 @@ class StateVAE(BaseStateEmbedding):
         return mu + eps * std
         
     def decode(self, z: Tensor) -> Tensor:
-        """Decode embedding back to state."""
+        """Decode latent embedding back to token space."""
         return self.decoder(z)
         
-    def forward(self, x: Tensor) -> dict[str, Tensor]:
-        """Forward pass returning reconstruction and KL divergence."""
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        reconstruction = self.decode(z)
+    def forward(
+        self, 
+        input_ids: Tensor,
+        attention_mask: Optional[Tensor] = None,
+        labels: Optional[Tensor] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Dict[str, Tensor]:
+        """Forward pass returning reconstruction, embedding, and KL divergence."""
+        # Encode to mean and log variance
+        mu, logvar = self.encode(input_ids, attention_mask)
         
-        # KL divergence
+        # Sample from latent distribution
+        z = self.reparameterize(mu, logvar)
+        
+        # Decode back to token space
+        reconstruction_logits = self.decode(z)
+        
+        # Compute KL divergence
         kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
         
+        loss = None
+        if labels is not None:
+            # Reconstruction loss
+            reconstruction_loss = F.cross_entropy(
+                reconstruction_logits.view(-1, self.config.vocab_size),
+                labels.view(-1),
+                reduction='none'
+            ).view(labels.shape[0], -1).mean(dim=1)
+            
+            # Total VAE loss
+            loss = reconstruction_loss + self.beta * kl_div
+            loss = loss.mean()
+        
         return {
-            'reconstruction': reconstruction,
+            'loss': loss,
+            'logits': reconstruction_logits,
             'embedding': z,
+            'reconstruction': reconstruction_logits,
             'mu': mu,
             'logvar': logvar,
             'kl_div': kl_div,
         }
 
 
-class Conv2DStateAutoencoder(BaseStateEmbedding):
-    """Convolutional autoencoder for 2D state representations like Sokoban boards.
-    
-    Specifically designed for spatial game states that can benefit from
-    convolutional processing rather than fully connected layers.
-    """
+# Configuration classes for the custom models
+class StateEmbeddingConfig(BertConfig):
+    """Configuration for state embedding models."""
     
     def __init__(
         self,
-        input_channels: int,
-        input_height: int,
-        input_width: int,
-        embedding_dim: int,
-        conv_channels: Optional[list[int]] = None,
-        dropout: float = 0.1,
-    ) -> None:
-        # Calculate flattened input dimension for compatibility
-        input_dim = input_channels * input_height * input_width
-        super().__init__(input_dim, embedding_dim)
-        
-        self.input_channels = input_channels
-        self.input_height = input_height
-        self.input_width = input_width
-        self.conv_channels = conv_channels or [32, 64, 128]
-        self.dropout = dropout
-        
-        # Build convolutional encoder
-        encoder_layers = []
-        in_channels = input_channels
-        for out_channels in self.conv_channels:
-            encoder_layers.extend([
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2, 2),
-                nn.Dropout2d(dropout),
-            ])
-            in_channels = out_channels
-            
-        self.conv_encoder = nn.Sequential(*encoder_layers)
-        
-        # Calculate feature size after convolutions
-        with torch.no_grad():
-            dummy_input = torch.zeros(1, input_channels, input_height, input_width)
-            conv_output = self.conv_encoder(dummy_input)
-            self.feature_size = conv_output.numel()
-            self.conv_output_shape = conv_output.shape[1:]
-            
-        # Fully connected encoder
-        self.fc_encoder = nn.Sequential(
-            nn.Linear(self.feature_size, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(512, embedding_dim),
+        vocab_size=144,  # Flattened state size (12x12 for Sokoban)
+        hidden_size=512,
+        num_hidden_layers=6,
+        num_attention_heads=8,
+        intermediate_size=2048,
+        hidden_dropout_prob=0.1,
+        latent_dim=64,  # For VAE
+        beta=1.0,  # KL weight for VAE
+        **kwargs
+    ):
+        super().__init__(
+            vocab_size=vocab_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
+            hidden_dropout_prob=hidden_dropout_prob,
+            **kwargs
         )
-        
-        # Fully connected decoder
-        self.fc_decoder = nn.Sequential(
-            nn.Linear(embedding_dim, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(512, self.feature_size),
-            nn.ReLU(inplace=True),
-        )
-        
-        # Build convolutional decoder
-        decoder_layers = []
-        in_channels = self.conv_channels[-1]
-        for out_channels in reversed(self.conv_channels[:-1]):
-            decoder_layers.extend([
-                nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
-                nn.ReLU(inplace=True),
-                nn.Dropout2d(dropout),
-            ])
-            in_channels = out_channels
-            
-        # Final layer to get back to input channels
-        decoder_layers.append(
-            nn.ConvTranspose2d(
-                in_channels, input_channels, 
-                kernel_size=3, stride=2, padding=1, output_padding=1
-            )
-        )
-        self.conv_decoder = nn.Sequential(*decoder_layers)
-        
-    def encode(self, x: Tensor) -> Tensor:
-        """Encode 2D state to embedding."""
-        # Reshape if input is flattened
-        if x.dim() == 2:
-            x = x.view(-1, self.input_channels, self.input_height, self.input_width)
-        elif x.dim() == 3:
-            x = x.unsqueeze(1)  # Add channel dimension
-            
-        conv_features = self.conv_encoder(x)
-        flattened = conv_features.view(conv_features.size(0), -1)
-        embedding = self.fc_encoder(flattened)
-        return embedding
-        
-    def decode(self, z: Tensor) -> Tensor:
-        """Decode embedding back to 2D state."""
-        fc_output = self.fc_decoder(z)
-        conv_input = fc_output.view(-1, *self.conv_output_shape)
-        reconstruction_2d = self.conv_decoder(conv_input)
-        
-        # Crop or pad to match input size
-        if reconstruction_2d.shape[-2:] != (self.input_height, self.input_width):
-            reconstruction_2d = F.interpolate(
-                reconstruction_2d, 
-                size=(self.input_height, self.input_width), 
-                mode='bilinear', 
-                align_corners=False
-            )
-        
-        # Return flattened for compatibility with existing pipeline
-        return reconstruction_2d.view(reconstruction_2d.size(0), -1) 
-        
-    def forward(self, x: Tensor) -> dict[str, Tensor]:
-        """Forward pass returning reconstruction."""
-        embedding = self.encode(x)
-        reconstruction = self.decode(embedding)
-        return {
-            'reconstruction': reconstruction,
-            'embedding': embedding,
-        }
+        self.latent_dim = latent_dim
+        self.beta = beta
 
 
-# Loss functions for training embeddings
-def autoencoder_loss(outputs: dict[str, Tensor], targets: Tensor) -> Tensor:
+# Register the models with transformers
+from transformers import AutoConfig, AutoModel
+
+AutoConfig.register("state_embedding", StateEmbeddingConfig)
+AutoModel.register(StateEmbeddingConfig, HFStateAutoencoder)
+
+
+# Convenience functions for creating models
+def create_state_autoencoder_config(**kwargs) -> StateEmbeddingConfig:
+    """Create configuration for state autoencoder."""
+    return StateEmbeddingConfig(**kwargs)
+
+
+def create_state_vae_config(**kwargs) -> StateEmbeddingConfig:
+    """Create configuration for state VAE."""
+    return StateEmbeddingConfig(**kwargs)
+
+
+# Loss functions for training
+def autoencoder_loss(outputs: Dict[str, Tensor], labels: Tensor) -> Tensor:
     """Standard reconstruction loss for autoencoder."""
-    reconstruction = outputs['reconstruction']
-    return F.mse_loss(reconstruction, targets)
+    if 'loss' in outputs and outputs['loss'] is not None:
+        return outputs['loss']
+    
+    logits = outputs['logits']
+    return F.cross_entropy(logits.view(-1, logits.size(-1)), labels.view(-1))
 
 
-def vae_loss(outputs: dict[str, Tensor], targets: Tensor, beta: float = 1.0) -> Tensor:
+def vae_loss(outputs: Dict[str, Tensor], labels: Tensor, beta: float = 1.0) -> Tensor:
     """VAE loss combining reconstruction and KL divergence."""
-    reconstruction = outputs['reconstruction']
+    if 'loss' in outputs and outputs['loss'] is not None:
+        return outputs['loss']
+    
+    logits = outputs['logits']
     kl_div = outputs['kl_div']
     
-    reconstruction_loss = F.mse_loss(reconstruction, targets)
-    kl_loss = torch.mean(kl_div)
+    reconstruction_loss = F.cross_entropy(
+        logits.view(-1, logits.size(-1)), 
+        labels.view(-1),
+        reduction='none'
+    ).view(labels.shape[0], -1).mean(dim=1)
     
-    return reconstruction_loss + beta * kl_loss
+    total_loss = reconstruction_loss + beta * kl_div
+    return total_loss.mean()

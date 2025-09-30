@@ -1,5 +1,5 @@
 # Experiment name: sokoban_train_embedding_generator_k4
-# Description: Train embedding generator for k=4 step subgoals in latent space
+# Description: Train HuggingFace BART-based embedding generator for k=4 step subgoals in latent space
 # This enables hierarchical planning with 4-step lookahead in embedding space
 
 args:
@@ -22,9 +22,9 @@ algorithm:
   custom_logger:
     _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "sokoban_train_embedding_generator_k4"
-    description: "Training embedding generator for 4-step subgoals in Sokoban"
+    description: "Training HuggingFace BART-based embedding generator for 4-step subgoals in Sokoban"
     project: "pmtest/subexit"
-    tags: ["sokoban", "embedding_generator", "k4", "12_12_4"]
+    tags: ["sokoban", "embedding_generator", "k4", "12_12_4", "huggingface", "bart"]
     log_parameters: False
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
@@ -57,20 +57,27 @@ algorithm:
       save_strategy: epoch
       save_total_limit: 3
       load_best_model_at_end: True
-      metric_for_best_model: eval_embedding_cosine_similarity
-      greater_is_better: True
+      metric_for_best_model: eval_loss
+      greater_is_better: False
       report_to: none
       warmup_steps: 1000
       dataloader_num_workers: 4
   model:
     _partial_: True
-    _target_: carl.components.embedding_generator.EmbeddingGenerator
+    _target_: carl.components.embedding_generator.HFEmbeddingGenerator
+  config:
+    _target_: carl.components.embedding_generator.EmbeddingGeneratorConfig
+    vocab_size: 144
+    d_model: 512
+    encoder_layers: 4
+    decoder_layers: 4
+    encoder_attention_heads: 8
+    decoder_attention_heads: 8
+    encoder_ffn_dim: 2048
+    decoder_ffn_dim: 2048
     embedding_dim: 64  # Must match autoencoder embedding dimension
-    hidden_dims: [512, 256]
-    k_steps: 4
+    max_k_steps: 32
     dropout: 0.1
-    use_attention: True
-  config: null  # Not using HuggingFace config for custom PyTorch model
   
   do_finetune: False
   path_to_model_weights: null

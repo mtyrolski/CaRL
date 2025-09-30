@@ -22,9 +22,9 @@ algorithm:
   custom_logger:
     _target_: carl.utils.loggers.NeptuneCaRLLogger
     name: "sokoban_train_embedding_generator_k16"
-    description: "Training embedding generator for 16-step subgoals in Sokoban"  
+    description: "Training HuggingFace BART-based embedding generator for 16-step subgoals in Sokoban"  
     project: "pmtest/subexit"
-    tags: ["sokoban", "embedding_generator", "k16", "12_12_4"]
+    tags: ["sokoban", "embedding_generator", "k16", "12_12_4", "huggingface", "bart"]
     log_parameters: False
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule
@@ -64,14 +64,21 @@ algorithm:
       dataloader_num_workers: 4
   model:
     _partial_: True
-    _target_: carl.components.embedding_generator.TransformerEmbeddingGenerator
+    _target_: carl.components.embedding_generator.HFAutoregressiveEmbeddingGenerator
+  config:
+    _target_: carl.components.embedding_generator.EmbeddingGeneratorConfig
+    vocab_size: 144
+    d_model: 512
+    encoder_layers: 4
+    decoder_layers: 4
+    encoder_attention_heads: 8
+    decoder_attention_heads: 8
+    encoder_ffn_dim: 2048
+    decoder_ffn_dim: 2048
     embedding_dim: 64  # Must match autoencoder embedding dimension
-    num_layers: 4
-    num_heads: 8
-    feedforward_dim: 512
-    dropout: 0.1
     max_k_steps: 32
-  config: null  # Not using HuggingFace config for custom PyTorch model
+    max_sequence_length: 16
+    dropout: 0.1
   
   do_finetune: False
   path_to_model_weights: null

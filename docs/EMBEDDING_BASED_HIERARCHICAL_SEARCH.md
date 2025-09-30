@@ -1,245 +1,268 @@
-# Embedding-Based Hierarchical Search in CaRL
+# Embedding-Based Hierarchical Search in CaRL using HuggingFace Transformers
 
-This document describes the new embedding-based hierarchical search capabilities added to CaRL, which enable hierarchical planning in continuous latent space rather than discrete state space.
+This document describes the new embedding-based hierarchical search capabilities added to CaRL, which enable hierarchical planning in continuous latent space using HuggingFace transformer backbones rather than discrete state space.
 
 ## Overview
 
 Traditional hierarchical reinforcement learning algorithms like AdaSubS operate in discrete state spaces, which limits their applicability to continuous environments and can be computationally expensive for complex state representations. The embedding-based extensions in CaRL address these limitations by:
 
-1. **Learning compressed state representations** using Autoencoders (AE) and Variational Autoencoders (VAE)
-2. **Operating in embedding space** for subgoal generation and navigation
-3. **Enabling continuous latent space search** for hierarchical planning
-4. **Supporting real-time RL** through efficient embedding-based operations
+1. **Learning compressed state representations** using HuggingFace BERT-based Autoencoders (AE) and Variational Autoencoders (VAE)
+2. **Operating in embedding space** for subgoal generation and navigation using BART and BERT architectures
+3. **Enabling continuous latent space search** for hierarchical planning with transformer backbones
+4. **Supporting real-time RL** through efficient HuggingFace model operations
 
 ## Architecture
 
-The embedding-based hierarchical search consists of three main components:
+The embedding-based hierarchical search consists of three main components using HuggingFace transformers:
 
 ### 1. State Embedding Models
 
 **Location**: `carl/components/state_embeddings.py`
 
-- **StateAutoencoder**: Standard autoencoder for deterministic state embeddings
-- **StateVAE**: Variational autoencoder with regularized probabilistic embeddings  
-- **Conv2DStateAutoencoder**: Convolutional autoencoder for 2D spatial states (e.g., Sokoban boards)
+- **HFStateAutoencoder**: BERT-based autoencoder for deterministic state embeddings
+- **HFStateVAE**: BERT-based variational autoencoder with regularized probabilistic embeddings  
 
 **Key Features**:
-- Configurable architecture (hidden dimensions, dropout, etc.)
-- Support for both fully connected and convolutional encoders
+- Built on HuggingFace BERT architecture for robust transformer-based encoding
+- Configurable through `StateEmbeddingConfig` following HuggingFace patterns
+- Support for `from_pretrained()` loading and saving
 - Built-in reconstruction losses for training
 
 ### 2. Embedding Generators
 
 **Location**: `carl/components/embedding_generator.py`
 
-Generate subgoal embeddings from current state embeddings:
+Generate subgoal embeddings from current state embeddings using BART:
 
-- **EmbeddingGenerator**: Basic generator with optional attention mechanism
-- **TransformerEmbeddingGenerator**: Transformer-based generator for sequence modeling
-- **AutoregressiveEmbeddingGenerator**: LSTM-based generator for multi-step planning
+- **HFEmbeddingGenerator**: BART-based generator with embedding projection layers
+- **HFTransformerEmbeddingGenerator**: BART encoder-decoder for embedding-to-embedding generation
+- **HFAutoregressiveEmbeddingGenerator**: BART-based autoregressive generator for multi-step planning
 
 **Key Features**:
+- Built on HuggingFace BART architecture for sequence-to-sequence generation
 - Multiple k-step values for different planning horizons
-- Attention mechanisms for long-range dependencies
-- Contrastive and embedding regularization losses
+- Attention mechanisms built into BART backbone
+- Configurable through `EmbeddingGeneratorConfig`
 
 ### 3. Embedding-Conditioned CLLPs
 
 **Location**: `carl/components/embedding_cllp.py`
 
-Conditional Low-Level Policies that operate on embeddings:
+Conditional Low-Level Policies that operate on embeddings using BERT:
 
-- **EmbeddingConditionedCLLP**: Basic CLLP with cross-attention between state and subgoal embeddings
-- **HierarchicalEmbeddingCLLP**: Multi-scale CLLP for hierarchical subgoals
-- **ProgressAwareCLLP**: CLLP with progress tracking towards subgoals
-- **ResidualEmbeddingCLLP**: Deep CLLP with residual connections
+- **HFEmbeddingConditionedCLLP**: BERT-based CLLP with cross-attention between state and subgoal embeddings
+- **HFHierarchicalEmbeddingCLLP**: Multi-scale BERT CLLP for hierarchical subgoals
+- **HFProgressAwareCLLP**: BERT CLLP with progress tracking towards subgoals
+
+**Key Features**:
+- Built on HuggingFace BERT architecture for classification tasks
+- Cross-attention mechanisms for state-subgoal conditioning
+- Configurable through `EmbeddingCLLPConfig`
 
 ## Training Pipeline
 
 ### 1. State Embedding Training
 
-Train autoencoders to learn compressed state representations:
+Train HuggingFace BERT-based autoencoders to learn compressed state representations:
 
 ```bash
-# Train standard autoencoder
+# Train BERT-based autoencoder
 python -m carl.run --config-dir configs/offline_training/sokoban --config-name sokoban_train_state_embedding_ae
 
-# Train variational autoencoder  
+# Train BERT-based variational autoencoder  
 python -m carl.run --config-dir configs/offline_training/sokoban --config-name sokoban_train_state_embedding_vae
 ```
 
 **Training Goals**:
-- `STATE_EMBEDDING_AE`: Autoencoder reconstruction
-- `STATE_EMBEDDING_VAE`: VAE reconstruction + KL regularization
+- `STATE_EMBEDDING_AE`: BERT autoencoder reconstruction
+- `STATE_EMBEDDING_VAE`: BERT VAE reconstruction + KL regularization
 
 ### 2. Embedding Generator Training
 
-Train generators to predict subgoal embeddings:
+Train BART-based generators to predict subgoal embeddings:
 
 ```bash
-# Train generators for different k values
+# Train BART generators for different k values
 python -m carl.run --config-dir configs/offline_training/sokoban --config-name sokoban_train_embedding_generator_k4
 python -m carl.run --config-dir configs/offline_training/sokoban --config-name sokoban_train_embedding_generator_k8
 python -m carl.run --config-dir configs/offline_training/sokoban --config-name sokoban_train_embedding_generator_k16
 ```
 
 **Training Goal**: `EMBEDDING_GENERATOR`
+**Architecture**: BART encoder-decoder with embedding projection layers
 
 ### 3. Embedding CLLP Training
 
-Train CLLPs to navigate in embedding space:
+Train BERT-based CLLPs to navigate in embedding space:
 
 ```bash
-# Train embedding-conditioned CLLP
+# Train BERT-based embedding-conditioned CLLP
 python -m carl.run --config-dir configs/offline_training/sokoban --config-name sokoban_train_embedding_cllp
 ```
 
 **Training Goal**: `EMBEDDING_CLLP`
+**Architecture**: BERT for sequence classification with embedding conditioning
 
 ## Inference Components
 
-### Embedding Subgoal Generators
+### HuggingFace Embedding Subgoal Generators
 
 **Location**: `carl/inference_components/embedding_subgoal_generator.py`
 
-- **EmbeddingSubgoalGenerator**: Integrates with CaRL's inference framework
-- **AdaptiveEmbeddingSubgoalGenerator**: Multi-k value generator
-- **HybridSubgoalGenerator**: Combines discrete and embedding-based generation
+- **HFEmbeddingSubgoalGenerator**: Integrates HuggingFace models with CaRL's inference framework
+- **AdaptiveHFEmbeddingSubgoalGenerator**: Multi-k value generator using different BART models
+- **HybridHFSubgoalGenerator**: Combines discrete and HuggingFace embedding-based generation
 
-### Embedding CLLPs
+### HuggingFace Embedding CLLPs
 
 **Location**: `carl/inference_components/embedding_conditional_low_level_policy.py`
 
-- **EmbeddingConditionalLowLevelPolicy**: Base embedding CLLP for inference
-- **ProgressAwareEmbeddingCLLP**: CLLP with progress monitoring
-- **MultiScaleEmbeddingCLLP**: Multi-scale planning in embedding space
-- **EmbeddingCLLPValidator**: Validates subgoal reachability
+- **HFEmbeddingConditionalLowLevelPolicy**: Base HuggingFace embedding CLLP for inference
+- **ProgressAwareHFEmbeddingCLLP**: BERT CLLP with progress monitoring
+- **MultiScaleHFEmbeddingCLLP**: Multi-scale planning using BERT in embedding space
+- **HFEmbeddingCLLPValidator**: Validates subgoal reachability using HuggingFace models
 
 ## Configuration
 
 ### Model Configuration
 
-Example autoencoder configuration:
+Example BERT autoencoder configuration:
 ```yaml
 model:
   _partial_: True
-  _target_: carl.components.state_embeddings.StateAutoencoder
-  input_dim: 144  # 12x12 Sokoban board
-  embedding_dim: 64
-  hidden_dims: [512, 256, 128]
-  dropout: 0.1
+  _target_: carl.components.state_embeddings.HFStateAutoencoder
+config:
+  _target_: carl.components.state_embeddings.StateEmbeddingConfig
+  vocab_size: 144  # 12x12 Sokoban board
+  hidden_size: 512
+  num_hidden_layers: 6
+  num_attention_heads: 8
+  intermediate_size: 2048
+  latent_dim: 64
 ```
 
-Example embedding generator configuration:
+Example BART embedding generator configuration:
 ```yaml
 model:
   _partial_: True
-  _target_: carl.components.embedding_generator.EmbeddingGenerator
+  _target_: carl.components.embedding_generator.HFEmbeddingGenerator
+config:
+  _target_: carl.components.embedding_generator.EmbeddingGeneratorConfig
+  vocab_size: 144
+  d_model: 512
+  encoder_layers: 4
+  decoder_layers: 4
+  encoder_attention_heads: 8
+  decoder_attention_heads: 8
   embedding_dim: 64
-  hidden_dims: [512, 256]
-  k_steps: 4
-  dropout: 0.1
-  use_attention: True
 ```
 
 ### Training Configuration
 
-All embedding-based training uses the same infrastructure as existing CaRL components:
+All embedding-based training uses HuggingFace infrastructure:
 
-- **Metrics**: Custom metrics for reconstruction quality, embedding similarity, action accuracy
+- **Models**: `transformers.Trainer` with HuggingFace `PreTrainedModel` subclasses
+- **Metrics**: Custom metrics for reconstruction quality, embedding similarity, action accuracy  
 - **Logging**: Neptune integration for experiment tracking
 - **Data Loading**: Extended `GameDataModule` with new tokenization methods
 
 ## Metrics and Evaluation
 
 ### State Embedding Metrics
-- **Reconstruction MSE/MAE**: Quality of state reconstruction
-- **R-squared**: Coefficient of determination for reconstruction
-- **Embedding norm statistics**: Stability of learned embeddings
+- **Reconstruction loss**: Cross-entropy loss for BERT autoencoder
+- **KL divergence**: For BERT VAE regularization
+- **Embedding quality**: Validation on reconstruction tasks
 
 ### Generator Metrics  
-- **Embedding MSE/MAE**: Accuracy of subgoal embedding prediction
-- **Cosine similarity**: Semantic similarity between predicted and target embeddings
-- **Embedding norm statistics**: Consistency of generated embeddings
+- **Embedding MSE/MAE**: Accuracy of subgoal embedding prediction using BART
+- **Generation quality**: Validation of generated subgoal embeddings
+- **Cross-attention analysis**: Attention patterns in BART encoder-decoder
 
 ### CLLP Metrics
-- **Action accuracy**: Success rate of action prediction
-- **Per-class accuracy**: Performance breakdown by action type
+- **Action accuracy**: BERT classification accuracy for action prediction
+- **Cross-attention effectiveness**: Analysis of state-subgoal attention patterns
 - **Progress tracking**: Convergence towards subgoals (when supported)
 
 ## Advantages
 
-1. **Continuous State Support**: Works with continuous and high-dimensional state spaces
-2. **Computational Efficiency**: Operations in compact embedding space
-3. **Real-time RL**: Enables online learning and adaptation
-4. **Hierarchical Planning**: Multiple levels of abstraction through different k values
-5. **Generalization**: Learned embeddings can generalize across similar states
-6. **Scalability**: Embedding dimension much smaller than state dimension
+1. **HuggingFace Ecosystem**: Leverages proven transformer architectures (BERT, BART)
+2. **Robust Training**: Benefits from HuggingFace's training infrastructure and optimizations
+3. **Pretrained Components**: Can leverage pretrained BERT/BART weights for initialization
+4. **Scalability**: Transformer architectures scale well to larger problems
+5. **Attention Mechanisms**: Built-in attention for long-range dependencies
+6. **Model Hub Integration**: Easy saving/loading through HuggingFace model hub
 
 ## Usage Examples
 
-### Basic Embedding-Based Search
+### Basic HuggingFace Embedding-Based Search
 
 ```python
-from carl.inference_components.embedding_subgoal_generator import EmbeddingSubgoalGenerator
-from carl.inference_components.embedding_conditional_low_level_policy import EmbeddingConditionalLowLevelPolicy
-from carl.components.state_embeddings import StateAutoencoder
-from carl.components.embedding_generator import EmbeddingGenerator
-from carl.components.embedding_cllp import EmbeddingConditionedCLLP
+from carl.inference_components.embedding_subgoal_generator import HFEmbeddingSubgoalGenerator
+from carl.inference_components.embedding_conditional_low_level_policy import HFEmbeddingConditionalLowLevelPolicy
+from carl.components.state_embeddings import HFStateAutoencoder
+from carl.components.embedding_generator import HFEmbeddingGenerator
+from carl.components.embedding_cllp import HFEmbeddingConditionedCLLP
 
-# Initialize components
-embedding_model = StateAutoencoder(input_dim=144, embedding_dim=64)
-generator_model = EmbeddingGenerator(embedding_dim=64, k_steps=4)
-cllp_model = EmbeddingConditionedCLLP(embedding_dim=64, num_actions=4)
-
-# Create inference components
-subgoal_generator = EmbeddingSubgoalGenerator(
-    embedding_generator=EmbeddingGenerator,
-    state_embedding_model=StateAutoencoder,
-    path_to_generator_weights="path/to/generator/weights",
-    path_to_embedding_weights="path/to/embedding/weights",
+# Create HuggingFace embedding-based hierarchical planning pipeline
+# Models are loaded using from_pretrained()
+subgoal_generator = HFEmbeddingSubgoalGenerator(
+    embedding_generator=HFEmbeddingGenerator,
+    state_embedding_model=HFStateAutoencoder,
+    path_to_generator_weights="path/to/bart/generator/weights",
+    path_to_embedding_weights="path/to/bert/embedding/weights",
     env=env
 )
 
-embedding_cllp = EmbeddingConditionalLowLevelPolicy(
-    cllp_network_class=EmbeddingConditionedCLLP,
-    embedding_model_class=StateAutoencoder,
-    path_to_cllp_weights="path/to/cllp/weights", 
-    path_to_embedding_weights="path/to/embedding/weights",
+embedding_cllp = HFEmbeddingConditionalLowLevelPolicy(
+    cllp_network_class=HFEmbeddingConditionedCLLP,
+    embedding_model_class=HFStateAutoencoder,
+    path_to_cllp_weights="path/to/bert/cllp/weights", 
+    path_to_embedding_weights="path/to/bert/embedding/weights",
     env=env
 )
 ```
 
-### Adaptive Multi-K Search
+### Adaptive Multi-K HuggingFace Search
 
 ```python
-from carl.inference_components.embedding_subgoal_generator import AdaptiveEmbeddingSubgoalGenerator
+from carl.inference_components.embedding_subgoal_generator import AdaptiveHFEmbeddingSubgoalGenerator
+from carl.components.embedding_generator import (
+    HFEmbeddingGenerator, 
+    HFTransformerEmbeddingGenerator,
+    HFAutoregressiveEmbeddingGenerator
+)
 
-adaptive_generator = AdaptiveEmbeddingSubgoalGenerator(
+adaptive_generator = AdaptiveHFEmbeddingSubgoalGenerator(
     generator_k_list=[4, 8, 16],
     paths_to_generator_weights=[
-        "path/to/k4/weights",
-        "path/to/k8/weights", 
-        "path/to/k16/weights"
+        "path/to/bart/k4/weights",
+        "path/to/bart/k8/weights", 
+        "path/to/bart/k16/weights"
     ],
-    path_to_embedding_weights="path/to/embedding/weights",
-    env=env
+    path_to_embedding_weights="path/to/bert/embedding/weights",
+    env=env,
+    generator_classes=[
+        HFEmbeddingGenerator,  # k=4: Basic BART generator
+        HFTransformerEmbeddingGenerator,  # k=8: Advanced BART
+        HFAutoregressiveEmbeddingGenerator,  # k=16: Autoregressive BART
+    ]
 )
 ```
 
 ## Future Extensions
 
-1. **Multi-Modal Embeddings**: Support for different state modalities
-2. **Hierarchical Embeddings**: Multiple embedding scales for different abstraction levels
-3. **Online Embedding Learning**: Continuous adaptation of embeddings during inference
-4. **Cross-Domain Transfer**: Embedding transfer between different environments
-5. **Uncertainty Quantification**: Better uncertainty modeling in VAE-based approaches
+1. **Pretrained Initialization**: Use pretrained BERT/BART weights for better initialization
+2. **Model Hub Integration**: Save/load models through HuggingFace model hub
+3. **Advanced Attention**: Leverage transformer attention for better state-subgoal relationships
+4. **Cross-Domain Transfer**: Use pretrained transformers for transfer learning
+5. **Larger Models**: Scale to larger BERT/BART variants for improved performance
 
 ## References
 
 - AdaSubS: Adaptive Subgoal Search for Hierarchical Reinforcement Learning
-- CaRL: Compositional Autoregressive Reinforcement Learning
-- Hierarchical Reinforcement Learning with Latent Space Planning
+- CaRL: Compositional Autoregressive Reinforcement Learning  
+- HuggingFace Transformers: BERT and BART architectures
+- Attention Is All You Need: Transformer architecture
 
 ---
 

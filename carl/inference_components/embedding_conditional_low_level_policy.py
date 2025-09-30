@@ -1,11 +1,11 @@
-"""Embedding-based Conditional Low-Level Policy for CaRL inference framework.
+"""Embedding-based Conditional Low-Level Policy for CaRL inference framework using HuggingFace models.
 
-This module provides CLLPs that operate on state embeddings rather than
-explicit states, enabling hierarchical navigation in latent space.
+This module provides CLLPs that operate on state embeddings using HuggingFace
+transformer models rather than explicit states, enabling hierarchical navigation 
+in latent space.
 """
 
 from typing import Optional
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,21 +14,21 @@ from transformers import PreTrainedModel
 from carl.environment.env import GameEnv
 from carl.inference_components.component import InferenceComponent
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
-from carl.components.state_embeddings import BaseStateEmbedding
-from carl.components.embedding_cllp import EmbeddingConditionedCLLP
+from carl.components.state_embeddings import HFStateAutoencoder, HFStateVAE
+from carl.components.embedding_cllp import HFEmbeddingConditionedCLLP, HFProgressAwareCLLP
 
 
-class EmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
-    """Conditional Low-Level Policy that operates in embedding space.
+class HFEmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
+    """Conditional Low-Level Policy that operates in embedding space using HuggingFace models.
     
-    Uses pretrained state embedding model and embedding-conditioned CLLP
+    Uses pretrained HuggingFace state embedding model and embedding-conditioned CLLP
     to perform hierarchical navigation in latent space.
     """
     
     def __init__(
         self,
-        cllp_network_class: type[nn.Module],
-        embedding_model_class: type[nn.Module],
+        cllp_network_class: type[PreTrainedModel],
+        embedding_model_class: type[PreTrainedModel],
         path_to_cllp_weights: str,
         path_to_embedding_weights: str,
         env: GameEnv,
@@ -43,24 +43,22 @@ class EmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
         
         self.embedding_model_class = embedding_model_class
         self.path_to_embedding_weights = path_to_embedding_weights
-        self.embedding_model: Optional[BaseStateEmbedding] = None
-        self.cllp_model: Optional[EmbeddingConditionedCLLP] = None
+        self.embedding_model: Optional[PreTrainedModel] = None
+        self.cllp_model: Optional[PreTrainedModel] = None
         
     def construct_network(self) -> None:
         """Construct both embedding and CLLP networks."""
-        # Load state embedding model
-        self.embedding_model = self.instantiate_network(
-            self.embedding_model_class,
+        # Load state embedding model using HuggingFace from_pretrained
+        self.embedding_model = self.embedding_model_class.from_pretrained(
             self.path_to_embedding_weights
         )
         
-        # Load embedding CLLP model
-        self.cllp_model = self.instantiate_network(
-            self.cllp_network_class,
+        # Load embedding CLLP model using HuggingFace from_pretrained
+        self.cllp_model = self.cllp_network_class.from_pretrained(
             self.path_to_cllp_weights
         )
         
-    def get_network(self) -> dict[str, nn.Module]:
+    def get_network(self) -> dict[str, PreTrainedModel]:
         """Return both networks."""
         assert self.embedding_model is not None, "Embedding model not constructed"
         assert self.cllp_model is not None, "CLLP model not constructed"
@@ -95,7 +93,7 @@ class EmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
         subgoal_tensor = self._state_to_tensor(subgoal_state)
         
         with torch.no_grad():
-            # Encode states to embeddings
+            # Encode states to embeddings using HuggingFace models
             current_embedding = self.embedding_model.encode(current_tensor)
             subgoal_embedding = self.embedding_model.encode(subgoal_tensor)
             
@@ -105,8 +103,12 @@ class EmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
                 if self.env.is_same_state(current, subgoal_state):
                     break
                     
-                # Get action probabilities from embedding CLLP
-                action_logits = self.cllp_model(current_embedding, subgoal_embedding)
+                # Get action probabilities from HuggingFace embedding CLLP
+                outputs = self.cllp_model(
+                    state_embedding=current_embedding,
+                    subgoal_embedding=subgoal_embedding
+                )
+                action_logits = outputs['logits']
                 action_probs = torch.softmax(action_logits, dim=-1)
                 
                 # Sample action (or take most likely)
@@ -128,7 +130,7 @@ class EmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
         return actions
         
     def _state_to_tensor(self, state: np.ndarray) -> torch.Tensor:
-        """Convert state array to tensor for embedding model."""
+        """Convert state array to tensor for HuggingFace embedding model."""
         # Use tokenizer to convert state to proper tensor format
         state_tensor, _ = self.env.tokenizer.x_y_tokenizer(
             state, state, 'state_embedding_ae'
@@ -136,8 +138,8 @@ class EmbeddingConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
         return state_tensor.unsqueeze(0)  # Add batch dimension
 
 
-class ProgressAwareEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
-    """Embedding CLLP with progress tracking towards subgoals.
+class ProgressAwareHFEmbeddingCLLP(HFEmbeddingConditionalLowLevelPolicy):
+    """HuggingFace embedding CLLP with progress tracking towards subgoals.
     
     Monitors progress in embedding space and can provide early termination
     or adaptive action selection based on progress estimates.
@@ -145,8 +147,8 @@ class ProgressAwareEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
     
     def __init__(
         self,
-        cllp_network_class: type[nn.Module],
-        embedding_model_class: type[nn.Module], 
+        cllp_network_class: type[PreTrainedModel],
+        embedding_model_class: type[PreTrainedModel], 
         path_to_cllp_weights: str,
         path_to_embedding_weights: str,
         env: GameEnv,
@@ -168,7 +170,7 @@ class ProgressAwareEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
         current_state: np.ndarray,
         subgoal_state: np.ndarray
     ) -> list[int]:
-        """Generate actions with progress monitoring."""
+        """Generate actions with progress monitoring using HuggingFace models."""
         assert self.embedding_model is not None, "Embedding model not constructed"
         assert self.cllp_model is not None, "CLLP model not constructed"
         
@@ -201,15 +203,20 @@ class ProgressAwareEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
                 if progress >= self.progress_threshold:
                     break
                     
-                # Get action from CLLP (with progress if model supports it)
-                if hasattr(self.cllp_model, 'forward') and len(torch.nn.utils.parameters_to_vector(self.cllp_model.parameters()).shape) > 1:
-                    # Check if model returns progress estimate
-                    try:
-                        action_logits, predicted_progress = self.cllp_model(current_embedding, subgoal_embedding)
-                    except (ValueError, TypeError):
-                        action_logits = self.cllp_model(current_embedding, subgoal_embedding)
-                else:
-                    action_logits = self.cllp_model(current_embedding, subgoal_embedding)
+                # Get action from HuggingFace CLLP (with progress if model supports it)
+                outputs = self.cllp_model(
+                    state_embedding=current_embedding,
+                    subgoal_embedding=subgoal_embedding
+                )
+                
+                action_logits = outputs['logits']
+                
+                # Check if model returns progress estimate
+                predicted_progress = outputs.get('progress', None)
+                if predicted_progress is not None:
+                    # Use predicted progress to adjust action selection
+                    progress_weight = predicted_progress.item()
+                    # Could modify action_logits based on progress_weight
                 
                 action_probs = torch.softmax(action_logits, dim=-1)
                 action = torch.argmax(action_probs, dim=-1).item()
@@ -227,8 +234,8 @@ class ProgressAwareEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
         return actions
 
 
-class MultiScaleEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
-    """CLLP that operates at multiple scales in embedding space.
+class MultiScaleHFEmbeddingCLLP(HFEmbeddingConditionalLowLevelPolicy):
+    """HuggingFace CLLP that operates at multiple scales in embedding space.
     
     Can handle both short-term and long-term subgoals by using different
     embedding representations or hierarchical approaches.
@@ -236,8 +243,8 @@ class MultiScaleEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
     
     def __init__(
         self,
-        cllp_network_class: type[nn.Module],
-        embedding_model_class: type[nn.Module],
+        cllp_network_class: type[PreTrainedModel],
+        embedding_model_class: type[PreTrainedModel],
         path_to_cllp_weights: str,
         path_to_embedding_weights: str,
         env: GameEnv,
@@ -259,7 +266,7 @@ class MultiScaleEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
         current_state: np.ndarray,
         subgoal_state: np.ndarray
     ) -> list[int]:
-        """Generate actions considering multiple scales."""
+        """Generate actions considering multiple scales using HuggingFace models."""
         assert self.embedding_model is not None, "Embedding model not constructed"
         assert self.cllp_model is not None, "CLLP model not constructed"
         
@@ -286,7 +293,11 @@ class MultiScaleEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
                     scaled_subgoal = current_embedding + scale * (subgoal_embedding - current_embedding)
                     
                     # Get action probabilities for this scale
-                    action_logits = self.cllp_model(current_embedding, scaled_subgoal)
+                    outputs = self.cllp_model(
+                        state_embedding=current_embedding,
+                        subgoal_embedding=scaled_subgoal
+                    )
+                    action_logits = outputs['logits']
                     action_probs = torch.softmax(action_logits, dim=-1)
                     
                     if total_action_probs is None:
@@ -311,8 +322,8 @@ class MultiScaleEmbeddingCLLP(EmbeddingConditionalLowLevelPolicy):
         return actions
 
 
-class EmbeddingCLLPValidator(InferenceComponent):
-    """Validator that uses embedding CLLP to check subgoal reachability.
+class HFEmbeddingCLLPValidator(InferenceComponent):
+    """Validator that uses HuggingFace embedding CLLP to check subgoal reachability.
     
     Integrates with CaRL's validation framework to assess whether
     subgoals generated in embedding space are actually reachable.
@@ -321,7 +332,7 @@ class EmbeddingCLLPValidator(InferenceComponent):
     def __init__(
         self,
         env: GameEnv,
-        embedding_cllp: EmbeddingConditionalLowLevelPolicy,
+        embedding_cllp: HFEmbeddingConditionalLowLevelPolicy,
         max_validation_steps: int = 100,
         success_threshold: float = 0.1,  # Threshold for considering subgoal reached
     ) -> None:
@@ -334,7 +345,7 @@ class EmbeddingCLLPValidator(InferenceComponent):
         """Construct the CLLP network."""
         self.embedding_cllp.construct_network()
         
-    def get_network(self) -> dict[str, nn.Module]:
+    def get_network(self) -> dict[str, PreTrainedModel]:
         """Return CLLP networks."""
         return self.embedding_cllp.get_network()
         
@@ -344,7 +355,7 @@ class EmbeddingCLLPValidator(InferenceComponent):
         subgoal: np.ndarray, 
         steps_limit: Optional[int] = None
     ) -> dict:
-        """Validate if subgoal is reachable using embedding CLLP.
+        """Validate if subgoal is reachable using HuggingFace embedding CLLP.
         
         Returns:
             Dictionary with validation results including success, distance, actions
@@ -352,7 +363,7 @@ class EmbeddingCLLPValidator(InferenceComponent):
         if steps_limit is None:
             steps_limit = self.max_validation_steps
             
-        # Try to reach subgoal using embedding CLLP
+        # Try to reach subgoal using HuggingFace embedding CLLP
         actions = self.embedding_cllp.get_actions(state, subgoal)
         
         # Simulate execution of actions
@@ -398,8 +409,10 @@ class EmbeddingCLLPValidator(InferenceComponent):
             embedding_model = self.embedding_cllp.embedding_model
             if embedding_model is not None:
                 with torch.no_grad():
-                    emb1 = embedding_model.encode(self.embedding_cllp._state_to_tensor(state1))
-                    emb2 = embedding_model.encode(self.embedding_cllp._state_to_tensor(state2))
+                    tensor1 = self.embedding_cllp._state_to_tensor(state1)
+                    tensor2 = self.embedding_cllp._state_to_tensor(state2)
+                    emb1 = embedding_model.encode(tensor1)
+                    emb2 = embedding_model.encode(tensor2)
                     distance = torch.norm(emb1 - emb2).item()
                     return distance < self.success_threshold
         except Exception:
@@ -413,8 +426,10 @@ class EmbeddingCLLPValidator(InferenceComponent):
             embedding_model = self.embedding_cllp.embedding_model
             if embedding_model is not None:
                 with torch.no_grad():
-                    emb1 = embedding_model.encode(self.embedding_cllp._state_to_tensor(state1))
-                    emb2 = embedding_model.encode(self.embedding_cllp._state_to_tensor(state2))
+                    tensor1 = self.embedding_cllp._state_to_tensor(state1)
+                    tensor2 = self.embedding_cllp._state_to_tensor(state2)
+                    emb1 = embedding_model.encode(tensor1)
+                    emb2 = embedding_model.encode(tensor2)
                     return torch.norm(emb1 - emb2).item()
         except Exception:
             pass
