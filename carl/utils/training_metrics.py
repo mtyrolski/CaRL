@@ -299,7 +299,7 @@ class GeneratorMetricsHF(MetricsHF):
 class StateEmbeddingAEMetricsHF(MetricsHF):
     """Metrics for autoencoder training."""
     
-    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+    def get_metrics(self) -> tuple[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], Callable[[EvalPrediction], dict]] | tuple[None, None]:
         def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
             """Convert logits to predictions for autoencoder."""
             # For autoencoder, logits are already the reconstructed states
@@ -332,7 +332,7 @@ class StateEmbeddingAEMetricsHF(MetricsHF):
 class StateEmbeddingVAEMetricsHF(MetricsHF):
     """Metrics for VAE training."""
     
-    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+    def get_metrics(self) -> tuple[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], Callable[[EvalPrediction], dict]] | tuple[None, None]:
         def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
             """Convert VAE outputs to predictions."""
             # Assume logits contain reconstruction in first channels
@@ -370,7 +370,7 @@ class StateEmbeddingVAEMetricsHF(MetricsHF):
 class EmbeddingGeneratorMetricsHF(MetricsHF):
     """Metrics for embedding generator training."""
     
-    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+    def get_metrics(self) -> tuple[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], Callable[[EvalPrediction], dict]] | tuple[None, None]:
         def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
             """Convert generator outputs to predictions."""
             return logits.detach().cpu().numpy()
@@ -411,7 +411,7 @@ class EmbeddingGeneratorMetricsHF(MetricsHF):
 class EmbeddingCLLPMetricsHF(MetricsHF):
     """Metrics for embedding-conditioned CLLP training."""
     
-    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+    def get_metrics(self) -> tuple[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], Callable[[EvalPrediction], dict]] | tuple[None, None]:
         def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
             """Convert action logits to predictions."""
             preds = torch.argmax(logits, dim=-1)
