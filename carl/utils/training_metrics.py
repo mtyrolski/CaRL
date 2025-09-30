@@ -294,3 +294,159 @@ class GeneratorMetricsHF(MetricsHF):
             }
 
         return preprocess_logits_for_metrics, generator_metrics
+
+
+class StateEmbeddingAEMetricsHF(MetricsHF):
+    """Metrics for autoencoder training."""
+    
+    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+        def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
+            """Convert logits to predictions for autoencoder."""
+            # For autoencoder, logits are already the reconstructed states
+            return logits.detach().cpu().numpy()
+
+        def ae_metrics(eval_preds: EvalPrediction) -> dict[str, float]:
+            """Compute reconstruction metrics for autoencoder."""
+            preds, labels = eval_preds
+            
+            # Compute MSE reconstruction loss
+            mse_loss = np.mean((preds - labels) ** 2)
+            
+            # Compute MAE reconstruction loss
+            mae_loss = np.mean(np.abs(preds - labels))
+            
+            # Compute R-squared (coefficient of determination)
+            ss_res = np.sum((labels - preds) ** 2)
+            ss_tot = np.sum((labels - labels.mean()) ** 2)
+            r2_score = 1 - (ss_res / (ss_tot + 1e-8))
+            
+            return {
+                'reconstruction_mse': mse_loss,
+                'reconstruction_mae': mae_loss,
+                'reconstruction_r2': r2_score,
+            }
+
+        return preprocess_logits_for_metrics, ae_metrics
+
+
+class StateEmbeddingVAEMetricsHF(MetricsHF):
+    """Metrics for VAE training."""
+    
+    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+        def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
+            """Convert VAE outputs to predictions."""
+            # Assume logits contain reconstruction in first channels
+            if isinstance(logits, dict):
+                reconstruction = logits.get('reconstruction', logits.get('logits', logits))
+            else:
+                reconstruction = logits
+            return reconstruction.detach().cpu().numpy()
+
+        def vae_metrics(eval_preds: EvalPrediction) -> dict[str, float]:
+            """Compute reconstruction and regularization metrics for VAE."""
+            preds, labels = eval_preds
+            
+            # Compute reconstruction metrics (same as AE)
+            mse_loss = np.mean((preds - labels) ** 2)
+            mae_loss = np.mean(np.abs(preds - labels))
+            
+            ss_res = np.sum((labels - preds) ** 2)
+            ss_tot = np.sum((labels - labels.mean()) ** 2)
+            r2_score = 1 - (ss_res / (ss_tot + 1e-8))
+            
+            # Note: KL divergence would need to be computed during forward pass
+            # and stored separately as it's not available from predictions alone
+            
+            return {
+                'reconstruction_mse': mse_loss,
+                'reconstruction_mae': mae_loss,
+                'reconstruction_r2': r2_score,
+                'latent_dimensionality': preds.shape[-1] if len(preds.shape) > 1 else 1,
+            }
+
+        return preprocess_logits_for_metrics, vae_metrics
+
+
+class EmbeddingGeneratorMetricsHF(MetricsHF):
+    """Metrics for embedding generator training."""
+    
+    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+        def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
+            """Convert generator outputs to predictions."""
+            return logits.detach().cpu().numpy()
+
+        def embedding_generator_metrics(eval_preds: EvalPrediction) -> dict[str, float]:
+            """Compute embedding prediction metrics."""
+            preds, labels = eval_preds
+            
+            # Compute embedding prediction accuracy (MSE and cosine similarity)
+            mse_loss = np.mean((preds - labels) ** 2)
+            mae_loss = np.mean(np.abs(preds - labels))
+            
+            # Compute cosine similarity between predicted and target embeddings
+            def cosine_similarity(a, b):
+                norm_a = np.linalg.norm(a, axis=-1, keepdims=True)
+                norm_b = np.linalg.norm(b, axis=-1, keepdims=True)
+                return np.mean(np.sum((a / (norm_a + 1e-8)) * (b / (norm_b + 1e-8)), axis=-1))
+            
+            cosine_sim = cosine_similarity(preds, labels)
+            
+            # Compute embedding norm statistics
+            pred_norm_mean = np.mean(np.linalg.norm(preds, axis=-1))
+            pred_norm_std = np.std(np.linalg.norm(preds, axis=-1))
+            target_norm_mean = np.mean(np.linalg.norm(labels, axis=-1))
+            
+            return {
+                'embedding_mse': mse_loss,
+                'embedding_mae': mae_loss,
+                'embedding_cosine_similarity': cosine_sim,
+                'pred_embedding_norm_mean': pred_norm_mean,
+                'pred_embedding_norm_std': pred_norm_std,
+                'target_embedding_norm_mean': target_norm_mean,
+            }
+
+        return preprocess_logits_for_metrics, embedding_generator_metrics
+
+
+class EmbeddingCLLPMetricsHF(MetricsHF):
+    """Metrics for embedding-conditioned CLLP training."""
+    
+    def compute_metrics(self) -> tuple[Callable[[Any, Any], dict[str, np.ndarray]], Callable[[EvalPrediction], dict[str, float]]]:
+        def preprocess_logits_for_metrics(logits: torch.Tensor, labels: torch.Tensor) -> np.ndarray:
+            """Convert action logits to predictions."""
+            preds = torch.argmax(logits, dim=-1)
+            return preds.detach().cpu().numpy()
+
+        def embedding_cllp_metrics(eval_preds: EvalPrediction) -> dict[str, float]:
+            """Compute action prediction metrics for embedding CLLP."""
+            preds, labels = eval_preds
+            assert preds.shape == labels.shape
+            
+            # Compute action accuracy
+            accuracy = (preds == labels).astype(float).mean().item()
+            
+            # Compute per-class accuracy if multiple actions
+            num_classes = max(np.max(preds), np.max(labels)) + 1
+            per_class_acc = {}
+            
+            for class_id in range(num_classes):
+                mask = labels == class_id
+                if np.sum(mask) > 0:
+                    class_acc = (preds[mask] == labels[mask]).astype(float).mean().item()
+                    per_class_acc[f'action_{class_id}_accuracy'] = class_acc
+            
+            # Compute top-k accuracy for k=3 if applicable
+            if num_classes >= 3:
+                # This would need logits, not just predictions, so approximate
+                # by checking if prediction is within top candidates
+                pass  # Skip for now as we only have argmax predictions
+            
+            metrics = {
+                'action_accuracy': accuracy,
+                'num_action_classes': num_classes,
+            }
+            metrics.update(per_class_acc)
+            
+            return metrics
+
+        return preprocess_logits_for_metrics, embedding_cllp_metrics

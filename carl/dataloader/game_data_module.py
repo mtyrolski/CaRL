@@ -112,6 +112,15 @@ class GameDataModule(pl.LightningDataModule):
                 x_tensors, y_tensors = self._state_state_action(untokenized_data)
             case TrainingGoal.STATE_ACTION_STATE_GENERATOR:
                 x_tensors, y_tensors = self._state_action_state_generator_(untokenized_data)
+            # New embedding-based training goals
+            case TrainingGoal.STATE_EMBEDDING_AE:
+                x_tensors, y_tensors = self._state_embedding_ae_tokenize(untokenized_data)
+            case TrainingGoal.STATE_EMBEDDING_VAE:
+                x_tensors, y_tensors = self._state_embedding_vae_tokenize(untokenized_data)
+            case TrainingGoal.EMBEDDING_GENERATOR:
+                x_tensors, y_tensors = self._embedding_generator_tokenize(untokenized_data)
+            case TrainingGoal.EMBEDDING_CLLP:
+                x_tensors, y_tensors = self._embedding_cllp_tokenize(untokenized_data)
 
         assert len(x_tensors) == len(y_tensors), 'x and y tensors must be of same length.'
         assert len(x_tensors) != 0, ('No data was tokenized. If you are preparing data for a generator or a '
@@ -485,5 +494,101 @@ class GameDataModule(pl.LightningDataModule):
 
             x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
             y_tensors[key] = torch.cat(tem_y_tensor, dim=0)
+
+        return x_tensors, y_tensors
+
+    def _state_embedding_ae_tokenize(
+            self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:
+        """Tokenize data for autoencoder training - input and target are the same state."""
+        x_tensors: dict[int, Tensor] = {}
+        y_tensors: dict[int, Tensor] = {}
+
+        for key, trajectory in tqdm(untokenized_data.items()):
+            trajectory = trajectory[:self.trajectory_length]
+            tem_x_tensor: list[Tensor] = []
+            tem_y_tensor: list[Tensor] = []
+            
+            for position in range(len(trajectory)):
+                # For autoencoder, input and target are the same (state)
+                x, y = self.env.tokenizer.x_y_tokenizer(
+                    trajectory[position], 
+                    trajectory[position],  # Same state as target for reconstruction
+                    self.training_goal
+                )
+                tem_x_tensor.append(x)
+                tem_y_tensor.append(y)
+
+            x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
+            y_tensors[key] = torch.cat(tem_y_tensor, dim=0)
+
+        return x_tensors, y_tensors
+
+    def _state_embedding_vae_tokenize(
+            self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:
+        """Tokenize data for VAE training - same as autoencoder."""
+        return self._state_embedding_ae_tokenize(untokenized_data)
+
+    def _embedding_generator_tokenize(
+            self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:
+        """Tokenize data for embedding generator training - current state to k-step future state."""
+        x_tensors: dict[int, Tensor] = {}
+        y_tensors: dict[int, Tensor] = {}
+        
+        assert self.subgoal_distance_interval is not None, "Subgoal distance interval required for embedding generator"
+
+        for key, trajectory in tqdm(untokenized_data.items()):
+            trajectory = trajectory[:self.trajectory_length]
+            tem_x_tensor: list[Tensor] = []
+            tem_y_tensor: list[Tensor] = []
+            
+            for position in range(len(trajectory)):
+                for subgoal_distance in self.subgoal_distance_interval:
+                    if position + subgoal_distance < len(trajectory):
+                        # Current state as input, k-step future state as target
+                        x, y = self.env.tokenizer.x_y_tokenizer(
+                            trajectory[position],
+                            trajectory[position + subgoal_distance],
+                            self.training_goal
+                        )
+                        tem_x_tensor.append(x)
+                        tem_y_tensor.append(y)
+
+            if tem_x_tensor:  # Only add if we have valid data
+                x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
+                y_tensors[key] = torch.cat(tem_y_tensor, dim=0)
+
+        return x_tensors, y_tensors
+
+    def _embedding_cllp_tokenize(
+            self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:
+        """Tokenize data for embedding CLLP training - (current_state, subgoal) -> action."""
+        x_tensors: dict[int, Tensor] = {}
+        y_tensors: dict[int, Tensor] = {}
+        
+        assert self.subgoal_distance_interval is not None, "Subgoal distance interval required for embedding CLLP"
+
+        for key, trajectory in tqdm(untokenized_data.items()):
+            trajectory = trajectory[:self.trajectory_length]
+            tem_x_tensor: list[Tensor] = []
+            tem_y_tensor: list[Tensor] = []
+            
+            for position in range(len(trajectory) - 1):
+                for subgoal_distance in self.subgoal_distance_interval:
+                    if position + subgoal_distance < len(trajectory):
+                        # Action taken from current position
+                        action = self.env.detect_action(trajectory[position], trajectory[position + 1])
+                        
+                        # Input: (current_state, subgoal_state), Output: action
+                        x, y = self.env.tokenizer.x_y_tokenizer(
+                            (trajectory[position], trajectory[position + subgoal_distance]),
+                            action,
+                            self.training_goal
+                        )
+                        tem_x_tensor.append(x)
+                        tem_y_tensor.append(y)
+
+            if tem_x_tensor:  # Only add if we have valid data
+                x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
+                y_tensors[key] = torch.cat(tem_y_tensor, dim=0)
 
         return x_tensors, y_tensors
