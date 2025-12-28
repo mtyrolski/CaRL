@@ -17,7 +17,7 @@ ruff:
 	uv run --group lint ruff check .
 
 pyright:
-	PYTHONPATH=. uv run pyright
+	PYTHONPATH=. uv run pyright 
 
 mypy:
 	PYTHONPATH=. uv run --group lint mypy .
@@ -28,3 +28,5 @@ format:
 # pyright:
 #	@echo
 #	poetry run pyright carl --pythonpath . --stats
+# __init__.py  algorithms  environment           memory    run.py  solver
+# __pycache__  dataloader  inference_components  planners  slurm   utils

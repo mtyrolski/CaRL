@@ -1,4 +1,3 @@
-from abc import abstractmethod
 import numpy as np
 
 from carl.environment.utilis import DeadEndFinder
@@ -135,4 +134,3 @@ class DeadEndTrackingPlanner(BestFSPlanner):    # may inherit from any planner
         else:
             search_info.dead_ends_rate = 0.0
         return super().get_solution_data(solving_node, search_info)
-

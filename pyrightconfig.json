@@ -11,8 +11,8 @@
     "migrations",
     "**/__pycache__",
     "tests/**",
+    "carl/environment/**",
     "legacy/**/*.py",
-    "carl/environment/sokoban/core.py"
   ],
 
   // your other settings...

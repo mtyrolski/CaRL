@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from typing import Any
 
 import numpy as np
 import torch
@@ -102,15 +101,15 @@ class TrainSupervisedHF(Algorithm):
         logger.success('Trainer is ready')
 
         if self.custom_logger is not None:
-            logger: Any = self.custom_logger.return_logger()
-            self.ready_trainer.add_callback(logger)
+            trainer_logger = self.custom_logger.return_logger()
+            self.ready_trainer.add_callback(trainer_logger)
 
             if self.cllp_logger is not None and self.datamodule.training_goal.value == 'cllp':
                 assert (self.path_to_data_to_test_cllp
                         is not None), 'path_to_data_to_test_cllp must be provided if cllp_logger is not None'
                 data_to_test_cllp: dict[int, list[np.ndarray]] = load(self.path_to_data_to_test_cllp)
                 cllp_logger: TrainerCallback = self.cllp_logger(
-                    inner_logger=logger,
+                    inner_logger=trainer_logger,
                     data_to_evaluate=data_to_test_cllp,
                     distance_range=self.datamodule.subgoal_distance_interval,
                     env=self.datamodule.env,

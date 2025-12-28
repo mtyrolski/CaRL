@@ -56,7 +56,7 @@ class TrainingLoopHF(Algorithm):
         n_iterations (int): Number of iterations to run the training loop.
         evaluate_every (int): Frequency of evaluation, i.e., perform evaluation after every 'evaluate_every' iterations.
         problem_to_evaluate (int): Number of problems to evaluate in each evaluation phase.
-        solver (SubgoalSearchSolver): Solver containing the inference components.
+        solver (Solver): Solver containing the inference components.
         env (GameEnv): Environment to solve.
         replay_buffer (SimpleUniversalReplayBuffer): Replay buffer for storing experiences.
         generated_data_path (str): Path to the generated data for instance generation.
@@ -91,27 +91,29 @@ class TrainingLoopHF(Algorithm):
         add_to_replay_buffer (bool, optional): Flag to add new experiences to the replay buffer during training.
         train_first (bool): Flag if loop should train first or solve first.
 
-    The class integrates various components such as instance generators, replay buffers, and trainers for different components in the hierarchical framework. It also handles logging, evaluation, and data preparation for training/testing.
+    The class integrates various components such as instance generators, replay buffers, and trainers for different
+    components in the hierarchical framework. It also handles logging, evaluation, and data preparation for
+    training/testing.
     """
     def __init__(
         self,
-    # General Loop Flow Parameters
+        # General Loop Flow Parameters
         n_iterations: int,
         evaluate_every: int,
         problem_to_evaluate: int,
         min_count_of_new_solved_boards_to_next_train_iteration: int,
         limit_of_data_used_for_components_training: int,
 
-    # Env-Related Parameters.
-        solver: SubgoalSearchSolver | Solver,    # Contains the inference components.
+        # Env-Related Parameters.
+        solver: Solver,    # Contains the inference components.
         env: GameEnv,
         replay_buffer: SimpleUniversalReplayBuffer,
 
-    # Instance Generator Parameters
+        # Instance Generator Parameters
         generated_data_path: str,
         instance_generator_batch_size: int,
 
-    # Component training and testing paramaters
+        # Component training and testing paramaters
         eval_data_path: str,
         eval_batch_size: int,
         weights_dump_path: str,
@@ -124,8 +126,7 @@ class TrainingLoopHF(Algorithm):
         workdir_to_import_weights_and_experiences_from: str | None = None,
         add_to_replay_buffer: bool = True,
         n_jobs: int = 8,    # Number of jobs for parallelization in sequential CPU solver. Ignored for batched solver.
-        n_jobs_factor_wrt_cores: float |
-        None = None,    # Factor to determine the number of jobs for parallelization in sequential CPU solver. Ignored for batched solver.
+        n_jobs_factor_wrt_cores: float | None = None,    # Factor to determine the number of jobs for parallelization in sequential CPU solver. Ignored for batched solver.
         train_first: bool = False,
     ):
         super().__init__()
@@ -335,14 +336,10 @@ class TrainingLoopHF(Algorithm):
         logger.info(f'SolveOneIteration call. Iteration: {iteration}; Batch size: {len(batch)};')
 
         time_start = time.time()
-        if isinstance(self.solver, SubgoalSearchSolver):
-            outputs_all_at_once = self.solver.solve(batch, self.neptune_callback)
-        else:
-            assert isinstance(self.solver, Solver)
-            timeout = 99999
-
-            outputs_all_at_once = joblib.Parallel(n_jobs=self.n_jobs, verbose=100, timeout=timeout)(
-                joblib.delayed(self.solver.solve)(initial_state) for initial_state in batch)
+        timeout = 99999
+        outputs_all_at_once = joblib.Parallel(n_jobs=self.n_jobs, verbose=100, timeout=timeout)(
+            joblib.delayed(self.solver.solve)(initial_state) for initial_state in batch
+        )
 
         self.result_logger.log_results(outputs_all_at_once)
 

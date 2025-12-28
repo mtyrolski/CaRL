@@ -34,13 +34,15 @@ conventions
 - Cubes are NxNxN in size.
 - The faces have integers and one-letter names. The one-letter face names are given by the dictionary `Cube.facedict`.
 - The layers of the cube have names that are composed of a face letter and a number, with 0 indicating the outermost face.
-- Every layer has two layer names, for instance, (F, 1) and (B, 1) are the same layer of a 3x3x3 cube; (F, 1) and (B, 3) are the same layer of a 5x5x5.
+- Every layer has two layer names, for instance, (F, 1) and (B, 1) are the same layer of a 3x3x3 cube;
+  (F, 1) and (B, 3) are the same layer of a 5x5x5.
 - The colors have integers and one-letter names. The one-letter color names are given by the dictionary `Cube.colordict`.
 - Convention is x before y in face arrays, plus an annoying baked-in left-handedness.  Sue me.  Or fork, fix, pull-request.
 
 to-do
 -----
-- Write translations to other move languages, so you can take a string of moves from some website (eg, <http://www.speedcubing.com/chris/3-permutations.html>) and execute it.
+- Write translations to other move languages, so you can take a string of moves from some website
+  (eg, <http://www.speedcubing.com/chris/3-permutations.html>) and execute it.
 - Keep track of sticker ID numbers and orientations to show that seemingly unchanged parts of big cubes have had cubie swaps or stickers rotated.
 - Figure out a physical "cubie" model to replace the "sticker" model.
 """
@@ -122,20 +124,26 @@ class Cube:
         `d` 90-degree turns in the clockwise direction.  Use `d=3` or
         `d=-1` for counter-clockwise.
         """
-        for l in range(self.N):
-            self.move(f, l, d)
+        for layer in range(self.N):
+            self.move(f, layer, d)
 
-    def move(self, f, l, d):
+    def move(self, f, layer, d, **kwargs):
         """
-        Make a layer move of layer `l` parallel to face `f` through
+        Make a layer move of layer `layer` parallel to face `f` through
         `d` 90-degree turns in the clockwise direction.  Layer `0` is
-        the face itself, and higher `l` values are for layers deeper
+        the face itself, and higher `layer` values are for layers deeper
         into the cube.  Use `d=3` or `d=-1` for counter-clockwise
         moves, and `d=2` for a 180-degree move..
         """
+        if kwargs:
+            if "l" in kwargs and len(kwargs) == 1:
+                layer = kwargs["l"]
+            else:
+                unexpected = ", ".join(sorted(kwargs))
+                raise TypeError(f"Unexpected keyword arguments: {unexpected}")
         i = self.facedict[f]
-        l2 = self.N - 1 - l
-        assert l < self.N
+        layer_opposite = self.N - 1 - layer
+        assert layer < self.N
         ds = range((d + 4) % 4)
         if f == 'U':
             f2 = 'D'
@@ -143,46 +151,46 @@ class Cube:
             for d in ds:
                 self._rotate(
                     [
-                        (self.facedict['F'], range(self.N), l2),
-                        (self.facedict['R'], range(self.N), l2),
-                        (self.facedict['B'], range(self.N), l2),
-                        (self.facedict['L'], range(self.N), l2),
+                        (self.facedict['F'], range(self.N), layer_opposite),
+                        (self.facedict['R'], range(self.N), layer_opposite),
+                        (self.facedict['B'], range(self.N), layer_opposite),
+                        (self.facedict['L'], range(self.N), layer_opposite),
                     ]
                 )
         if f == 'D':
-            return self.move('U', l2, -d)
+            return self.move('U', layer_opposite, -d)
         if f == 'F':
             f2 = 'B'
             i2 = self.facedict[f2]
             for d in ds:
                 self._rotate(
                     [
-                        (self.facedict['U'], range(self.N), l),
-                        (self.facedict['L'], l2, range(self.N)),
-                        (self.facedict['D'], range(self.N)[::-1], l2),
-                        (self.facedict['R'], l, range(self.N)[::-1]),
+                        (self.facedict['U'], range(self.N), layer),
+                        (self.facedict['L'], layer_opposite, range(self.N)),
+                        (self.facedict['D'], range(self.N)[::-1], layer_opposite),
+                        (self.facedict['R'], layer, range(self.N)[::-1]),
                     ]
                 )
         if f == 'B':
-            return self.move('F', l2, -d)
+            return self.move('F', layer_opposite, -d)
         if f == 'R':
             f2 = 'L'
             i2 = self.facedict[f2]
             for d in ds:
                 self._rotate(
                     [
-                        (self.facedict['U'], l2, range(self.N)),
-                        (self.facedict['F'], l2, range(self.N)),
-                        (self.facedict['D'], l2, range(self.N)),
-                        (self.facedict['B'], l, range(self.N)[::-1]),
+                        (self.facedict['U'], layer_opposite, range(self.N)),
+                        (self.facedict['F'], layer_opposite, range(self.N)),
+                        (self.facedict['D'], layer_opposite, range(self.N)),
+                        (self.facedict['B'], layer, range(self.N)[::-1]),
                     ]
                 )
         if f == 'L':
-            return self.move('R', l2, -d)
+            return self.move('R', layer_opposite, -d)
         for d in ds:
-            if l == 0:
+            if layer == 0:
                 self.stickers[i] = np.rot90(self.stickers[i], 3)
-            if l == self.N - 1:
+            if layer == self.N - 1:
                 self.stickers[i2] = np.rot90(self.stickers[i2], 1)
         return None
 
@@ -204,9 +212,9 @@ class Cube:
         """
         for _t in range(number):
             f = self.dictface[np.random.randint(6)]
-            l = np.random.randint(self.N)
+            layer = np.random.randint(self.N)
             d = 1 + np.random.randint(3)
-            self.move(f, l, d)
+            self.move(f, layer, d)
 
     def _render_points(self, points, viewpoint):
         """
@@ -393,13 +401,13 @@ def checkerboard(cube):
     """
     Dumbness.
     """
-    ls = range(cube.N)[::2]
+    layers = range(cube.N)[::2]
     for f in ['U', 'F', 'R']:
-        for l in ls:
-            cube.move(f, l, 2)
+        for layer in layers:
+            cube.move(f, layer, 2)
     if cube.N % 2 == 0:
-        for l in ls:
-            cube.move('F', l, 2)
+        for layer in layers:
+            cube.move('F', layer, 2)
 
 
 if __name__ == '__main__':

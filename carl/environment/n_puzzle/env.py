@@ -13,7 +13,6 @@ from carl.environment.n_puzzle.tokenizer import NPuzzleTokenizer
 from carl.environment.tokenizer import GameTokenizer
 from carl.environment.utilis import HashableState
 
-import numpy as np
 import plotly.graph_objects as go
 
 from carl.utils.aliases import State

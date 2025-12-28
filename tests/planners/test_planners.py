@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from carl.planners.adasubs import AdasubsPlanner
-from carl.planners.greedy import GreedyPlanner, GreedyPlanner, BestFSPlanner, AstarPlanner, BfsPlanner
+from carl.planners.greedy import AstarPlanner, BestFSPlanner, BfsPlanner, GreedyPlanner
 from carl.planners.base import Experience, SearchInfo
 
 from carl.planners.base import SearchTreeNode

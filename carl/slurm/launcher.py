@@ -101,11 +101,21 @@ pids=\"\" """.format(
             f'CARL_N_NODES_IN_GROUP={worker_type_spec.num_workers}',
         ])
 
-        return """
-echo "Starting {worker_number} worker from het group {het_group} on node {node_name}"
-NEPTUNE_API_TOKEN={neptune_api_token} srun {het_group_srun_flag} -w {node_name} {job_options} singularity exec {additional_args} --pwd {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID --nv "{singularity_image_path}" /bin/bash -c "{carl_env_vars} PYTHONPATH=. python3 -m carl.run --config-dir {config_dir} --config-name {config_name}" &
-pids="$pids $!"
-\n""".format(
+        srun_command = (
+            "NEPTUNE_API_TOKEN={neptune_api_token} srun {het_group_srun_flag} -w {node_name} {job_options} "
+            "singularity exec {additional_args} --pwd {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID --nv "
+            "\"{singularity_image_path}\" /bin/bash -c "
+            "\"{carl_env_vars} PYTHONPATH=. python3 -m carl.run --config-dir {config_dir} --config-name {config_name}\" &"
+        )
+
+        return "\n".join(
+            [
+                "echo \"Starting {worker_number} worker from het group {het_group} on node {node_name}\"",
+                srun_command,
+                "pids=\"$pids $!\"",
+                "",
+            ]
+        ).format(
             config_dir='.',
             config_name=worker_type_spec.carl_worker_name,
             worker_number=worker_number,
@@ -140,7 +150,11 @@ pids="$pids $!"
             f'export CARL_SLURM_ARRAY_TASK_ID={sbatch_idx}',
         ])
         carl_hostnames = '\n'.join([
-            f"IFS=' ' read -ra nodes_het_group_{het_group_idx} <<< $(scontrol show hostnames $SLURM_JOB_NODELIST_HET_GROUP_{het_group_idx} | tr '\n' ' ' | sed 's/ $//')"
+            (
+                f"IFS=' ' read -ra nodes_het_group_{het_group_idx} <<< "
+                f"$(scontrol show hostnames $SLURM_JOB_NODELIST_HET_GROUP_{het_group_idx} | "
+                "tr '\n' ' ' | sed 's/ $//')"
+            )
             for het_group_idx in range(len(self.workers_specs))
         ])
 

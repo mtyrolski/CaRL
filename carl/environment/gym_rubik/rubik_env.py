@@ -36,7 +36,14 @@ ACTION_LOOKUP = {
 
 
 class RubikEnv(GameEnv):
-    def __init__(self, tokenizer: RubikCubeTokenizer, step_limit=100000000000000000000000, shuffles=50, obs_type='basic', target_solved_state: str | None = None) -> None:
+    def __init__(
+        self,
+        tokenizer: RubikCubeTokenizer,
+        step_limit=100000000000000000000000,
+        shuffles=50,
+        obs_type='basic',
+        target_solved_state: str | None = None,
+    ) -> None:
         self._tokenizer = tokenizer
         self.cube = Cube(3, whiteplastic=False)
         self.target_solved_state = target_solved_state or 'yyyyyyyyybbbbbbbbbrrrrrrrrrgggggggggooooooooowwwwwwwww'

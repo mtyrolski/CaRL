@@ -12,8 +12,9 @@ from torchmetrics import Metric
 from torchmetrics import MetricCollection
 from transformers import EvalPrediction
 
-Metrics = dict[str, float | list[float]]
 from carl.planners.base import Experience
+
+Metrics = dict[str, float | list[float]]
 
 
 def is_safe_list(lst: list[Any]) -> bool:

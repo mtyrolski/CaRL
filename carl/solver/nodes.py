@@ -234,8 +234,8 @@ def get_solving_path_data(solving_node: SearchTreeNode,
     return subgoal_path, action_path, values, k_used, state_path
 
 
-def flatten(l):
-    return [item for sublist in l for item in sublist]
+def flatten(lists):
+    return [item for sublist in lists for item in sublist]
 
 
 def print_search_tree(root_node, max_depth=4):

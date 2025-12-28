@@ -8,7 +8,6 @@ from carl.inference_components.value import (
     TransformerValueGeneration,
 )
 from carl.environment.env import GameEnv
-from carl.environment.training_goal import TrainingGoal
 
 # Dummy environment and tokenizer to simulate inference
 class DummyTokenizer:
