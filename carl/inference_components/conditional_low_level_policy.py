@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from collections.abc import Callable
 from typing import cast
 
 import torch
@@ -63,8 +64,8 @@ class ConditionalLowLevelPolicy(InferenceComponent):
 class TransformerConditionalLowLevelPolicy(ConditionalLowLevelPolicy):
     def __init__(
         self,
-        conditional_low_level_policy_class: type[PreTrainedModel],
-        path_to_conditional_low_level_policy_weights,
+        conditional_low_level_policy_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
+        path_to_conditional_low_level_policy_weights: str,
         env: GameEnv,
         training_module: TrainingModule | None = None,
     ) -> None:

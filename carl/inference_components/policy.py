@@ -22,7 +22,7 @@ class Policy(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        policy_network_class: type[nn.Module] | None,
+        policy_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel] | None,
         env: GameEnv | None,
     ) -> None:
         """
@@ -59,7 +59,7 @@ class Policy(InferenceComponent):
 class TransformerPolicy(Policy):
     def __init__(
         self,
-        policy_network_class: type[PreTrainedModel],
+        policy_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         env: GameEnv,
         path_to_policy_weights: str,
         n_actions: int | None = None,
@@ -81,6 +81,7 @@ class TransformerPolicy(Policy):
     def construct_network(self) -> None:
         # We do not put the policy on the eval mode, because "from_pretrained" does it for us.
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
+        assert self.policy_network_class is not None
         self.policy = cast(
             PreTrainedModel,
             self.instantiate_network(self.policy_network_class, self.path_to_policy_weights),
@@ -133,7 +134,7 @@ class TransformerPolicy(Policy):
 class TransformerPolicyGeneration(Policy):
     def __init__(
         self,
-        policy_network_class: type[PreTrainedModel],
+        policy_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         env: GameEnv,
         path_to_policy_weights: str,
         subgoal_generation_kwargs: dict[str, int] | None,
@@ -146,6 +147,7 @@ class TransformerPolicyGeneration(Policy):
         self.policy: PreTrainedModel | None = None
 
     def construct_network(self) -> None:
+        assert self.policy_network_class is not None
         self.policy = cast(
             PreTrainedModel,
             self.instantiate_network(self.policy_network_class, self.path_to_policy_weights),

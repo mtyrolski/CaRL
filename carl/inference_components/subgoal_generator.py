@@ -18,7 +18,7 @@ class SubgoalGenerator(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        generator: type[nn.Module],
+        generator: Callable[[str], PreTrainedModel] | type[nn.Module],
         path_to_generator_weights: str,
         env: GameEnv,
         subgoal_generation_kwargs: dict[str, int | bool | float] | None = None,
@@ -60,7 +60,7 @@ class SubgoalGenerator(InferenceComponent):
 class TransformerSubgoalGenerator(SubgoalGenerator):
     def __init__(
         self,
-        generator_network_class: type[PreTrainedModel],
+        generator_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         path_to_generator_weights: str,
         env: GameEnv,
         subgoal_generation_kwargs: dict[str, int | bool | float] | None,
@@ -68,6 +68,7 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
         super().__init__(generator_network_class, path_to_generator_weights, env, subgoal_generation_kwargs)
         self.device: torch.device = torch.device('cpu')
         self.subgoal_generation_kwargs = subgoal_generation_kwargs
+        self.generator_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel] = generator_network_class
         self.sub_generator: PreTrainedModel | None = None
 
     def construct_network(self) -> None:
@@ -75,7 +76,7 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
         self.sub_generator = cast(
             PreTrainedModel,
-            self.instantiate_network(self.generator, self.path_to_generator_weights),
+            self.instantiate_network(self.generator_network_class, self.path_to_generator_weights),
         )
 
     def get_network(self) -> PreTrainedModel:

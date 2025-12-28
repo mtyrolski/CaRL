@@ -17,7 +17,7 @@ class Value(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        value_network_class: Callable[..., PreTrainedModel],
+        value_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         path_to_value_network_weights: str,
         env: GameEnv,
         type_of_evaluation: str | None = None,
@@ -58,7 +58,7 @@ class Value(InferenceComponent):
 class TransformerValue(Value):
     def __init__(
         self,
-        value_network_class: Callable[..., PreTrainedModel],
+        value_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         path_to_value_network_weights: str,
         env: GameEnv,
         type_of_evaluation: str = 'classification',

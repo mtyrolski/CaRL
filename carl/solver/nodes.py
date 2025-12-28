@@ -6,9 +6,6 @@ import numpy as np
 from loguru import logger
 from typing import Protocol
 
-from carl.planners.base import Experience
-from carl.planners.base import SearchInfo
-from carl.planners.base import Solution
 from carl.utils.aliases import State
 from carl.utils.loggers import log_error_and_raise
 
@@ -82,7 +79,9 @@ def copy_solving_node(solving_node: SearchTreeNode):
     return node_path[-1]    # return the last node of the search (last state)
 
 
-def prune_experiences(experiences: list[Experience]) -> list[Experience]:
+def prune_experiences(experiences):
+    from carl.planners.base import Experience, SearchInfo, Solution
+    from carl.planners.base import Experience, SearchInfo, Solution
     new_experiences = []
 
     for experience in experiences:
