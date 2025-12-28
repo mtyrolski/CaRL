@@ -85,7 +85,8 @@ class GameDataModule(pl.LightningDataModule):
         # Load raw trajectory data into a dictionary
         untokenized_data: dict[int, UntokenizedTrajectory] = self._load_untokenized()
 
-        untokenized_data = dict(list(untokenized_data.items())[:self.num_of_trajectories])
+        if self.num_of_trajectories is not None:
+            untokenized_data = dict(list(untokenized_data.items())[:self.num_of_trajectories])
         logger.info(f'Number of trajectories: {len(untokenized_data)}')
 
         x_tensors: dict[int, Tensor] = {}
@@ -199,6 +200,7 @@ class GameDataModule(pl.LightningDataModule):
             self._test_dataset = GameDataset(x_all, y_all)
 
     def train_dataloader(self) -> DataLoader:
+        assert self._train_dataset is not None
         return DataLoader(
             self._train_dataset,
             batch_size=self.batch_size,
@@ -206,6 +208,7 @@ class GameDataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader:
+        assert self._val_dataset is not None
         return DataLoader(
             self._val_dataset,
             batch_size=self.batch_size,
@@ -213,6 +216,7 @@ class GameDataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
+        assert self._test_dataset is not None
         return DataLoader(
             self._test_dataset,
             batch_size=self.batch_size,
@@ -223,12 +227,15 @@ class GameDataModule(pl.LightningDataModule):
         raise NotImplementedError
 
     def get_train_dataset(self) -> Dataset:
+        assert self._train_dataset is not None
         return self._train_dataset
 
     def get_val_dataset(self) -> Dataset:
+        assert self._val_dataset is not None
         return self._val_dataset
 
     def get_test_dataset(self) -> Dataset:
+        assert self._test_dataset is not None
         return self._test_dataset
 
     def _load_untokenized(self) -> dict[int, UntokenizedTrajectory]:
@@ -237,8 +244,7 @@ class GameDataModule(pl.LightningDataModule):
 
         if self.untokenized_data is not None:
             untokenized_data = self.untokenized_data
-
-        elif self.dataset_path.is_dir():
+        elif self.dataset_path is not None and self.dataset_path.is_dir():
             for file in tqdm(self.dataset_path.iterdir()):
                 logger.info(f'Loading data from file {file}.')
                 part_dict: dict[int, UntokenizedTrajectory] = joblib.load(file)
@@ -246,10 +252,12 @@ class GameDataModule(pl.LightningDataModule):
 
                 if self.num_of_trajectories is not None and len(untokenized_data) >= self.num_of_trajectories:
                     break
-        else:
+        elif self.dataset_path is not None:
             with open(self.dataset_path, 'rb') as file:
                 logger.info(f'Loading data from file {self.dataset_path}.')
                 untokenized_data = joblib.load(file)
+        else:
+            raise ValueError('No dataset path or untokenized data provided.')
 
         return untokenized_data
 
@@ -259,13 +267,22 @@ class GameDataModule(pl.LightningDataModule):
         y_tensors: dict[int, Tensor] = {}
         for key, trajectory in tqdm(untokenized_data.items()):
             trajectory = trajectory[:self.trajectory_length]
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
-            for position in range(len(trajectory) - 1):
+            for position in range(len(trajectory_states) - 1):
                 x: Tensor
                 y: Tensor
-                action: int = self.env.detect_action(trajectory[position], trajectory[position + 1])
-                x, y = self.env.tokenizer.x_y_tokenizer(trajectory[position], action, self.training_goal)
+                action = self.env.detect_action(trajectory_states[position], trajectory_states[position + 1])
+                assert action is not None
+                x, y = self.env.tokenizer.x_y_tokenizer(trajectory_states[position], action, self.training_goal)
                 tem_x_tensor.append(x)
                 tem_y_tensor.append(y)
             x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
@@ -281,13 +298,21 @@ class GameDataModule(pl.LightningDataModule):
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
             trajectory = trajectory[:self.trajectory_length]
-            trajectory_length: int = len(trajectory)
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
+            trajectory_length: int = len(trajectory_states)
             for position in range(trajectory_length):
                 x: Tensor
                 y: Tensor
                 distance_to_solution: int = trajectory_length - (position + 1)
                 x, y = self.env.tokenizer.x_y_tokenizer(
-                    trajectory[position],
+                    trajectory_states[position],
                     distance_to_solution,
                     self.training_goal,
                 )
@@ -302,16 +327,27 @@ class GameDataModule(pl.LightningDataModule):
             self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:
         x_tensors: dict[int, Tensor] = {}
         y_tensors: dict[int, Tensor] = {}
+        assert self.subgoal_distance_interval is not None
         max_subgoal_distance: int = max(self.subgoal_distance_interval)
 
         for key, trajectory in tqdm(untokenized_data.items()):
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
             trajectory = trajectory[:self.trajectory_length]
-            trajectory_length: int = len(trajectory)
-            action_path: list[int] = [
-                self.env.detect_action(trajectory[i], trajectory[i + 1]) for i in range(len(trajectory) - 1)
-            ]
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
+            trajectory_length: int = len(trajectory_states)
+            action_path: list[int] = []
+            for i in range(len(trajectory_states) - 1):
+                action = self.env.detect_action(trajectory_states[i], trajectory_states[i + 1])
+                assert action is not None
+                action_path.append(action)
 
             for p in range(trajectory_length):
                 for dist in range(1, max_subgoal_distance + 1):
@@ -322,10 +358,7 @@ class GameDataModule(pl.LightningDataModule):
                     y: Tensor
 
                     x, y = self.env.tokenizer.x_y_tokenizer(
-                        (
-                            trajectory[p],
-                            trajectory[p + dist],
-                        ),
+                        (trajectory_states[p], trajectory_states[p + dist]),
                         action_path[p],
                         self.training_goal,
                     )
@@ -342,12 +375,21 @@ class GameDataModule(pl.LightningDataModule):
             self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:
         x_tensors: dict[int, Tensor] = {}
         y_tensors: dict[int, Tensor] = {}
+        assert self.subgoal_distance_interval is not None
 
         for key, trajectory in tqdm(untokenized_data.items()):
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
             trajectory = trajectory[:self.trajectory_length]
-            trajectory_length: int = len(trajectory)
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
+            trajectory_length: int = len(trajectory_states)
 
             for position in range(trajectory_length - 1):
                 if self.cut_last_subgoals is not None and position == self.cut_last_subgoals:
@@ -358,8 +400,8 @@ class GameDataModule(pl.LightningDataModule):
                     inner_dist: int = min(dist, trajectory_length - 1 - position)
 
                     x, y = self.env.tokenizer.x_y_tokenizer(
-                        trajectory[position],
-                        trajectory[position + inner_dist],
+                        trajectory_states[position],
+                        trajectory_states[position + inner_dist],
                         self.training_goal,
                     )
                     tem_x_tensor.append(x)
@@ -380,13 +422,22 @@ class GameDataModule(pl.LightningDataModule):
         y_tensors: dict[int, Tensor] = {}
         for key, trajectory in tqdm(untokenized_data.items()):
             trajectory = trajectory[:self.trajectory_length]
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
-            for position in range(len(trajectory) - 1):
+            for position in range(len(trajectory_states) - 1):
                 x: Tensor
                 y: Tensor
-                action: int = self.env.detect_action(trajectory[position], trajectory[position + 1])
-                x, y = self.env.tokenizer.x_y_tokenizer(trajectory[position], action, self.training_goal)
+                action = self.env.detect_action(trajectory_states[position], trajectory_states[position + 1])
+                assert action is not None
+                x, y = self.env.tokenizer.x_y_tokenizer(trajectory_states[position], action, self.training_goal)
                 tem_x_tensor.append(x)
                 tem_y_tensor.append(y)
             x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
@@ -402,13 +453,21 @@ class GameDataModule(pl.LightningDataModule):
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
             trajectory = trajectory[:self.trajectory_length]
-            trajectory_length: int = len(trajectory)
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
+            trajectory_length: int = len(trajectory_states)
             for position in range(trajectory_length):
                 x: Tensor
                 y: Tensor
                 distance_to_solution: int = trajectory_length - (position + 1)
                 x, y = self.env.tokenizer.x_y_tokenizer(
-                    trajectory[position],
+                    trajectory_states[position],
                     distance_to_solution,
                     self.training_goal,
                 )
@@ -426,14 +485,26 @@ class GameDataModule(pl.LightningDataModule):
 
         for key, trajectory in tqdm(untokenized_data.items()):
             trajectory = trajectory[:self.trajectory_length]
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
-            for position in range(len(trajectory) - 1):
+            for position in range(len(trajectory_states) - 1):
                 x: Tensor
                 y: Tensor
-                action: int = self.env.detect_action(trajectory[position], trajectory[position + 1])
-                x, y = self.env.tokenizer.x_y_tokenizer((trajectory[position], action), trajectory[position + 1],
-                                                        self.training_goal)
+                action = self.env.detect_action(trajectory_states[position], trajectory_states[position + 1])
+                assert action is not None
+                x, y = self.env.tokenizer.x_y_tokenizer(
+                    (trajectory_states[position], action),
+                    trajectory_states[position + 1],
+                    self.training_goal,
+                )
                 tem_x_tensor.append(x)
                 tem_y_tensor.append(y)
 
@@ -449,14 +520,26 @@ class GameDataModule(pl.LightningDataModule):
 
         for key, trajectory in tqdm(untokenized_data.items()):
             trajectory = trajectory[:self.trajectory_length]
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
-            for position in range(len(trajectory) - 1):
+            for position in range(len(trajectory_states) - 1):
                 x: Tensor
                 y: Tensor
-                action: int = self.env.detect_action(trajectory[position], trajectory[position + 1])
-                x, y = self.env.tokenizer.x_y_tokenizer(trajectory[position], (trajectory[position + 1], action),
-                                                        self.training_goal)
+                action = self.env.detect_action(trajectory_states[position], trajectory_states[position + 1])
+                assert action is not None
+                x, y = self.env.tokenizer.x_y_tokenizer(
+                    trajectory_states[position],
+                    (trajectory_states[position + 1], action),
+                    self.training_goal,
+                )
                 tem_x_tensor.append(x)
                 tem_y_tensor.append(y)
 
@@ -472,14 +555,26 @@ class GameDataModule(pl.LightningDataModule):
 
         for key, trajectory in tqdm(untokenized_data.items()):
             trajectory = trajectory[:self.trajectory_length]
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                trajectory_states = trajectory
+            elif isinstance(trajectory[0], str):
+                trajectory_states = trajectory
+            else:
+                continue
             tem_x_tensor: list[Tensor] = []
             tem_y_tensor: list[Tensor] = []
-            for position in range(len(trajectory) - 1):
+            for position in range(len(trajectory_states) - 1):
                 x: Tensor
                 y: Tensor
-                action: int = self.env.detect_action(trajectory[position], trajectory[position + 1])
-                x, y = self.env.tokenizer.x_y_tokenizer(trajectory[position], (action, trajectory[position + 1]),
-                                                        self.training_goal)
+                action = self.env.detect_action(trajectory_states[position], trajectory_states[position + 1])
+                assert action is not None
+                x, y = self.env.tokenizer.x_y_tokenizer(
+                    trajectory_states[position],
+                    (action, trajectory_states[position + 1]),
+                    self.training_goal,
+                )
                 tem_x_tensor.append(x)
                 tem_y_tensor.append(y)
 

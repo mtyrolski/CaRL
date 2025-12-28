@@ -26,7 +26,7 @@ HIGHEST_K: int = 10
 
 @dataclass
 class OptimalSolution:
-    problem_instance: str
+    problem_instance: ndarray
     solution: list[int]
 
 
@@ -42,6 +42,7 @@ def rollout_trajectory(solution: OptimalSolution, env: SokobanEnv) -> list[ndarr
     all_states: list[ndarray] = [solution.problem_instance]
     for action in solution.solution:
         state, _, _, _ = env.step(action)
+        assert isinstance(state, ndarray)
         all_states.append(state)
     return all_states
 
@@ -114,7 +115,7 @@ class ValidSolution(Algorithm):
             logger.info('Rollouted trajectories already exist, loading them')
             rollouted_trajectories = load(cache_file_name)
         else:
-            rollouted_trajectories: list[list[StateOnSolutionPath]] = []
+            rollouted_trajectories = []
 
             for trajectory in tqdm(optimal_trajectories,
                                    desc='Rolling out trajectories',
@@ -140,7 +141,7 @@ class ValidSolution(Algorithm):
         # - What is real value difference value(next_subgoal) - value(current_state)?
 
         # Bucketing the value differences of sampled pairs of states (and theirs subgoals)
-        value_differences = {k: [] for k in range(1, HIGHEST_K + 1)}
+        value_differences: dict[int, list[float]] = {k: [] for k in range(1, HIGHEST_K + 1)}
 
         for k in range(1, HIGHEST_K + 1):
             state_subgoal_pairs = generate_state_subgoal_pairs(rollouted_trajectories, k)
@@ -159,7 +160,7 @@ class ValidSolution(Algorithm):
         BINS = 50
         for k in range(1, HIGHEST_K + 1):
             items = value_differences[k]
-            ys_values = [0 for _ in range(0, BINS)]
+            ys_values: list[float] = [0.0 for _ in range(0, BINS)]
             for item in items:
                 index = int((item - MIN_ARG) / (MAX_ARG - MIN_ARG) * BINS)
                 index = min(max(index, 0), BINS - 1)
@@ -186,7 +187,7 @@ class ValidSolution(Algorithm):
         figs.append((common_histogram_with_overlay, 'value_differences'))
 
         # How many times the value of the next subgoal is higher than the current state?
-        accuracy_per_k = {k: 0 for k in range(1, HIGHEST_K + 1)}
+        accuracy_per_k = {k: 0.0 for k in range(1, HIGHEST_K + 1)}
         for k in range(1, HIGHEST_K + 1):
             state_subgoal_pairs = generate_state_subgoal_pairs(rollouted_trajectories, k)
             for state_subgoal_pair in state_subgoal_pairs:

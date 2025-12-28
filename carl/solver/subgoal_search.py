@@ -13,6 +13,7 @@ from carl.planners.base import Planner
 from carl.planners.base import SearchInfo
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import ValidationResult
+from carl.utils.aliases import State
 
 
 def ensure_high_recursion_limit() -> None:
@@ -28,7 +29,7 @@ class Solver:
     def __init__(
         self,
         max_nodes: int,
-        planner_class: Callable[[np.ndarray], Planner],
+        planner_class: Callable[[State], Planner],
         subgoal_generator: AdaptiveSubgoalGenerator,
         validator: Validator,
         value_function: Value,
@@ -46,7 +47,7 @@ class Solver:
         self.validator.construct_network()
         self.value_function.construct_network()
 
-    def solve(self, initial_state: np.ndarray) -> Experience:
+    def solve(self, initial_state: State) -> Experience:
         ensure_high_recursion_limit()
 
         self.planner = self.planner_class(

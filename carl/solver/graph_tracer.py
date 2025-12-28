@@ -19,7 +19,7 @@ def layout_tree_horizontal(root: SearchTreeNode,
             queue.extend([(child, depth + 1) for child in node.children])
 
     xs_node = dict(bfs_iterator(root))
-    depth2nodes = {depth: [] for depth in xs_node.values()}
+    depth2nodes: dict[int, list[SearchTreeNode]] = {depth: [] for depth in xs_node.values()}
     for node, depth in xs_node.items():
         depth2nodes[depth].append(node)
 
@@ -74,7 +74,7 @@ def draw_graph(graph: nx.DiGraph, file_path: str = 'graph.png', figsize=(20, 45)
     pos = nx.get_node_attributes(graph, 'pos')
 
     _, ax = plt.subplots(figsize=figsize)    # Create a figure and axes
-    nx.draw(graph, pos, ax=ax, with_labels=False, node_size=node_size, arrows=True)
+    nx.draw(graph, pos, ax=ax, with_labels=False, node_size=node_size)
 
     for node in graph.nodes:
         figure = graph.nodes[node]['img']

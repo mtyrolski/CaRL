@@ -268,6 +268,7 @@ pids=\"\" """.format(
         # Send .tokens.env to remote repo
         Connection.send_to_server('.tokens.env', self.cluster_spec.host, main_repo_dir)
 
+        sbatch_file_name: str | None = None
         with tempfile.TemporaryDirectory() as tmp_dir_name:
             # Create a sbatch file
             for sbatch_idx in range(experiment_count):
@@ -314,7 +315,8 @@ pids=\"\" """.format(
             os.system(f'cp -r {tmp_dir_name} ./{self.job_name}')
 
         logger.info(f'Working directory: {experiment_root}')
-        logger.info(f'Launching sbatch file {sbatch_file_name} on cluster')
+        if sbatch_file_name is not None:
+            logger.info(f'Launching sbatch file {sbatch_file_name} on cluster')
 
         # Call a sbatch
         if not dry_run:

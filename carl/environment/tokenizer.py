@@ -1,10 +1,16 @@
 from abc import ABC
 from abc import abstractmethod
+from typing import TypeAlias
 
 import numpy as np
 from torch import Tensor
 
 from carl.environment.training_goal import TrainingGoal
+from carl.utils.aliases import State
+
+StatePair: TypeAlias = tuple[State, State]
+StateAction: TypeAlias = tuple[State, int]
+ActionState: TypeAlias = tuple[int, State]
 
 
 class GameTokenizer(ABC):
@@ -19,8 +25,8 @@ class GameTokenizer(ABC):
     @abstractmethod
     def x_y_tokenizer(
         self,
-        x: np.ndarray | tuple[np.ndarray, np.ndarray] | str | tuple[str, str],
-        y: np.ndarray | int | str,
+        x: State | StatePair | StateAction,
+        y: State | int | StateAction | ActionState,
         training_goal: TrainingGoal,
     ) -> tuple[Tensor, Tensor]:
         raise NotImplementedError

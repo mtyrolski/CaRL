@@ -1,10 +1,16 @@
 import torch
+from typing import TypeAlias
 from loguru import logger
 from torch import Tensor
 from torch import tensor
 
 from carl.environment.tokenizer import GameTokenizer
 from carl.environment.training_goal import TrainingGoal
+from carl.utils.aliases import State
+
+StatePair: TypeAlias = tuple[State, State]
+StateAction: TypeAlias = tuple[State, int]
+ActionState: TypeAlias = tuple[int, State]
 
 
 class RubikCubeTokenizer(GameTokenizer):
@@ -106,8 +112,8 @@ class RubikCubeTokenizer(GameTokenizer):
 
     def x_y_tokenizer(
         self,
-        x: str | tuple[str, str] | tuple[str, int],
-        y: str | int | tuple[str, int],
+        x: State | StatePair | StateAction,
+        y: State | int | StateAction | ActionState,
         training_goal: TrainingGoal,
     ) -> tuple[Tensor, Tensor]:
         match training_goal:

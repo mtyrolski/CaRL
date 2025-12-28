@@ -1,7 +1,7 @@
 """Module for solving instances using a Solver and data loader, with optional parallelism and result logging."""
 import os
 from pickle import HIGHEST_PROTOCOL
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, List, Union
 
 import numpy as np
 import torch
@@ -13,9 +13,11 @@ from carl.solver.subgoal_search import Solver
 from carl.utils.result_loggers import ResultLogger
 from carl.algorithms.algorithm import Algorithm
 from typing_extensions import TypeAlias
+from carl.utils.aliases import State
+from carl.planners.base import Experience
 
-Problem: TypeAlias = Union[np.ndarray, str]
-Result: TypeAlias = Tuple[Dict[str, Any], Dict[str, Any]]
+Problem: TypeAlias = State
+Result: TypeAlias = Experience
 CUDA_VISIBLE_DEVICES__ENV_VAR = 'CUDA_VISIBLE_DEVICES'
 
 
@@ -77,7 +79,7 @@ class SolveInstances(Algorithm):
         logger.warning("Starting SolveInstances.run()")
         self.solver.construct_networks()
 
-        all_experiences: List[List[Result]] = []
+        all_experiences: List[List[Experience]] = []
 
         for batch_idx, problems in enumerate(self.data_loader.reset_dataloader()):
             # stop if we have reached the target count
@@ -91,7 +93,7 @@ class SolveInstances(Algorithm):
             num_problems = len(conv_problems)
             logger.info(f"Batch {batch_idx + 1}: {num_problems} problems")
 
-            results: List[Result]
+            results: List[Experience]
             if self.n_parallel_workers == 1:
                 results = []
                 # sequential solve with progress logging

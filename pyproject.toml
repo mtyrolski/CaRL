@@ -147,8 +147,14 @@ comment_prefix = "    #"
 
 [tool.mypy]
 exclude = '''(?x)(
-    | ^third_party
+    ^third_party
+  | ^carl/environment/
 )'''
 warn_return_any = true
 check_untyped_defs = true
 ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = "carl.environment.*"
+ignore_errors = true

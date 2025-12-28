@@ -9,7 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 from carl.algorithms.algorithm import Algorithm
 from carl.slurm.grid_search import CarlGrid
 from hydra.utils import instantiate
-from typing import Any
+from typing import Any, cast
 
 def instantiate_algorithm_from_grid(config_name: str,
                                     config_path: str,
@@ -21,10 +21,10 @@ def instantiate_algorithm_from_grid(config_name: str,
     
     initialize(config_path=config_path)
     config = compose(config_name=config_name)
-    raw_data: dict[str, Any] = OmegaConf.to_container(config) # type: ignore[assignment]
+    raw_data: dict[str, Any] = OmegaConf.to_container(config, resolve=True)  # type: ignore[assignment]
     selected_config = list(CarlGrid(raw_data).iter_grid_without_workers())[grid_entry_idx]
     exp_dict_config: DictConfig = OmegaConf.create(selected_config)
-    return instantiate(exp_dict_config.algorithm)  # type: ignore[return-value]
+    return cast(Algorithm, instantiate(exp_dict_config.algorithm))
 
 def instantiate_algorithm(config_name: str,
                           config_path: str = "experiments",
@@ -67,15 +67,16 @@ def instantiate_algorithm(config_name: str,
 
 
     if worker_type is None:
-        algo = instantiate(config.algorithm)
+        algo = cast(Algorithm, instantiate(config.algorithm))
         return algo
 
     if n_jobs is not None:
         config.n_jobs = n_jobs
 
-    worker2config = CarlGrid(config).iter_workers(config)
-    worker_config = worker2config[worker_type]
-    algo = instantiate(worker_config.algorithm)
+    config_dict: dict[str, Any] = OmegaConf.to_container(config, resolve=True)  # type: ignore[assignment]
+    worker2config = CarlGrid(config_dict).iter_workers(config_dict)
+    worker_config = OmegaConf.create(worker2config[worker_type])
+    algo = cast(Algorithm, instantiate(worker_config.algorithm))
     return algo
 
 

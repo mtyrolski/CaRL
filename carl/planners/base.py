@@ -3,16 +3,15 @@ from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
 
-import numpy as np
-
 from carl.solver.nodes import SearchTreeNode
+from carl.utils.aliases import State
 
 GeneratorIdx = int
 
 @dataclass
 class Solution:
     solved: bool
-    subgoal_path: list[np.ndarray] | None = None
+    subgoal_path: list[State] | None = None
     action_path: list[int] | None = None
     subgoal_distance_path: list[int] | None = None
     subgoal_values: list[float] | None = None
@@ -82,7 +81,7 @@ class Planner(ABC):
     the final solution once the problem is solved.
     """
     @abstractmethod
-    def __init__(self, root_state: np.ndarray) -> None:
+    def __init__(self, root_state: State) -> None:
         self.root_state = root_state
 
     @abstractmethod
@@ -94,7 +93,7 @@ class Planner(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def is_seen(self, state: np.ndarray) -> bool:
+    def is_seen(self, state: State) -> bool:
         raise NotImplementedError()
 
     @abstractmethod
@@ -164,4 +163,3 @@ def get_dead_end_data(dead_end_finder, seen_states_list, search_info):
         search_info['dead_ends_rate'] = dead_ends_counter[True] / sum(dead_ends_counter)
     else:
         search_info['dead_ends_rate'] = 0
-

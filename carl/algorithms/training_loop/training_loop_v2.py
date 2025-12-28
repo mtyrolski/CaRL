@@ -7,7 +7,6 @@ from carl.algorithms.algorithm import Algorithm
 from carl.algorithms.training_loop.flow_control import LoopControl
 from carl.environment.instance_generator import InstanceGenerator
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
-from carl.planners.base import Experience
 from carl.solver.subgoal_search import Solver
 from carl.utils.loops import ComponentCollection
 from carl.utils.loops import Logs
@@ -22,7 +21,7 @@ class TrainingLoop(Algorithm):
         solver: Solver,
         instance_generator: InstanceGenerator,
         eval_instance_generator: InstanceGenerator | None = None,
-        path_to_offline_trajectories: str = None,
+        path_to_offline_trajectories: str | None = None,
         n_solving_jobs: int = 1,
     ):
         super().__init__()
@@ -36,11 +35,15 @@ class TrainingLoop(Algorithm):
         self.n_solving_jobs = n_solving_jobs
 
     def initialize_buffers_from_offline_data(self) -> None:
-        for experiences in loop_utils.iterate_offline_data(self.path_to_offline_trajectories,
-                                                           self.loop_control.num_offline_trajectories):
-            experiences: list[Experience]
-            logger.debug(f"Adding offline experience to replay buffer: {experiences}")
-            self.replay_buffer.add_from_trajectories(experiences)
+        if self.path_to_offline_trajectories is None:
+            logger.info("No offline trajectories path provided. Skipping buffer initialization.")
+            return
+        for trajectories in loop_utils.iterate_offline_data(
+                self.path_to_offline_trajectories,
+                self.loop_control.num_offline_trajectories,
+        ):
+            logger.debug(f"Adding offline trajectories to replay buffer: {trajectories}")
+            self.replay_buffer.add_from_trajectories(trajectories)
 
     def init_components_weights(self) -> None:
         for component in self.components.components.values():
@@ -72,7 +75,7 @@ class TrainingLoop(Algorithm):
             loop_utils.log_step_info(self.loop_control, train_logs)
 
             # Evaluating components
-            eval_logs: Logs = loop_utils.evaluate_components(self.components, self.eval_instance_generator)
+            eval_logs: Logs = loop_utils.evaluate_components(self.solver, self.eval_instance_generator)
             loop_utils.log_step_info(self.loop_control, eval_logs)
 
             self.loop_control.complete_iteration()

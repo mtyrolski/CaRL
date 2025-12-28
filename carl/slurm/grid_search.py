@@ -5,7 +5,7 @@ supporting worker-specific overrides.
 
 import copy
 import itertools
-from typing import Any, Dict, Generator
+from typing import Any, Dict, Generator, cast
 
 import yaml
 from loguru import logger
@@ -98,18 +98,25 @@ class CarlGrid:
         """Alias for iter_grid to make the grid directly iterable."""
         return self.iter_grid()
 
-    def iter_workers(self, config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def iter_workers(self, config: Dict[str, Any] | DictConfig) -> Dict[str, Dict[str, Any]]:
         """Expand 'carl_workers' overrides into per-worker configuration dicts."""
-        worker2overrides = config['carl_workers']
-        workername2config_dict = {}
+        config_copy = OmegaConf.create(copy.deepcopy(config))
+        assert isinstance(config_copy, DictConfig)
+        worker2overrides = config_copy['carl_workers']
+        workername2config_dict: dict[str, dict[str, Any]] = {}
         for worker_name, overrides in worker2overrides.items():
-            config_copy = copy.deepcopy(config)
+            config_copy = OmegaConf.create(copy.deepcopy(config))
+            assert isinstance(config_copy, DictConfig)
             if 'carl_workers' in config_copy:
                 del config_copy['carl_workers']
             # Apply overrides using OmegaConf.from_dotlist
             for key, value in overrides.items():
-                config_copy = OmegaConf.merge(config_copy, OmegaConf.from_dotlist([f'{key}={value}']))
-            workername2config_dict[worker_name] = config_copy
+                config_copy = cast(DictConfig, OmegaConf.merge(config_copy, OmegaConf.from_dotlist([f'{key}={value}'])))
+            assert isinstance(config_copy, DictConfig)
+            workername2config_dict[worker_name] = cast(
+                dict[str, Any],
+                OmegaConf.to_container(config_copy, resolve=True),
+            )
         return workername2config_dict
 
     def iter_grid(self) -> Generator[Dict[str, Any], None, None]:
@@ -121,15 +128,20 @@ class CarlGrid:
         for cartesian_entry in self.config[self.grid_literal]:
             all_value_combinations = itertools.product(*cartesian_entry.values())
             for values in all_value_combinations:
-                config_copy = copy.deepcopy(self.config)
+                config_copy = OmegaConf.create(copy.deepcopy(self.config))
+                assert isinstance(config_copy, DictConfig)
                 for key, value in zip(cartesian_entry.keys(), values):
-                    config_copy = OmegaConf.merge(config_copy, OmegaConf.from_dotlist([f'{key}={value}']))
+                    config_copy = cast(DictConfig, OmegaConf.merge(
+                        config_copy,
+                        OmegaConf.from_dotlist([f'{key}={value}']),
+                    ))
+                assert isinstance(config_copy, DictConfig)
                 if self.grid_literal in config_copy:
                     del config_copy[self.grid_literal]
                 if 'carl_workers' in config_copy:
                     yield self.iter_workers(config_copy)
                 else:
-                    yield config_copy
+                    yield cast(dict[str, Any], OmegaConf.to_container(config_copy, resolve=True))
 
     def iter_grid_without_workers(self) -> Generator[Dict[str, Any], None, None]:
         """Yield flattened configurations without applying any worker overrides."""
@@ -140,9 +152,14 @@ class CarlGrid:
         for cartesian_entry in self.config[self.grid_literal]:
             all_value_combinations = itertools.product(*cartesian_entry.values())
             for values in all_value_combinations:
-                config_copy = copy.deepcopy(self.config)
+                config_copy = OmegaConf.create(copy.deepcopy(self.config))
+                assert isinstance(config_copy, DictConfig)
                 for key, value in zip(cartesian_entry.keys(), values):
-                    config_copy = OmegaConf.merge(config_copy, OmegaConf.from_dotlist([f'{key}={value}']))
+                    config_copy = cast(DictConfig, OmegaConf.merge(
+                        config_copy,
+                        OmegaConf.from_dotlist([f'{key}={value}']),
+                    ))
+                assert isinstance(config_copy, DictConfig)
                 if self.grid_literal in config_copy:
                     del config_copy[self.grid_literal]
-                yield config_copy
+                yield cast(dict[str, Any], OmegaConf.to_container(config_copy, resolve=True))

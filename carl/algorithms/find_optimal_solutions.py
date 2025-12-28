@@ -30,10 +30,12 @@ def find_optimal_solution(
     env = SokobanEnv(tokenizer)
     env.restore_full_state_from_np_array_version(board)
 
-    stack: List[Tuple[np.ndarray, List[int]]] = [(env.get_state(), [])]
+    initial_state = env.get_state()
+    assert isinstance(initial_state, np.ndarray)
+    stack: List[Tuple[np.ndarray, List[int]]] = [(initial_state.copy(), [])]
     best_solution: Optional[List[int]] = None
     best_length: int = max_depth + 1
-    seen: set[Tuple[int, ...]] = {tuple(env.get_state().flatten())}
+    seen: set[Tuple[int, ...]] = {tuple(initial_state.flatten())}
 
     iterations = 0
     while stack:
@@ -45,6 +47,7 @@ def find_optimal_solution(
         env.restore_full_state_from_np_array_version(state)
         for action in range(NUM_ACTIONS):
             new_state, _, done, _ = env.step(action)
+            assert isinstance(new_state, np.ndarray)
             if np.array_equal(new_state, state):
                 continue
             key = tuple(new_state.flatten())
@@ -78,8 +81,10 @@ def find_optimal_solution_breadth_first(
     env = SokobanEnv(tokenizer)
     env.restore_full_state_from_np_array_version(board)
 
-    queue: Deque[Tuple[np.ndarray, List[int]]] = deque([(env.get_state(), [])])
-    seen: set[Tuple[int, ...]] = {tuple(env.get_state().flatten())}
+    initial_state = env.get_state()
+    assert isinstance(initial_state, np.ndarray)
+    queue: Deque[Tuple[np.ndarray, List[int]]] = deque([(initial_state.copy(), [])])
+    seen: set[Tuple[int, ...]] = {tuple(initial_state.flatten())}
 
     iterations = 0
     while queue and iterations < time_limit:
@@ -91,6 +96,7 @@ def find_optimal_solution_breadth_first(
         env.restore_full_state_from_np_array_version(state)
         for action in range(NUM_ACTIONS):
             new_state, _, done, _ = env.step(action)
+            assert isinstance(new_state, np.ndarray)
             if np.array_equal(new_state, state):
                 continue
             key = tuple(new_state.flatten())

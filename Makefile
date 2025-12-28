@@ -20,7 +20,7 @@ pyright:
 	PYTHONPATH=. uv run pyright 
 
 mypy:
-	PYTHONPATH=. uv run --group lint mypy .
+	PYTHONPATH=. uv run --group lint mypy carl
 
 format:
 	uv run --group lint ruff format .

@@ -57,9 +57,13 @@ def get_buffer_for_training(component: InferenceComponent,
         assert isinstance(buffer, OfflineReplayBuffer)
         return buffer
     if isinstance(component, TransformerValue):
-        return reply_buffer.get_buffer_for_value()
+        buffer = reply_buffer.get_buffer_for_value()
+        assert isinstance(buffer, OfflineReplayBuffer)
+        return buffer
     if isinstance(component, TransformerConditionalLowLevelPolicy):
-        return reply_buffer.get_buffer_for_policy()
+        buffer = reply_buffer.get_buffer_for_policy()
+        assert isinstance(buffer, OfflineReplayBuffer)
+        return buffer
     if isinstance(component, AdaptiveSubgoalGenerator):
         buffers: dict[int, OfflineReplayBuffer] = {}
         for k in component.generator_k_list:

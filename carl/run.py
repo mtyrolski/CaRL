@@ -20,10 +20,9 @@ from carl.algorithms.algorithm import Algorithm
 from carl.slurm.grid_search import CarlGrid
 from carl.utils.result_loggers import SubgoalSearchResultLogger
 
-HIGHEST_PROTOCOL = 5
-pickle.HIGHEST_PROTOCOL = HIGHEST_PROTOCOL  # ensure highest pickle protocol is used
+HIGHEST_PROTOCOL: Final[int] = pickle.HIGHEST_PROTOCOL
 DOTENV_PATH = './.tokens.env'
-logger.info(F'Ensuring pickle.HIGHEST_PROTOCOL is set to {HIGHEST_PROTOCOL}')
+logger.info(f'Using pickle.HIGHEST_PROTOCOL={HIGHEST_PROTOCOL}')
 
 def handle_logging(
     algorithm: Algorithm,
