@@ -43,8 +43,8 @@ def is_hierarchical_component(component: InferenceComponent) -> bool:
     return isinstance(training_module, dict)
 
 
-BufferContainer = OfflineReplayBuffer | dict[str, OfflineReplayBuffer]
-NetworkContainer = PreTrainedModel | dict[str, PreTrainedModel]
+BufferContainer = OfflineReplayBuffer | dict[int, OfflineReplayBuffer] | dict[str, OfflineReplayBuffer]
+NetworkContainer = PreTrainedModel | dict[int, PreTrainedModel] | dict[str, PreTrainedModel]
 
 
 def get_buffer_for_training(component: InferenceComponent,
@@ -53,13 +53,20 @@ def get_buffer_for_training(component: InferenceComponent,
     Extract buffer for training.
     """
     if isinstance(component, TransformerSubgoalGenerator):
-        return reply_buffer.get_buffer_for_generator()
+        buffer = reply_buffer.get_buffer_for_generator(None)
+        assert isinstance(buffer, OfflineReplayBuffer)
+        return buffer
     if isinstance(component, TransformerValue):
         return reply_buffer.get_buffer_for_value()
     if isinstance(component, TransformerConditionalLowLevelPolicy):
         return reply_buffer.get_buffer_for_policy()
     if isinstance(component, AdaptiveSubgoalGenerator):
-        return {k: reply_buffer.get_buffer_for_generator(k) for k in component.generator_k_list}
+        buffers: dict[int, OfflineReplayBuffer] = {}
+        for k in component.generator_k_list:
+            buffer = reply_buffer.get_buffer_for_generator(k)
+            assert isinstance(buffer, OfflineReplayBuffer)
+            buffers[k] = buffer
+        return buffers
 
     raise ValueError('Component does not have a buffer for training.')
 

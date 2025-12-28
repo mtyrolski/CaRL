@@ -10,11 +10,7 @@
     "venv",
     "migrations",
     "**/__pycache__",
-    "tests/**"
-  ],
-
-  // (optional) if you want them to still be importable but skip type-checking:
-  "excludeFiles": [
+    "tests/**",
     "legacy/**/*.py",
     "carl/environment/sokoban/core.py"
   ],

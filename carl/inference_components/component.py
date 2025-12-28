@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from loguru import logger
+import torch
 from transformers import PreTrainedModel
 from transformers import Trainer as HFTrainer
 from transformers import TrainingArguments
@@ -19,7 +20,7 @@ class TrainingModule:
     metrics_for_component: MetricsHF
 
 RawSimpleComponent: TypeAlias = PreTrainedModel
-RawComplexComponent: TypeAlias = dict[str, PreTrainedModel]
+RawComplexComponent: TypeAlias = dict[int, PreTrainedModel] | dict[str, PreTrainedModel]
 
 RawComponent: TypeAlias = RawSimpleComponent | RawComplexComponent
 
@@ -27,7 +28,7 @@ ComplexTrainingModule: TypeAlias = dict[str, TrainingModule]
 
 
 class InferenceComponent(ABC):
-    device: str
+    device: torch.device
     
     @abstractmethod
     def get_network(self) -> RawComponent:
