@@ -36,6 +36,7 @@ class SolveInstances(Algorithm):
         problems_to_solve: int,
         n_parallel_workers: int,
         dump_solved: bool = False,
+        tag: str | None = None,
     ) -> None:
         super().__init__()
         self.solver = solver
@@ -45,6 +46,7 @@ class SolveInstances(Algorithm):
         self.completed_problems: int = 0
         self.n_parallel_workers = n_parallel_workers
         self.dump_solved = dump_solved
+        self.tag = tag
 
         cuda_devices = os.environ.get(CUDA_VISIBLE_DEVICES__ENV_VAR, '')
         if cuda_devices and self.n_parallel_workers > 1:
@@ -119,10 +121,16 @@ class SolveInstances(Algorithm):
                 f"Total completed: {self.completed_problems}/{self.problems_to_solve}"
             )
 
-        if self.dump_solved:
-            dump(
-                all_experiences,
-                "solved_problems.joblib",
-                protocol=HIGHEST_PROTOCOL,
-            )
-            logger.info("Dumped solved problems to 'solved_problems.joblib'")
+            if self.dump_solved:
+                batch_number = batch_idx + 1
+                if self.tag:
+                    filename = f"solved_problems_{self.tag}_batch_{batch_number}.joblib"
+                else:
+                    filename = f"solved_problems_batch_{batch_number}.joblib"
+
+                dump(
+                    results,
+                    filename,
+                    protocol=HIGHEST_PROTOCOL,
+                )
+                logger.info(f"Dumped solved problems for batch {batch_number} to '{filename}'")
