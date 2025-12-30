@@ -15,7 +15,7 @@ from carl.algorithms.algorithm import Algorithm
 from typing_extensions import TypeAlias
 from carl.utils.aliases import State
 from carl.planners.base import Experience
-
+from os.path import join
 Problem: TypeAlias = State
 Result: TypeAlias = Experience
 CUDA_VISIBLE_DEVICES__ENV_VAR = 'CUDA_VISIBLE_DEVICES'
@@ -120,7 +120,8 @@ class SolveInstances(Algorithm):
             logger.info(
                 f"Total completed: {self.completed_problems}/{self.problems_to_solve}"
             )
-
+            folder_name = 'solved_problems'
+            os.makedirs(folder_name, exist_ok=True)
             if self.dump_solved:
                 batch_number = batch_idx + 1
                 if self.tag:
@@ -130,7 +131,7 @@ class SolveInstances(Algorithm):
 
                 dump(
                     results,
-                    filename,
+                    join(folder_name, filename),
                     protocol=HIGHEST_PROTOCOL,
                 )
-                logger.info(f"Dumped solved problems for batch {batch_number} to '{filename}'")
+                logger.info(f"Dumped solved problems for batch {batch_number} to '{join(folder_name, filename)}'")

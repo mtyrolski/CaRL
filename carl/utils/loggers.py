@@ -17,6 +17,7 @@ from transformers.integrations.integration_utils import NeptuneCallback
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
+from carl.utils.torch_device import resolve_device
 
 
 class CaRLLogger(ABC):
@@ -86,7 +87,7 @@ class CLLPTestLogger(TrainerCallback):
         self.budget_for_achieving_subgoal: int = max(distance_range) + 2
         self.env = env
         self.step: int = 0
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
         self.model: PreTrainedModel | None = None
 
     def on_epoch_end(self, args, state, control, logs=None, **kwargs):

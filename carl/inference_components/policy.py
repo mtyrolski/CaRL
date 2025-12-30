@@ -16,6 +16,7 @@ from carl.inference_components.subgoal_generator import SubgoalGenerator
 from carl.solver.nodes import GeneratedAction
 from carl.solver.nodes import GeneratedSubgoal
 from carl.solver.nodes import SearchTreeNode
+from carl.utils.torch_device import resolve_device
 
 
 class Policy(InferenceComponent):
@@ -66,7 +67,6 @@ class TransformerPolicy(Policy):
         confidence_threshold: float | None = None,
     ) -> None:
         super().__init__(policy_network_class, env)
-        print(torch.cuda.is_available())
         self.device: torch.device = torch.device('cpu')
         print(f'Using device: {self.device}')
         self.path_to_policy_weights = path_to_policy_weights
@@ -140,7 +140,7 @@ class TransformerPolicyGeneration(Policy):
         subgoal_generation_kwargs: dict[str, int] | None,
     ) -> None:
         super().__init__(policy_network_class, env)
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
         self.path_to_policy_weights = path_to_policy_weights
         self.subgoal_generation_kwargs = subgoal_generation_kwargs
 

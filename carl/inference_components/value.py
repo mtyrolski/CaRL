@@ -11,6 +11,7 @@ from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
 from carl.inference_components.component import InferenceComponent
 from carl.inference_components.component import TrainingModule
+from carl.utils.torch_device import resolve_device
 
 
 class Value(InferenceComponent):
@@ -73,7 +74,7 @@ class TransformerValue(Value):
         """
 
         super().__init__(value_network_class, path_to_value_network_weights, env, type_of_evaluation)
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
         self.noise_variance = noise_variance
 
         self.value_network: PreTrainedModel | None = None
@@ -133,7 +134,7 @@ class TransformerValueGeneration(Value):
         value_generation_kwargs: dict[str, int] | None = None,
     ) -> None:
         super().__init__(value_network, path_to_value_network_weights, env, type_of_evaluation)
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
 
         self.value: PreTrainedModel | None = None
 
