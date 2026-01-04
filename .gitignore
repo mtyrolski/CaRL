@@ -24,3 +24,4 @@ multirun/
 rl-data
 dataset/
 outputs/
+solve_attempts/

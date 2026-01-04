@@ -58,6 +58,13 @@ class SolveInstances(Algorithm):
         else:
             logger.info(f"Using {self.n_parallel_workers} parallel worker(s)")
 
+    def _inner_batch_tag(self, batch_idx: int) -> str:
+        if self.tag:
+            filename = f"solved_problems_{self.tag}_batch_{batch_idx}.joblib"
+        else:
+            filename = f"solved_problems_batch_{batch_idx}.joblib"
+        return filename
+
     def _normalize_problems(
         self, problems: Union[torch.Tensor, np.ndarray, Any]
     ) -> List[Problem]:
@@ -80,10 +87,20 @@ class SolveInstances(Algorithm):
         """
         logger.warning("Starting SolveInstances.run()")
         self.solver.construct_networks()
+        folder_name = 'solve_attempts'
 
         all_experiences: List[List[Experience]] = []
 
         for batch_idx, problems in enumerate(self.data_loader.reset_dataloader()):
+            # if batch has been already processed, skip it
+            filename = self._inner_batch_tag(batch_idx + 1)
+            if os.path.exists(join(folder_name, filename)):
+                logger.info(f"Batch {batch_idx + 1} already processed ({filename}). Skipping.")
+                self.completed_problems += len(problems)
+                continue
+
+            logger.info(f"Processing batch {batch_idx + 1}... (will save to {filename})")
+            
             # stop if we have reached the target count
             if self.completed_problems >= self.problems_to_solve:
                 logger.info(f"Completed {self.completed_problems}/{self.problems_to_solve} problems. Stopping.")
@@ -120,15 +137,9 @@ class SolveInstances(Algorithm):
             logger.info(
                 f"Total completed: {self.completed_problems}/{self.problems_to_solve}"
             )
-            folder_name = 'solved_problems'
             os.makedirs(folder_name, exist_ok=True)
             if self.dump_solved:
                 batch_number = batch_idx + 1
-                if self.tag:
-                    filename = f"solved_problems_{self.tag}_batch_{batch_number}.joblib"
-                else:
-                    filename = f"solved_problems_batch_{batch_number}.joblib"
-
                 dump(
                     results,
                     join(folder_name, filename),
