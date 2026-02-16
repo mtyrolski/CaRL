@@ -79,7 +79,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: "./validation/sokoban/progress/"
-    batch_size: 128
+    batch_size: 256
 
   # result logger
   result_logger:
@@ -120,22 +120,22 @@ carl_workers:
 carl_grid:
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 4boxes"]]
     environment.env.num_boxes: [4]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b4_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b4_gs25_c300_p0.85']
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 5boxes"]]
     environment.env.num_boxes: [5]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b5_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b5_gs25_c300_p0.85']
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 6boxes"]]
     environment.env.num_boxes: [6]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b6_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b6_gs25_c300_p0.85']
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 7boxes"]]
     environment.env.num_boxes: [7]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b7_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b7_gs25_c300_p0.85']
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 8boxes"]]
     environment.env.num_boxes: [8]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b8_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b8_gs25_c300_p0.85']
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 9boxes"]]
     environment.env.num_boxes: [9]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b9_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b9_gs25_c300_p0.85']
   - algorithm.result_logger.custom_logger.tags: [["AdaSubS - k841 - arxiv - 10boxes"]]
     environment.env.num_boxes: [10]
-    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.35']
+    algorithm.data_loader.generator.path_to_folder_with_data: ['./validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.1', './validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.35', './validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.6', './validation/sokoban/progress/boards_1000_b10_gs100_c300_p0.85', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.1', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.35', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.6', './validation/sokoban/progress/boards_1000_b10_gs25_c300_p0.85']
