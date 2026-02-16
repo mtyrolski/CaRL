@@ -40,7 +40,7 @@ algorithm:
     experiences_glob: "solved_problems_*_12x12x4_batch_*.joblib"
     generator_target_mode: "sliding_window"
     generator_k: 8
-    generator_offsets: [-1, 1, -2, 2, -3, 3]
+    generator_offsets: [-1, 1]
   custom_metrics:
     _target_: carl.utils.training_metrics.GeneratorMetricsHF
   trainer:
@@ -138,6 +138,7 @@ carl_grid:
     algorithm.datamodule.experiences_path: ["./solve_attempts"]
     algorithm.datamodule.generator_target_mode: ["k_offsets"]
     algorithm.datamodule.generator_k: [8]
+    algorithm.datamodule.generator_offsets: [[-1, 1]]
     algorithm.datamodule.save_tokenized_dataset_path: ["./validation/sokoban/tokenized_offline/generator_signals/exp_k_offsets_k8"]
     algorithm.trainer.args.output_dir: ["models_weights/sokoban/generator/exp_k_offsets_k8"]
   - algorithm.custom_logger.name: ["sokoban_train_generator_exp_k_offsets_k8_finetune"]
@@ -149,5 +150,6 @@ carl_grid:
     algorithm.datamodule.experiences_path: ["./solve_attempts"]
     algorithm.datamodule.generator_target_mode: ["k_offsets"]
     algorithm.datamodule.generator_k: [8]
+    algorithm.datamodule.generator_offsets: [[-1, 1]]
     algorithm.datamodule.save_tokenized_dataset_path: ["./validation/sokoban/tokenized_offline/generator_signals/exp_k_offsets_k8"]
     algorithm.trainer.args.output_dir: ["models_weights/sokoban/generator/exp_k_offsets_k8_finetune"]

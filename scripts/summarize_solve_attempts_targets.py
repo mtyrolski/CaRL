@@ -2,10 +2,9 @@
 
 import argparse
 import glob
-from collections import Counter
 from collections import defaultdict
 from statistics import mean
-from typing import Iterable
+from typing import Iterable, cast
 
 import joblib
 
@@ -202,7 +201,7 @@ def main() -> None:
                 sw_range_total += _sliding_window_count(path_len, distance_range)
 
             positions = _subgoal_positions_with_k(
-                exp.search_info.solving_node, exp.solution.subgoal_distance_path
+                cast(SearchTreeNode, exp.search_info.solving_node), exp.solution.subgoal_distance_path
             )
             if requested_k:
                 k_values = requested_k

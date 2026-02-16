@@ -199,9 +199,6 @@ class SolvingPathGeneratorReplayBuffer(OfflineReplayBuffer):
                 inner_dist: int = min(dist, trajectory_length - 1 - i)
                 x: Tensor
                 y: Tensor
-                assert isinstance(trajectory[i], np.ndarray)
-                assert isinstance(trajectory[i + inner_dist], np.ndarray)
-
                 x, y = self.env.tokenizer.x_y_tokenizer(
                     x=trajectory[i],
                     y=trajectory[i + inner_dist],
@@ -266,8 +263,6 @@ class SolvingPathValueReplayBuffer(OfflineReplayBuffer):
             distance_to_solution: int = trajectory_length - (position + 1)
             x: Tensor
             y: Tensor
-            assert isinstance(trajectory[position], np.ndarray)
-
             x, y = self.env.tokenizer.x_y_tokenizer(x=trajectory[position],
                                                     y=distance_to_solution,
                                                     training_goal=self.training_goal)
@@ -338,8 +333,6 @@ class SolvingPathConditionalLowLevelPolicyReplayBuffer(OfflineReplayBuffer):
 
                 x: Tensor
                 y: Tensor
-                assert isinstance(state_path[i], np.ndarray)
-                assert isinstance(state_path[i + dist], np.ndarray)
                 x, y = self.env.tokenizer.x_y_tokenizer(
                     x=(state_path[i], state_path[i + dist]),
                     y=action_path[i],

@@ -9,7 +9,7 @@ run_local_solve_gpu:
 	PYTHONPATH=. HYDRA_FULL_ERROR=1 uv run python3 -m carl.run --config-dir=${dir} --config-name ${name}
 
 test:
-	PYTHONPATH=. uv run pytest .
+	uv run pytest .
 
 lint: ruff pyright mypy
 

@@ -118,6 +118,7 @@ lint = [
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning"]
+pythonpath = ["."]
 
 [tool.ruff]
 exclude = [".git", ".mypy_cache", ".ruff_cache", ".venv", "carl/environment/"]

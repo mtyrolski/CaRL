@@ -1,8 +1,9 @@
 
 from collections.abc import Iterable, Iterator, Sequence
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
+from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
 from carl.planners.base import Experience
 from carl.solver.nodes import EnvWithRestore
@@ -135,12 +136,13 @@ def generate_sliding_window_generator_targets(
     training_goal: TrainingGoal = TrainingGoal.GENERATOR,
 ) -> list[tuple[Any, Any]]:
     targets: list[tuple[Any, Any]] = []
+    tokenizer = cast(GameEnv, env).tokenizer
     for exp in _iter_experiences(experiences):
         state_path = _state_path_from_experience(exp, env)
         if not state_path:
             continue
         for state, subgoal in iter_state_pairs_sliding_window(state_path, distance_range):
-            x, y = env.tokenizer.x_y_tokenizer(state, subgoal, training_goal)
+            x, y = tokenizer.x_y_tokenizer(state, subgoal, training_goal)
             targets.append((x, y))
     return targets
 
@@ -156,6 +158,7 @@ def generate_k_offset_generator_targets(
         raise ValueError("k must be positive")
 
     targets: list[tuple[Any, Any]] = []
+    tokenizer = cast(GameEnv, env).tokenizer
     for exp in _iter_experiences(experiences):
         state_path = _state_path_from_experience(exp, env)
         if not state_path:
@@ -173,7 +176,7 @@ def generate_k_offset_generator_targets(
             k,
             offsets,
         ):
-            x, y = env.tokenizer.x_y_tokenizer(state, subgoal, training_goal)
+            x, y = tokenizer.x_y_tokenizer(state, subgoal, training_goal)
             targets.append((x, y))
     return targets
 
