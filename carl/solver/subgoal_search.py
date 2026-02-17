@@ -59,23 +59,16 @@ class Solver:
 
         search_info: SearchInfo = SearchInfo(finished_reason=FinishReason.BUDGET_EXCEEDED.value)
         ks = self.subgoal_generator.generator_k_list
-        
-        subgoals_reachable_count_per_k: dict[int, int] = {}
-        subgoals_unreachable_count_per_k: dict[int, int] = {}
+        subgoals_reachable_count_per_k: dict[int, int] = {k: 0 for k in ks}
+        subgoals_unreachable_count_per_k: dict[int, int] = {k: 0 for k in ks}
         
         while nodes_visited < self.max_nodes and solving_node is None:
             current_node: SearchTreeNode | None = self.planner.get()
             if current_node is None:
                 # There is nothing more to expand.
-                search_info.finished_reason = FinishReason.BUDGET_EXCEEDED.value
+                search_info.finished_reason = FinishReason.NOTHING_TO_EXPAND.value
                 break
             subgoals = self.subgoal_generator.get_subgoals(current_node)
-            subgoals_reachable_count_per_k = {}
-            subgoals_unreachable_count_per_k = {}
-            
-            for k in ks:
-                subgoals_reachable_count_per_k[k] = 0
-                subgoals_unreachable_count_per_k[k] = 0
 
             for subgoal, generation_metadata in subgoals:
                 if self.planner.is_seen(subgoal):

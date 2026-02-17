@@ -87,7 +87,7 @@ algorithm:
     generator:
       _target_: carl.environment.instance_generator.GeneralIterableDataLoader
       path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
-    batch_size: 25
+    batch_size: 50
 
   # result logger
   result_logger:
