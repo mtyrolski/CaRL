@@ -171,7 +171,7 @@ def test_generator_tokenize_from_experiences_sliding_window(tmp_path: Path):
     assert torch.equal(y_tensors[0].flatten(), torch.tensor([2, 3, 4, 5, 5]))
 
 
-def test_generator_tokenize_from_experiences_k_offsets_radius_one(tmp_path: Path):
+def test_generator_tokenize_from_experiences_k_offsets(tmp_path: Path):
     exp = _make_experience()
     path = tmp_path / "exp.joblib"
     joblib.dump([exp], path)
@@ -182,13 +182,13 @@ def test_generator_tokenize_from_experiences_k_offsets_radius_one(tmp_path: Path
         subgoal_distance_interval=[2],
         generator_target_mode="k_offsets",
         generator_k=3,
-        generator_offsets=[-1, 1],
+        generator_offsets=[0],
     )
     x_tensors, y_tensors = dm._generator_tokenize_from_experiences()
 
     assert x_tensors[0].shape[0] == 1
     assert y_tensors[0].shape[0] == 1
-    assert int(x_tensors[0].flatten()[0].item()) == 1
+    assert int(x_tensors[0].flatten()[0].item()) == 0
     assert int(y_tensors[0].flatten()[0].item()) == 3
 
 

@@ -362,8 +362,19 @@ class GameDataModule(pl.LightningDataModule):
             if not targets:
                 continue
 
-            x_tensors[idx] = torch.stack([x for x, _ in targets], dim=0)
-            y_tensors[idx] = torch.stack([y for _, y in targets], dim=0)
+            x_steps = [x for x, _ in targets]
+            y_steps = [y for _, y in targets]
+
+            # Tokenizers usually return (1, seq_len). Concatenate these rows to get (N, seq_len).
+            if x_steps[0].ndim >= 2 and x_steps[0].shape[0] == 1:
+                x_tensors[idx] = torch.cat(x_steps, dim=0)
+            else:
+                x_tensors[idx] = torch.stack(x_steps, dim=0)
+
+            if y_steps[0].ndim >= 2 and y_steps[0].shape[0] == 1:
+                y_tensors[idx] = torch.cat(y_steps, dim=0)
+            else:
+                y_tensors[idx] = torch.stack(y_steps, dim=0)
 
         return x_tensors, y_tensors
 

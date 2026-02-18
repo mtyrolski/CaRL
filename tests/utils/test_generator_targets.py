@@ -91,7 +91,7 @@ def test_generate_subgoal_targets_k_offsets_requires_k():
         )
 
 
-def test_iter_state_pairs_k_offsets_radius_one_handcrafted():
+def test_iter_state_pairs_k_offsets_handcrafted():
     state_path = [0, 1, 2, 3, 4, 5, 6]
     # (position_on_path, k_used) pairs from a hand-crafted hierarchical trajectory
     subgoal_positions = [(2, 3), (3, 3), (6, 3)]
@@ -100,13 +100,13 @@ def test_iter_state_pairs_k_offsets_radius_one_handcrafted():
         state_path=state_path,
         subgoal_positions=subgoal_positions,
         k=3,
-        offsets=[-1, 1],
+        offsets=[0],
     ))
 
-    assert_equal(pairs, [(0, 2), (1, 3), (2, 6), (4, 6)])
+    assert_equal(pairs, [(0, 3), (3, 6)])
 
 
-def test_generate_subgoal_targets_k_offsets_radius_one_from_experience():
+def test_generate_subgoal_targets_k_offsets_from_experience():
     env, solving_node = build_dummy_search_tree(6)
     solving_node.next_expand_with_k_generator = 3
     parent = solving_node.parent_node
