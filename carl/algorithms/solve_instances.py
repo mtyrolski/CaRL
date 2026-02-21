@@ -1,7 +1,7 @@
 """Module for solving instances using a Solver and data loader, with optional parallelism and result logging."""
 import os
 from pickle import HIGHEST_PROTOCOL
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, List, Union
 
 import numpy as np
 import torch
@@ -13,9 +13,11 @@ from carl.solver.subgoal_search import Solver
 from carl.utils.result_loggers import ResultLogger
 from carl.algorithms.algorithm import Algorithm
 from typing_extensions import TypeAlias
-
-Problem: TypeAlias = Union[np.ndarray, str]
-Result: TypeAlias = Tuple[Dict[str, Any], Dict[str, Any]]
+from carl.utils.aliases import State
+from carl.planners.base import Experience
+from os.path import join
+Problem: TypeAlias = State
+Result: TypeAlias = Experience
 CUDA_VISIBLE_DEVICES__ENV_VAR = 'CUDA_VISIBLE_DEVICES'
 
 
@@ -34,6 +36,7 @@ class SolveInstances(Algorithm):
         problems_to_solve: int,
         n_parallel_workers: int,
         dump_solved: bool = False,
+        tag: str | None = None,
     ) -> None:
         super().__init__()
         self.solver = solver
@@ -43,6 +46,7 @@ class SolveInstances(Algorithm):
         self.completed_problems: int = 0
         self.n_parallel_workers = n_parallel_workers
         self.dump_solved = dump_solved
+        self.tag = tag
 
         cuda_devices = os.environ.get(CUDA_VISIBLE_DEVICES__ENV_VAR, '')
         if cuda_devices and self.n_parallel_workers > 1:
@@ -53,6 +57,13 @@ class SolveInstances(Algorithm):
             logger.info("Proceeding with configured parallelism.")
         else:
             logger.info(f"Using {self.n_parallel_workers} parallel worker(s)")
+
+    def _inner_batch_tag(self, batch_idx: int) -> str:
+        if self.tag:
+            filename = f"solved_problems_{self.tag}_batch_{batch_idx}.joblib"
+        else:
+            filename = f"solved_problems_batch_{batch_idx}.joblib"
+        return filename
 
     def _normalize_problems(
         self, problems: Union[torch.Tensor, np.ndarray, Any]
@@ -76,10 +87,20 @@ class SolveInstances(Algorithm):
         """
         logger.warning("Starting SolveInstances.run()")
         self.solver.construct_networks()
+        folder_name = 'solve_attempts'
 
-        all_experiences: List[List[Result]] = []
+        all_experiences: List[List[Experience]] = []
 
         for batch_idx, problems in enumerate(self.data_loader.reset_dataloader()):
+            # if batch has been already processed, skip it
+            filename = self._inner_batch_tag(batch_idx + 1)
+            if os.path.exists(join(folder_name, filename)):
+                logger.info(f"Batch {batch_idx + 1} already processed ({filename}). Skipping.")
+                self.completed_problems += len(problems)
+                continue
+
+            logger.info(f"Processing batch {batch_idx + 1}... (will save to {filename})")
+            
             # stop if we have reached the target count
             if self.completed_problems >= self.problems_to_solve:
                 logger.info(f"Completed {self.completed_problems}/{self.problems_to_solve} problems. Stopping.")
@@ -91,7 +112,7 @@ class SolveInstances(Algorithm):
             num_problems = len(conv_problems)
             logger.info(f"Batch {batch_idx + 1}: {num_problems} problems")
 
-            results: List[Result]
+            results: List[Experience]
             if self.n_parallel_workers == 1:
                 results = []
                 # sequential solve with progress logging
@@ -116,11 +137,12 @@ class SolveInstances(Algorithm):
             logger.info(
                 f"Total completed: {self.completed_problems}/{self.problems_to_solve}"
             )
-
-        if self.dump_solved:
-            dump(
-                all_experiences,
-                "solved_problems.joblib",
-                protocol=HIGHEST_PROTOCOL,
-            )
-            logger.info("Dumped solved problems to 'solved_problems.joblib'")
+            os.makedirs(folder_name, exist_ok=True)
+            if self.dump_solved:
+                batch_number = batch_idx + 1
+                dump(
+                    results,
+                    join(folder_name, filename),
+                    protocol=HIGHEST_PROTOCOL,
+                )
+                logger.info(f"Dumped solved problems for batch {batch_number} to '{join(folder_name, filename)}'")

@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, cast
 
 import joblib
 import numpy as np
@@ -32,7 +33,10 @@ from carl.inference_components.subgoal_generator import AdaptiveSubgoalGenerator
 from carl.inference_components.subgoal_generator import TransformerSubgoalGenerator
 from carl.inference_components.value import TransformerValue
 from carl.memory.replay_buffer import OfflineReplayBuffer
+from carl.memory.replay_buffer import SolvingPathGeneratorReplayBuffer
 from carl.memory.replay_buffer import SimpleUniversalReplayBuffer
+from carl.planners.base import Experience
+from carl.planners.base import Solution
 from carl.solver.nodes import prune_experiences
 from carl.solver.subgoal_search import Solver
 from carl.utils.resources import dump_resource
@@ -44,8 +48,8 @@ from carl.utils.result_loggers import SubgoalSearchResultLogger
 from carl.utils.training_metrics import MetricsHF
 
 
-def solved_count(results: list[dict]) -> int:
-    return sum(x['solved'] for x in results)
+def solved_count(results: list[Solution]) -> int:
+    return sum(int(x.solved) for x in results)
 
 
 class TrainingLoopHF(Algorithm):
@@ -56,7 +60,7 @@ class TrainingLoopHF(Algorithm):
         n_iterations (int): Number of iterations to run the training loop.
         evaluate_every (int): Frequency of evaluation, i.e., perform evaluation after every 'evaluate_every' iterations.
         problem_to_evaluate (int): Number of problems to evaluate in each evaluation phase.
-        solver (SubgoalSearchSolver): Solver containing the inference components.
+        solver (Solver): Solver containing the inference components.
         env (GameEnv): Environment to solve.
         replay_buffer (SimpleUniversalReplayBuffer): Replay buffer for storing experiences.
         generated_data_path (str): Path to the generated data for instance generation.
@@ -91,27 +95,29 @@ class TrainingLoopHF(Algorithm):
         add_to_replay_buffer (bool, optional): Flag to add new experiences to the replay buffer during training.
         train_first (bool): Flag if loop should train first or solve first.
 
-    The class integrates various components such as instance generators, replay buffers, and trainers for different components in the hierarchical framework. It also handles logging, evaluation, and data preparation for training/testing.
+    The class integrates various components such as instance generators, replay buffers, and trainers for different
+    components in the hierarchical framework. It also handles logging, evaluation, and data preparation for
+    training/testing.
     """
     def __init__(
         self,
-    # General Loop Flow Parameters
+        # General Loop Flow Parameters
         n_iterations: int,
         evaluate_every: int,
         problem_to_evaluate: int,
         min_count_of_new_solved_boards_to_next_train_iteration: int,
         limit_of_data_used_for_components_training: int,
 
-    # Env-Related Parameters.
-        solver: SubgoalSearchSolver | Solver,    # Contains the inference components.
+        # Env-Related Parameters.
+        solver: Solver,    # Contains the inference components.
         env: GameEnv,
         replay_buffer: SimpleUniversalReplayBuffer,
 
-    # Instance Generator Parameters
+        # Instance Generator Parameters
         generated_data_path: str,
         instance_generator_batch_size: int,
 
-    # Component training and testing paramaters
+        # Component training and testing paramaters
         eval_data_path: str,
         eval_batch_size: int,
         weights_dump_path: str,
@@ -124,8 +130,7 @@ class TrainingLoopHF(Algorithm):
         workdir_to_import_weights_and_experiences_from: str | None = None,
         add_to_replay_buffer: bool = True,
         n_jobs: int = 8,    # Number of jobs for parallelization in sequential CPU solver. Ignored for batched solver.
-        n_jobs_factor_wrt_cores: float |
-        None = None,    # Factor to determine the number of jobs for parallelization in sequential CPU solver. Ignored for batched solver.
+        n_jobs_factor_wrt_cores: float | None = None,    # Factor to determine the number of jobs for parallelization in sequential CPU solver. Ignored for batched solver.
         train_first: bool = False,
     ):
         super().__init__()
@@ -145,12 +150,17 @@ class TrainingLoopHF(Algorithm):
         self.solved_boards_since_last_training = 0
         self.limit_of_data_used_for_components_training = limit_of_data_used_for_components_training
         self.workdir_to_import_weights_and_experiences_from = workdir_to_import_weights_and_experiences_from
+        self.random_int = int(time.time())
         self.train_first = train_first
 
         if self.n_jobs_factor_wrt_cores is not None:
             n_cores = os.cpu_count()
-            logger.info(f'Detected {n_cores} cores. Setting n_jobs to {int(n_cores * self.n_jobs_factor_wrt_cores)}')
-            self.n_jobs = int(n_cores * self.n_jobs_factor_wrt_cores)
+            if n_cores is None:
+                logger.warning('Could not detect CPU core count; keeping default n_jobs.')
+            else:
+                logger.info(
+                    f'Detected {n_cores} cores. Setting n_jobs to {int(n_cores * self.n_jobs_factor_wrt_cores)}')
+                self.n_jobs = int(n_cores * self.n_jobs_factor_wrt_cores)
 
         logger.info(f'Number of jobs for parallelization in sequential CPU solver: {self.n_jobs}')
 
@@ -184,30 +194,33 @@ class TrainingLoopHF(Algorithm):
 
         self.result_logger = result_logger
         self.neptune_callback = self.result_logger.custom_logger
+        run = self.neptune_callback.run
+        if run is None:
+            raise RuntimeError('Neptune logger is not initialized.')
+        self.neptune_run: Any = run
 
         self.path_to_data_used_for_testing_cllp = path_to_data_used_for_testing_cllp
-        self.data_to_test_cllp: list[list[np.ndarray]] | None = None
+        self.data_to_test_cllp: list[UntokenizedTrajectory] | None = None
         self.number_of_trajectories_to_test_cllp = number_of_trajectories_to_test_cllp
         self.add_to_replay_buffer = add_to_replay_buffer
 
     @staticmethod
     def get_stats_after_one_iteration(stats: list[dict[str, float | int]]) -> dict[str, float | int]:
 
-        stats_dict: dict[str, list[tuple[int, float]]] = {}
+        stats_dict: dict[str, list[tuple[float | int, float | int]]] = {}
         stats_after_one_iteration: dict[str, float | int] = {}
 
         for d in stats:
+            step = d.get('step')
+            if step is None:
+                continue
             for k, v in d.items():
-                if k not in stats_dict:
-                    stats_dict[k] = []
-                stats_dict[k].append((d['step'], v))
-        stats_dict.pop('step')
-        stats_dict.pop('epoch')
+                if k in ('step', 'epoch'):
+                    continue
+                stats_dict.setdefault(k, []).append((step, v))
 
         for k, v in stats_dict.items():
-            k = 'after_iterations_' + k
-            stats_after_one_iteration[k] = sorted(v, key=lambda x: x[1])[0][1]
-            stats_after_one_iteration[k] = sorted(v, key=lambda x: x[1])[0][1]
+            stats_after_one_iteration[f'after_iterations_{k}'] = sorted(v, key=lambda x: x[1])[0][1]
 
         return stats_after_one_iteration
 
@@ -224,38 +237,47 @@ class TrainingLoopHF(Algorithm):
 
         for k, v in stats_after_one_iteration.items():
             k = component_name + '_' + k
-            self.neptune_callback.run[k].append(v)
+            self.neptune_run[k].append(v)
 
-        self.neptune_callback.run[component_name + '_buffer_length'].append(buffer_length)
+        self.neptune_run[component_name + '_buffer_length'].append(buffer_length)
 
     # TODO: change this to extract_components_for_training i zrobic iteracje po tym
     def prepare_component_for_training(self,
-                                       name: str) -> tuple[type[PreTrainedModel] | None, OfflineReplayBuffer | None]:
-        model: type[PreTrainedModel] | None = None
+                                       name: str) -> tuple[PreTrainedModel | None, OfflineReplayBuffer | None]:
+        model: PreTrainedModel | None = None
         buffer: OfflineReplayBuffer | None = None
 
         if name.startswith('generator'):
             model_storage = self.solver.subgoal_generator.get_network()
             if isinstance(model_storage, PreTrainedModel):
                 model = model_storage
-                buffer = self.replay_buffer.get_buffer_for_generator()
+                buffer_candidate = self.replay_buffer.get_buffer_for_generator(None)
+                if isinstance(buffer_candidate, dict):
+                    raise RuntimeError('Expected a single generator buffer for non-adaptive generator.')
+                buffer = cast(OfflineReplayBuffer, buffer_candidate)
             else:
+                assert isinstance(model_storage, dict)
                 k = int(name.split('/')[-1])
                 logger.info(f'Using adaptive generator with k={k}')
                 model = model_storage[k]
-                buffer = self.replay_buffer.get_buffer_for_generator(k)
+                buffer = cast(OfflineReplayBuffer, self.replay_buffer.get_buffer_for_generator(k))
         if name == 'value':
-            model = self.solver.value_function.get_network()
+            model_storage = self.solver.value_function.get_network()
+            assert isinstance(model_storage, PreTrainedModel)
+            model = model_storage
             buffer = self.replay_buffer.get_buffer_for_value()
         if name == 'cllp':
-            model = self.solver.validator.get_network()
+            model_storage = self.solver.validator.get_network()
+            assert isinstance(model_storage, PreTrainedModel)
+            model = model_storage
             buffer = self.replay_buffer.get_buffer_for_policy()
 
         return model, buffer
 
     def prepare_data_for_testing_cllp(self) -> None:
-        data: list[list[np.ndarray]] = []
+        data: list[UntokenizedTrajectory] = []
         temp: dict[int, UntokenizedTrajectory] = {}
+        assert self.path_to_data_used_for_testing_cllp is not None
         path_to_data: Path = Path(self.path_to_data_used_for_testing_cllp)
 
         for file in tqdm(path_to_data.iterdir()):
@@ -264,9 +286,17 @@ class TrainingLoopHF(Algorithm):
             temp.update(part_dict)
 
         for _, trajectory in temp.items():
-            data.append(trajectory)
+            if not trajectory:
+                continue
+            if isinstance(trajectory[0], np.ndarray):
+                data.append(trajectory)
+            else:
+                logger.warning('Skipping non-array trajectory when preparing CLLP testing data.')
 
-        self.data_to_test_cllp = data[:self.number_of_trajectories_to_test_cllp]
+        if self.number_of_trajectories_to_test_cllp is None:
+            self.data_to_test_cllp = data
+        else:
+            self.data_to_test_cllp = data[:self.number_of_trajectories_to_test_cllp]
 
     def initialize_buffers_with_training_data(self) -> None:
         logger.info('Initializing buffers with data used for components training')
@@ -275,7 +305,7 @@ class TrainingLoopHF(Algorithm):
         if not os.path.exists(path_to_data):
             logger.warning(f'Path {path_to_data} does not exist. Skipping.')
             logger.warning('Trying to fallback locally')
-            path_to_data = os.path.basename(path_to_data)
+            path_to_data = Path(os.path.basename(path_to_data))
             if not os.path.exists(path_to_data):
                 logger.error(f'Path {path_to_data} does not exist. Skipping.')
                 return
@@ -299,21 +329,25 @@ class TrainingLoopHF(Algorithm):
             self.replay_buffer.add_from_trajectories(trajectories)
 
             # Logging buffer sizes
-            self.neptune_callback.run['replay_buffer_len_after_filling_buffer/value'].append(
+            self.neptune_run['replay_buffer_len_after_filling_buffer/value'].append(
                 len(self.replay_buffer.value_buffer.buffer))
 
-            self.neptune_callback.run['replay_buffer_len_after_filling_buffer/cllp'].append(
+            self.neptune_run['replay_buffer_len_after_filling_buffer/cllp'].append(
                 len(self.replay_buffer.cllp_buffer.buffer))
 
             if isinstance(self.replay_buffer.generator_buffer, dict):
                 for k, v in self.replay_buffer.generator_buffer.items():
-                    self.neptune_callback.run[f'replay_buffer_len_after_filling_buffer/generator/{k}'].append(
+                    self.neptune_run[f'replay_buffer_len_after_filling_buffer/generator/{k}'].append(
                         len(v.buffer))
             else:
-                self.neptune_callback.run['replay_buffer_len_after_filling_buffer/generator'].append(
-                    len(self.replay_buffer.generator_buffer.buffer))
+                generator_buffer = cast(OfflineReplayBuffer, self.replay_buffer.generator_buffer)
+                self.neptune_run['replay_buffer_len_after_filling_buffer/generator'].append(
+                    len(generator_buffer.buffer))
 
-    def prepare_data_for_training_component(self, data_x_y: list[torch.Tensor]) -> tuple[GameDataset, GameDataset]:
+    def prepare_data_for_training_component(
+        self,
+        data_x_y: list[tuple[torch.Tensor, torch.Tensor]],
+    ) -> tuple[GameDataset, GameDataset]:
         train_data_x_y: list[tuple[torch.Tensor, torch.Tensor]]
         validation_data_x_y: list[tuple[torch.Tensor, torch.Tensor]]
 
@@ -329,42 +363,51 @@ class TrainingLoopHF(Algorithm):
 
         return train_dataset, validation_dataset
 
-    def solve_one_rl_iteration(self, batch: list[np.ndarray], iteration: int) -> list[tuple[dict, dict]]:
+    def solve_one_rl_iteration(self, batch: list[np.ndarray], iteration: int) -> list[Experience]:
         num_solved_in_batch: float = 0.0
         logger.info(f'Solving {len(batch)} boards')
         logger.info(f'SolveOneIteration call. Iteration: {iteration}; Batch size: {len(batch)};')
 
         time_start = time.time()
-        if isinstance(self.solver, SubgoalSearchSolver):
-            outputs_all_at_once = self.solver.solve(batch, self.neptune_callback)
-        else:
-            assert isinstance(self.solver, Solver)
-            timeout = 99999
-
-            outputs_all_at_once = joblib.Parallel(n_jobs=self.n_jobs, verbose=100, timeout=timeout)(
-                joblib.delayed(self.solver.solve)(initial_state) for initial_state in batch)
+        timeout = 99999
+        outputs_all_at_once = list(
+            joblib.Parallel(n_jobs=self.n_jobs, verbose=100, timeout=timeout)(
+                joblib.delayed(self.solver.solve)(initial_state) for initial_state in batch
+            )
+        )
+        outputs_all_at_once = cast(list[Experience], outputs_all_at_once)
 
         self.result_logger.log_results(outputs_all_at_once)
 
         time_end = time.time()
 
         for new_solution in outputs_all_at_once:
-            num_solved_in_batch += new_solution[0]['solved']
+            num_solved_in_batch += int(new_solution.solution.solved)
             if self.add_to_replay_buffer:
                 self.replay_buffer.add(new_solution)
 
         num_solved_in_batch_rate = num_solved_in_batch / len(batch)
 
-        self.neptune_callback.run['num_solved_in_batch_during_one_rlloop'].append(num_solved_in_batch_rate)
-        self.neptune_callback.run['num_solved_in_batch_during_one_rlloop_count'].append(num_solved_in_batch)
-        self.neptune_callback.run['time_batch_per_iteration'].append(time_end - time_start)
+        self.neptune_run['num_solved_in_batch_during_one_rlloop'].append(num_solved_in_batch_rate)
+        self.neptune_run['num_solved_in_batch_during_one_rlloop_count'].append(num_solved_in_batch)
+        self.neptune_run['time_batch_per_iteration'].append(time_end - time_start)
 
         return outputs_all_at_once
 
-    def test_cllp_on_trajectory(self, trajectory: list[np.ndarray]) -> float:
+    def test_cllp_on_trajectory(self, trajectory: UntokenizedTrajectory) -> float:
 
-        trajectory_length: int = len(trajectory)
-        distance_range: list[int] = self.replay_buffer.generator_buffer.distance_range
+        if not trajectory or not isinstance(trajectory[0], np.ndarray):
+            return 0.0
+        trajectory_arrays = cast(list[np.ndarray], trajectory)
+        trajectory_length: int = len(trajectory_arrays)
+        if isinstance(self.replay_buffer.generator_buffer, dict):
+            if not self.replay_buffer.generator_buffer:
+                return 0.0
+            distance_range = next(iter(self.replay_buffer.generator_buffer.values())).distance_range
+        elif isinstance(self.replay_buffer.generator_buffer, SolvingPathGeneratorReplayBuffer):
+            distance_range = self.replay_buffer.generator_buffer.distance_range
+        else:
+            raise RuntimeError('Unexpected generator buffer type for CLLP testing.')
         cllp_achieved_goals: int = 0
 
         for i in range(trajectory_length - 1):
@@ -373,12 +416,12 @@ class TrainingLoopHF(Algorithm):
                 x: np.ndarray
                 y: np.ndarray
 
-                x = trajectory[i]
-                y = trajectory[i + inner_dist]
+                x = trajectory_arrays[i]
+                y = trajectory_arrays[i + inner_dist]
 
-                cllp_achieved_goals += self.validator.is_valid(x, y).is_valid
+                cllp_achieved_goals += int(self.solver.validator.is_valid(x, y).is_valid)
 
-                if i + inner_dist >= len(trajectory) - 1:
+                if i + inner_dist >= len(trajectory_arrays) - 1:
                     # don't add more than one copy of the last subgoal
                     break
 
@@ -389,10 +432,14 @@ class TrainingLoopHF(Algorithm):
     def test_cllp(self, iteration: int) -> None:
         cllp_achieved_goals: float = 0.0
 
+        if self.data_to_test_cllp is None:
+            logger.warning('No data available to test CLLP.')
+            return
+
         for trajectory in tqdm(self.data_to_test_cllp):
             cllp_achieved_goals += self.test_cllp_on_trajectory(trajectory)
 
-        self.neptune_callback.run['cllp_achieved_goals'].append(cllp_achieved_goals / len(self.data_to_test_cllp))
+        self.neptune_run['cllp_achieved_goals'].append(cllp_achieved_goals / len(self.data_to_test_cllp))
 
     def iterate_trainers(self,) -> Iterable[tuple[str, type[HFTrainer], Callable[..., TrainingArguments], MetricsHF]]:
         for name, component in self.components.items():
@@ -417,9 +464,13 @@ class TrainingLoopHF(Algorithm):
         for name, trainer, args, metrics in self.iterate_trainers():
             # Model Preparation
             logger.info(f'Training component: {name}')
-            model_to_train: type[PreTrainedModel] | None
+            model_to_train: PreTrainedModel | None
             buffer: OfflineReplayBuffer | None
             model_to_train, buffer = self.prepare_component_for_training(name)
+
+            if model_to_train is None or buffer is None:
+                logger.warning(f'Component {name} has no model or buffer available for training.')
+                continue
 
             logger.info(f'Replay buffer size for {name} is {len(buffer.buffer)}')
             if len(buffer.buffer) == 0:
@@ -435,10 +486,13 @@ class TrainingLoopHF(Algorithm):
             save_dir: str = self.get_save_dir(name)
             training_args: TrainingArguments = args(output_dir=save_dir)
 
-            preprocess_logits_for_metrics: Callable[[torch.Tensor], torch.Tensor]
-            compute_metrics: Callable[[EvalPrediction], dict[str, float]]
+            preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None
+            compute_metrics: Callable[[EvalPrediction], dict[str, float]] | None
 
             preprocess_logits_for_metrics, compute_metrics = metrics.get_metrics()
+            if preprocess_logits_for_metrics is None or compute_metrics is None:
+                preprocess_logits_for_metrics = None
+                compute_metrics = None
 
             ready_trainer: HFTrainer = trainer(
                 model=model_to_train,
@@ -475,7 +529,7 @@ class TrainingLoopHF(Algorithm):
         if self.workdir_to_import_weights_and_experiences_from is None or not os.path.exists(
                 self.workdir_to_import_weights_and_experiences_from):
             logger.info('No directory to import weights and experiences from.')
-            return 0
+            return
 
         experiences_fs = [
             f for f in os.listdir(self.workdir_to_import_weights_and_experiences_from) if f.startswith('experience')
@@ -488,14 +542,13 @@ class TrainingLoopHF(Algorithm):
 
     def get_save_dir(self, name: str) -> str:
         save_dir: str = os.path.join(self.weights_dump_path, str(self.random_int), name)
-        save_dir: str = os.path.join(self.weights_dump_path, str(self.random_int), name)
         return save_dir
 
     @staticmethod
     def data_collector(xy: list[tuple[torch.Tensor, torch.Tensor]]) -> dict[str, torch.Tensor]:
         return {
-            'input_ids': torch.stack([x[0] for x in xy]),
-            'labels': torch.stack([y[1] for y in xy]),
+            'input_ids': torch.stack([x for x, _ in xy]),
+            'labels': torch.stack([y for _, y in xy]),
         }
 
     def run(self) -> None:
@@ -527,34 +580,36 @@ class TrainingLoopHF(Algorithm):
         for _iteration, batch_of_instances in zip(range(self.n_iterations), self.instance_generator.reset_dataloader()):
             # batch_of_instances tensor of shape (batch_size, *state_dim)
             if not self.train_first:
-                batch_of_instances = list(batch_of_instances.cpu().numpy())
+                batch_tensor = cast(torch.Tensor, batch_of_instances)
+                batch_of_instances = list(batch_tensor.cpu().numpy())
 
                 logger.info(f'Current (RL LOOP) iteration: {_iteration + 1}. Solving {len(batch_of_instances)} boards')
 
                 solutions_and_search_infos = self.solve_one_rl_iteration(batch_of_instances, _iteration)
-                solutions = list(map(lambda x: x[0], solutions_and_search_infos))
+                solutions = [experience.solution for experience in solutions_and_search_infos]
                 self.solved_boards_since_last_training += solved_count(solutions)
 
             if (self.solved_boards_since_last_training >= self.min_count_of_new_solved_boards_to_next_train_iteration):
                 self.train_prepare_components_one_rl_iteration(_iteration)
                 self.solved_boards_since_last_training -= (self.min_count_of_new_solved_boards_to_next_train_iteration)
                 iterations_with_training += 1
-                self.neptune_callback.run['iterations_with_training'].append(iterations_with_training)
+                self.neptune_run['iterations_with_training'].append(iterations_with_training)
             else:
                 logger.info(
                     f'Not enough new boards solved, skipping training. Solved boards: {self.solved_boards_since_last_training}'
                 )
 
             if self.train_first:
-                batch_of_instances = list(batch_of_instances.cpu().numpy())
+                batch_tensor = cast(torch.Tensor, batch_of_instances)
+                batch_of_instances = list(batch_tensor.cpu().numpy())
 
                 logger.info(f'Current (RL LOOP) iteration: {_iteration + 1}. Solving {len(batch_of_instances)} boards')
 
                 solutions_and_search_infos = self.solve_one_rl_iteration(batch_of_instances, _iteration)
-                solutions = list(map(lambda x: x[0], solutions_and_search_infos))
+                solutions = [experience.solution for experience in solutions_and_search_infos]
                 self.solved_boards_since_last_training += solved_count(solutions)
 
-            self.neptune_callback.run['finished_iterations'].append(_iteration)
+            self.neptune_run['finished_iterations'].append(_iteration)
 
 
 class DistributedSolverWorker(TrainingLoopHF):
@@ -580,7 +635,10 @@ class DistributedSolverWorker(TrainingLoopHF):
                         continue
                     latest_ckpt_folder = get_latest_file(fs)
                     logger.info(f'Latest checkpoint folder for {name}/{k}: {latest_ckpt_folder}')
-                    v.subgoal_generator_network = v.instantiate_network(v.generator_class, latest_ckpt_folder)
+                    if latest_ckpt_folder is None:
+                        continue
+                    if isinstance(v, TransformerSubgoalGenerator):
+                        v.sub_generator = cast(PreTrainedModel, v.instantiate_network(v.generator, latest_ckpt_folder))
                 continue
             save_dir = self.get_save_dir(name)
             if not os.path.exists(save_dir):
@@ -596,14 +654,23 @@ class DistributedSolverWorker(TrainingLoopHF):
             latest_ckpt_folder = get_latest_file(fs)
             logger.info(f'Latest checkpoint folder for {name}: {latest_ckpt_folder}')
             if isinstance(component, TransformerSubgoalGenerator):
-                component.subgoal_generator_network = component.instantiate_network(component.generator_class,
-                                                                                    latest_ckpt_folder)
+                if latest_ckpt_folder is not None:
+                    component.sub_generator = cast(
+                        PreTrainedModel,
+                        component.instantiate_network(component.generator, latest_ckpt_folder),
+                    )
             elif isinstance(component, TransformerValue):
-                component.value_network = component.instantiate_network(component.value_network_class,
-                                                                        latest_ckpt_folder)
+                if latest_ckpt_folder is not None:
+                    component.value_network = cast(
+                        PreTrainedModel,
+                        component.instantiate_network(component.value_network_class, latest_ckpt_folder),
+                    )
             elif isinstance(component, TransformerConditionalLowLevelPolicy):
-                component.cllp = component.instantiate_network(component.conditional_low_level_policy_class,
-                                                               latest_ckpt_folder)
+                if latest_ckpt_folder is not None:
+                    component.cllp = cast(
+                        PreTrainedModel,
+                        component.instantiate_network(component.conditional_low_level_policy_class, latest_ckpt_folder),
+                    )
             else:
                 logger.error(f'Unknown component type: {type(component)}. Add it to _update_models_ckpts_if_available.')
                 raise ValueError(f'Unknown component type: {type(component)}.')
@@ -625,7 +692,7 @@ class DistributedSolverWorker(TrainingLoopHF):
                 if _iteration % all_workers != workerid:
                     logger.info(f'Worker {workerid} skipping iteration {_iteration}, since its other workers job')
                     this_process_finished_iterations: int = _iteration // all_workers
-                    self.neptune_callback.run[f'solver_{workerid}/finished_iterations'].append(
+                    self.neptune_run[f'solver_{workerid}/finished_iterations'].append(
                         this_process_finished_iterations)
                     continue
 
@@ -638,7 +705,8 @@ class DistributedSolverWorker(TrainingLoopHF):
                 self._update_models_ckpts_if_available()
 
                 # batch_of_instances tensor of shape (batch_size, *state_dim)
-                batch_of_instances = list(batch_of_instances.cpu().numpy())
+                batch_tensor = cast(torch.Tensor, batch_of_instances)
+                batch_of_instances = list(batch_tensor.cpu().numpy())
 
                 logger.info(f'Current (RL LOOP) iteration: {_iteration + 1}. Solving {len(batch_of_instances)} boards')
 
@@ -647,7 +715,9 @@ class DistributedSolverWorker(TrainingLoopHF):
                 logger.info(
                     f'Worker {workerid} dumping solutions_and_search_infos (count: {len(solutions_and_search_infos)})')
 
-                solved_solution_and_search_infos = list(filter(lambda x: x[0]['solved'], solutions_and_search_infos))
+                solved_solution_and_search_infos = [
+                    experience for experience in solutions_and_search_infos if experience.solution.solved
+                ]
 
                 reduced_size_solutions_and_search_infos = prune_experiences(solved_solution_and_search_infos)
 
@@ -672,7 +742,7 @@ class DistributedTrainerWorker(TrainingLoopHF):
         iterations_with_training = 0
         iterations_without_training = 0
         gathered_solved_boards = 0
-        self.neptune_callback.run['trainer/iterations_with_training'].append(iterations_with_training)
+        self.neptune_run['trainer/iterations_with_training'].append(iterations_with_training)
         all_workers = int(os.environ.get(CARL_ALL_NODES_COUNT, 1))
 
         for _iteration, batch_of_instances in enumerate(self.instance_generator.reset_dataloader()):
@@ -680,38 +750,46 @@ class DistributedTrainerWorker(TrainingLoopHF):
                 break
 
             logger.info(f'Worker Trainer iteration: {iterations_with_training}')
-            solutions_and_search_infos_batches = read_resource_and_delete('experience',
-                                                                          flatten=False,
-                                                                          parallel=True,
-                                                                          limit_resources_to_read=10)
+            solutions_and_search_infos_batches = read_resource_and_delete(
+                'experience',
+                flatten=False,
+                parallel=True,
+                limit_resources_to_read=10,
+            )
+            solutions_and_search_infos_batches = [
+                cast(list[Experience], batch)
+                for batch in solutions_and_search_infos_batches
+                if batch is not None
+            ]
 
             # Experimental solving every each iteration of trainer
             if ((iterations_with_training + iterations_without_training) % all_workers == 0
                     and self.solved_boards_since_last_training
                     < self.min_count_of_new_solved_boards_to_next_train_iteration):
                 logger.info(f'Worker Trainer solver iteration {_iteration} started')
-                batch_of_instances = list(batch_of_instances.cpu().numpy())
+                batch_tensor = cast(torch.Tensor, batch_of_instances)
+                batch_of_instances = list(batch_tensor.cpu().numpy())
                 solutions_and_search_infos = self.solve_one_rl_iteration(batch_of_instances, _iteration)
                 solutions_and_search_infos_batches += [solutions_and_search_infos]
 
             count = 0
 
             if len(solutions_and_search_infos_batches) == 0:
-                self.neptune_callback.run['trainer/boards_receved_from_solver_nodes'].append(0)
-                self.neptune_callback.run['trainer/solved_boards_receved_from_solver_nodes'].append(0)
+                self.neptune_run['trainer/boards_receved_from_solver_nodes'].append(0)
+                self.neptune_run['trainer/solved_boards_receved_from_solver_nodes'].append(0)
             else:
                 for sasi_batch in solutions_and_search_infos_batches:
 
-                    self.neptune_callback.run['trainer/boards_receved_from_solver_nodes'].append(len(sasi_batch))
+                    self.neptune_run['trainer/boards_receved_from_solver_nodes'].append(len(sasi_batch))
 
                     for solution_and_search_info in sasi_batch:
                         self.replay_buffer.add(solution_and_search_info)
                         count += 1
-                    solutions = [x[0] for x in sasi_batch]
+                    solutions = [experience.solution for experience in sasi_batch]
 
                     solved_boards_in_batch = solved_count(solutions)
 
-                    self.neptune_callback.run['trainer/solved_boards_receved_from_solver_nodes'].append(
+                    self.neptune_run['trainer/solved_boards_receved_from_solver_nodes'].append(
                         solved_boards_in_batch)
 
                     self.solved_boards_since_last_training += solved_boards_in_batch
@@ -719,13 +797,13 @@ class DistributedTrainerWorker(TrainingLoopHF):
 
             logger.info(f'Worker Trainer read {count} solutions')
             logger.info(f'Worker Trainer solved boards since last training: {self.solved_boards_since_last_training}')
-            self.neptune_callback.run['trainer/gathered_solved_boards'].append(gathered_solved_boards)
-            self.neptune_callback.run['trainer/solved_boards_since_last_training'].append(
+            self.neptune_run['trainer/gathered_solved_boards'].append(gathered_solved_boards)
+            self.neptune_run['trainer/solved_boards_since_last_training'].append(
                 self.solved_boards_since_last_training)
 
             if (self.solved_boards_since_last_training >= self.min_count_of_new_solved_boards_to_next_train_iteration):
                 iterations_with_training += 1
-                self.neptune_callback.run['trainer/iterations_with_training'].append(iterations_with_training)
+                self.neptune_run['trainer/iterations_with_training'].append(iterations_with_training)
                 self.train_prepare_components_one_rl_iteration(iterations_with_training)
                 self.solved_boards_since_last_training -= (self.min_count_of_new_solved_boards_to_next_train_iteration)
             else:
@@ -734,7 +812,7 @@ class DistributedTrainerWorker(TrainingLoopHF):
                 )
                 logger.info('Sleeping for 5 seconds')
                 iterations_without_training += 1
-                self.neptune_callback.run['trainer/iterations_without_training'].append(iterations_without_training)
+                self.neptune_run['trainer/iterations_without_training'].append(iterations_without_training)
                 time.sleep(5)
 
         dump_resource(stop_signal, stop_signal)

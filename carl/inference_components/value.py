@@ -1,22 +1,24 @@
 from abc import abstractmethod
+from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 import torch
 from torch import Tensor
-from torch import nn
 from transformers import PreTrainedModel
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
 from carl.inference_components.component import InferenceComponent
 from carl.inference_components.component import TrainingModule
+from carl.utils.torch_device import resolve_device
 
 
 class Value(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        value_network_class: type[nn.Module],
+        value_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         path_to_value_network_weights: str,
         env: GameEnv,
         type_of_evaluation: str | None = None,
@@ -57,7 +59,7 @@ class Value(InferenceComponent):
 class TransformerValue(Value):
     def __init__(
         self,
-        value_network_class: type[PreTrainedModel],
+        value_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         path_to_value_network_weights: str,
         env: GameEnv,
         type_of_evaluation: str = 'classification',
@@ -72,7 +74,7 @@ class TransformerValue(Value):
         """
 
         super().__init__(value_network_class, path_to_value_network_weights, env, type_of_evaluation)
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
         self.noise_variance = noise_variance
 
         self.value_network: PreTrainedModel | None = None
@@ -86,9 +88,13 @@ class TransformerValue(Value):
     def construct_network(self) -> None:
         # We do not put the value on the eval mode, because "from_pretrained" does it for us.
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
-        self.value_network = self.instantiate_network(self.value_network_class, self.path_to_value_network_weights)
+        self.value_network = cast(
+            PreTrainedModel,
+            self.instantiate_network(self.value_network_class, self.path_to_value_network_weights),
+        )
 
     def get_value(self, state: np.ndarray | str) -> float:
+        assert self.value_network is not None, "Value network is not constructed."
         encoded_board: torch.Tensor
         encoded_board, _ = self.env.tokenizer.x_y_tokenizer(x=state, y=0, training_goal=TrainingGoal.VALUE)
         encoded_board = encoded_board.to(self.device)
@@ -106,6 +112,7 @@ class TransformerValue(Value):
         return noisy_distance
 
     def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+        assert self.value_network is not None, "Value network is not constructed."
         return self.value_network
 
     def expected_value(self, logits) -> float:
@@ -124,10 +131,10 @@ class TransformerValueGeneration(Value):
         path_to_value_network_weights: str,
         env: GameEnv,
         type_of_evaluation: str = 'generation',
-        value_generation_kwargs: dict[str, int] = None,
+        value_generation_kwargs: dict[str, int] | None = None,
     ) -> None:
         super().__init__(value_network, path_to_value_network_weights, env, type_of_evaluation)
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
 
         self.value: PreTrainedModel | None = None
 
@@ -137,13 +144,20 @@ class TransformerValueGeneration(Value):
         # We do not put the value on the eval mode, because "from_pretrained" does it for us.
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
         # Instantiate the generation model from pretrained weights
-        self.value = self.value_network_class.from_pretrained(self.path_to_value_network_weights)
-        self.value.to(self.device)
+        network_class = cast(type[PreTrainedModel], self.value_network_class)
+        self.value = network_class.from_pretrained(self.path_to_value_network_weights)
+        value_module = cast(torch.nn.Module, self.value)
+        value_module.to(self.device)
+        self.value = cast(PreTrainedModel, value_module)
 
     def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+        assert self.value is not None, "Value network is not constructed."
         return self.value
 
     def get_value(self, state: np.ndarray | str) -> float:
+        assert self.value is not None, "Value network is not constructed."
+        if self.value_generation_kwargs is None:
+            raise ValueError("value_generation_kwargs must be provided for value generation.")
         max_new_tokens: int = self.value_generation_kwargs['max_new_tokens']
         num_beams: int = self.value_generation_kwargs['num_beams']
         num_return_sequences: int = self.value_generation_kwargs['num_return_sequences']
@@ -151,8 +165,10 @@ class TransformerValueGeneration(Value):
         encoded_board: torch.Tensor
         encoded_board, _ = self.env.tokenizer.x_y_tokenizer(x=state, y=0, training_goal=TrainingGoal.VALUE_GENERATION)
         encoded_board = encoded_board.to(self.device)
+        value = cast(PreTrainedModel, self.value)
+        generate = cast(Callable[..., torch.Tensor], value.generate)
         with torch.no_grad():
-            outputs: list[list[int]] = self.value.generate(
+            outputs: list[list[int]] = generate(
                 encoded_board,
                 max_new_tokens=max_new_tokens,
                 num_beams=num_beams,

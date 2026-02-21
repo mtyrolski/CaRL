@@ -1,4 +1,6 @@
 from abc import abstractmethod
+from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 import torch
@@ -16,10 +18,10 @@ class SubgoalGenerator(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        generator: type[nn.Module],
+        generator: Callable[[str], PreTrainedModel] | type[nn.Module],
         path_to_generator_weights: str,
         env: GameEnv,
-        subgoal_generation_kwargs: dict[str, int] | None = None,
+        subgoal_generation_kwargs: dict[str, int | bool | float] | None = None,
     ) -> None:
         """
         Initialize the sub-goals generator.
@@ -58,22 +60,26 @@ class SubgoalGenerator(InferenceComponent):
 class TransformerSubgoalGenerator(SubgoalGenerator):
     def __init__(
         self,
-        generator_network_class: type[PreTrainedModel],
+        generator_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         path_to_generator_weights: str,
         env: GameEnv,
-        subgoal_generation_kwargs: dict[str, int | bool] | None,
+        subgoal_generation_kwargs: dict[str, int | bool | float] | None,
     ) -> None:
         super().__init__(generator_network_class, path_to_generator_weights, env, subgoal_generation_kwargs)
         self.device: torch.device = torch.device('cpu')
         self.subgoal_generation_kwargs = subgoal_generation_kwargs
+        self.generator_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel] = generator_network_class
         self.sub_generator: PreTrainedModel | None = None
 
     def construct_network(self) -> None:
         # We do not put the generator on the eval mode, because "from_pretrained" does it for us.
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
-        self.sub_generator = self.instantiate_network(self.generator, self.path_to_generator_weights)
+        self.sub_generator = cast(
+            PreTrainedModel,
+            self.instantiate_network(self.generator_network_class, self.path_to_generator_weights),
+        )
 
-    def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+    def get_network(self) -> PreTrainedModel:
         assert self.sub_generator is not None, "Subgoal generator network is not constructed."
         return self.sub_generator
 
@@ -86,11 +92,17 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
         """
         state = node.state
 
-        max_new_tokens: int = self.subgoal_generation_kwargs['max_new_tokens']
-        num_beams: int = self.subgoal_generation_kwargs['num_beams']
-        num_return_sequences: int = self.subgoal_generation_kwargs['num_return_sequences']
-        do_sample: bool = self.subgoal_generation_kwargs.get('do_sample', False)
-        temperature: float = self.subgoal_generation_kwargs.get('temperature', 1.0)
+        if self.subgoal_generation_kwargs is None:
+            raise ValueError("subgoal_generation_kwargs must be provided.")
+        if self.sub_generator is None:
+            raise RuntimeError("Subgoal generator network is not constructed.")
+
+        subgoal_generation_kwargs = self.subgoal_generation_kwargs
+        max_new_tokens: int = int(subgoal_generation_kwargs["max_new_tokens"])
+        num_beams: int = int(subgoal_generation_kwargs["num_beams"])
+        num_return_sequences: int = int(subgoal_generation_kwargs["num_return_sequences"])
+        do_sample: bool = bool(subgoal_generation_kwargs.get("do_sample", False))
+        temperature: float = float(subgoal_generation_kwargs.get("temperature", 1.0))
 
         if do_sample:
             num_beams = 1
@@ -99,7 +111,8 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
         encoded_board, _ = self.env.tokenizer.x_y_tokenizer(x=state, y=state, training_goal=TrainingGoal.GENERATOR)
         encoded_board = encoded_board.to(self.device)
         with torch.no_grad():
-            outputs: list[list[int]] = self.sub_generator.generate(
+            generate = cast(Callable[..., torch.Tensor], self.sub_generator.generate)
+            outputs: list[list[int]] = generate(
                 encoded_board,
                 max_new_tokens=max_new_tokens,
                 num_beams=num_beams,
@@ -110,7 +123,7 @@ class TransformerSubgoalGenerator(SubgoalGenerator):
         subgoals: list[GeneratedSubgoal] = []
 
         for output in outputs:
-            subgoal: np.ndarray | None = self.env.tokenizer.board_detokenizer(output)
+            subgoal: np.ndarray | str | None = self.env.tokenizer.board_detokenizer(output)
             if subgoal is not None:
                 subgoals.append(GeneratedSubgoal(subgoal, {}))
 
@@ -123,18 +136,19 @@ class AdaptiveSubgoalGenerator(InferenceComponent):
         generator_k_list: list[int],
         paths_to_generator_weights: list[str],
         env: GameEnv,
-        subgoal_generation_kwargs: dict[str, int] | None,
-        subgoal_generator_class: type[SubgoalGenerator] = TransformerSubgoalGenerator,
+        subgoal_generation_kwargs: dict[str, int | bool | float] | None,
+        subgoal_generator_class: Callable[..., SubgoalGenerator] = TransformerSubgoalGenerator,
     ) -> None:
         self.env = env
         self.subgoal_generation_kwargs = subgoal_generation_kwargs
         self.generator_k_list = generator_k_list
 
-        self.subgoal_generators = {
-            idx:
-                subgoal_generator_class(env=env,
-                                        subgoal_generation_kwargs=subgoal_generation_kwargs,
-                                        path_to_generator_weights=path)
+        self.subgoal_generators: dict[int, SubgoalGenerator] = {
+            idx: subgoal_generator_class(
+                env=env,
+                subgoal_generation_kwargs=subgoal_generation_kwargs,
+                path_to_generator_weights=path,
+            )
             for idx, path in zip(generator_k_list, paths_to_generator_weights)
         }
 
@@ -142,8 +156,11 @@ class AdaptiveSubgoalGenerator(InferenceComponent):
         for subgoal_generator in self.subgoal_generators.values():
             subgoal_generator.construct_network()
 
-    def get_network(self) -> dict[str, PreTrainedModel]:
-        return {idx: subgoal_generator.get_network() for idx, subgoal_generator in self.subgoal_generators.items()}
+    def get_network(self) -> dict[int, PreTrainedModel]:
+        return {
+            idx: cast(PreTrainedModel, subgoal_generator.get_network())
+            for idx, subgoal_generator in self.subgoal_generators.items()
+        }
 
     def get_subgoals(self, node: SearchTreeNode) -> list[GeneratedSubgoal]:
         """
@@ -152,5 +169,7 @@ class AdaptiveSubgoalGenerator(InferenceComponent):
         :param state: the state.
         :return: the subgoals.
         """
+        if node.next_expand_with_k_generator is None:
+            raise ValueError("Node does not specify which k-generator to use.")
         subgoal_generator = self.subgoal_generators[node.next_expand_with_k_generator]
         return subgoal_generator.get_subgoals(node)

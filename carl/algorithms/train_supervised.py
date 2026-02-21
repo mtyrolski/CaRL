@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any
+from typing import cast
 
 import numpy as np
 import torch
@@ -8,6 +8,7 @@ from lightning import LightningDataModule
 from lightning import LightningModule
 from lightning import Trainer
 from torch.utils.data import Dataset
+from transformers import EvalPrediction
 from transformers import PretrainedConfig
 from transformers import PreTrainedModel
 from transformers import Trainer as HFTrainer
@@ -74,11 +75,13 @@ class TrainSupervisedHF(Algorithm):
             logger.success('Instantiated raw model from config')
         else:
             assert (path_to_model_weights is not None), 'path_to_model_weights must be provided if do_finetune is True'
-            self.model_to_train = model.from_pretrained(path_to_model_weights)
+            assert hasattr(model, "from_pretrained")
+            model_cls = cast(type[PreTrainedModel], model)
+            self.model_to_train = model_cls.from_pretrained(path_to_model_weights)
             logger.success('Loaded model checkpoint (arch+weights) over the config')
 
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None
-        compute_metrics: Callable[[torch.Tensor, torch.Tensor], dict[str, torch.Tensor]] | None
+        compute_metrics: Callable[[EvalPrediction], dict] | None
 
         if self.custom_metrics is not None:
             preprocess_logits_for_metrics, compute_metrics = self.custom_metrics.get_metrics()
@@ -102,20 +105,20 @@ class TrainSupervisedHF(Algorithm):
         logger.success('Trainer is ready')
 
         if self.custom_logger is not None:
-            logger: Any = self.custom_logger.return_logger()
-            self.ready_trainer.add_callback(logger)
+            trainer_logger = self.custom_logger.return_logger()
+            self.ready_trainer.add_callback(trainer_logger)
 
             if self.cllp_logger is not None and self.datamodule.training_goal.value == 'cllp':
                 assert (self.path_to_data_to_test_cllp
                         is not None), 'path_to_data_to_test_cllp must be provided if cllp_logger is not None'
                 data_to_test_cllp: dict[int, list[np.ndarray]] = load(self.path_to_data_to_test_cllp)
-                cllp_logger: TrainerCallback = self.cllp_logger(
-                    inner_logger=logger,
+                cllp_callback: TrainerCallback = self.cllp_logger(
+                    inner_logger=trainer_logger,
                     data_to_evaluate=data_to_test_cllp,
                     distance_range=self.datamodule.subgoal_distance_interval,
                     env=self.datamodule.env,
                 )
-                self.ready_trainer.add_callback(cllp_logger)
+                self.ready_trainer.add_callback(cllp_callback)
 
     @staticmethod
     def data_collector(xy: list[tuple[torch.Tensor, torch.Tensor]]) -> dict[str, torch.Tensor]:
@@ -126,4 +129,5 @@ class TrainSupervisedHF(Algorithm):
 
     def run(self) -> None:
         logger.info('Training model')
+        assert self.ready_trainer is not None
         self.ready_trainer.train()

@@ -22,3 +22,9 @@ offline_data/
 validation/
 multirun/
 rl-data
+dataset/
+outputs/
+solve_attempts/
+.coverage
+out*
+*out

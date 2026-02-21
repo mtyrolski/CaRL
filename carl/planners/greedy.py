@@ -1,4 +1,3 @@
-from abc import abstractmethod
 import numpy as np
 
 from carl.environment.utilis import DeadEndFinder
@@ -101,7 +100,7 @@ class BfsPlanner(GreedyPlanner):
         self.nodes_queue: SafePriorityQueue = SafePriorityQueue()
 
     def add(self, node: SearchTreeNode):
-        self.seen_states.add(tuple(node.state.flatten()))
+        self.seen_states.add(hashable_state(node.state))
         self.nodes_queue.put(data=node, key=0.0)
 
     def get_node_priority(self, node: SearchTreeNode) -> float:
@@ -113,7 +112,7 @@ class BfsPlanner(GreedyPlanner):
 class DeadEndTrackingPlanner(BestFSPlanner):    # may inherit from any planner
     def __init__(self, root_state, dead_end_finder: DeadEndFinder, **kwargs):
         self.dead_end_finder = dead_end_finder
-        self.seen_states_list = []
+        self.seen_states_list: list[SearchTreeNode] = []
         super().__init__(root_state, **kwargs)
 
     def add(self, node: SearchTreeNode):
@@ -135,4 +134,3 @@ class DeadEndTrackingPlanner(BestFSPlanner):    # may inherit from any planner
         else:
             search_info.dead_ends_rate = 0.0
         return super().get_solution_data(solving_node, search_info)
-

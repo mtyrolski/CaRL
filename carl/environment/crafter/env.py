@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeVar
 
 import matplotlib.pyplot as plt_m
 import numpy as np
@@ -12,8 +11,6 @@ from crafter.engine import SemanticView
 from crafter.engine import World
 from crafter.env import Env as CrafterEnv
 from crafter.objects import Player
-from matplotlib import figure as plt
-from plotly import graph_objects as go
 from torch import Tensor
 
 from carl.environment.env import GameEnv
@@ -21,17 +18,10 @@ from carl.environment.env import ReadableReprT
 from carl.environment.tokenizer import GameTokenizer
 
 """
+Example output (truncated):
 (64, 64, 3)
-(64, 64, 3) 0.0 False {'inventory': {'health': 9, 'food': 9, 'drink': 9, 'energy': 9, 'sapling': 0, 'wood': 0, 'stone': 0, 'coal': 0, 'iron': 0, 'diamond': 0, 'wood_pickaxe': 0, 'stone_pickaxe': 0, 'iron_pickaxe': 0, 'wood_sword': 0, 'stone_sword': 0, 'iron_sword': 0}, 'achievements': {'collect_coal': 0, 'collect_diamond': 0, 'collect_drink': 0, 'collect_iron': 0, 'collect_sapling': 0, 'collect_stone': 0, 'collect_wood': 0, 'defeat_skeleton': 0, 'defeat_zombie': 0, 'eat_cow': 0, 'eat_plant': 0, 'make_iron_pickaxe': 0, 'make_iron_sword': 0, 'make_stone_pickaxe': 0, 'make_stone_sword': 0, 'make_wood_pickaxe': 0, 'make_wood_sword': 0, 'place_furnace': 0, 'place_plant': 0, 'place_stone': 0, 'place_table': 0, 'wake_up': 0}, 'discount': 1.0, 'semantic': array([[ 2,  2, 14, ...,  3,  3,  3],
-       [ 2,  2,  2, ...,  3,  3,  3],
-       [ 2,  2,  2, ...,  3,  3,  4],
-       ...,
-       [ 1,  1,  1, ...,  1,  1,  2],
-       [ 1,  1,  1, ...,  5,  2,  2],
-       [ 1,  1,  1, ...,  6,  2,  6]], dtype=uint8), 'player_pos': array([31, 32]), 'reward': 0.0}
+(64, 64, 3) 0.0 False { ... }
 """
-
-ReadableReprT = TypeVar('RepresentationT', str, go.Figure, plt.Figure)
  
 class CrafterTarget(StrEnum):
     COLLECT_COAL = "collect coal"

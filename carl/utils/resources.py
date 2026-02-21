@@ -67,7 +67,7 @@ def read_resource_and_delete(
     if not parallel:
         objs = [jl.load(f) for f in files]
     else:
-        objs = jl.Parallel(n_jobs=-1)(jl.delayed(load_experiences)(f) for f in files)
+        objs = list(jl.Parallel(n_jobs=-1)(jl.delayed(load_experiences)(f) for f in files))
 
     if limit_resources_to_read is not None:
         objs = objs[:limit_resources_to_read]

@@ -1,16 +1,21 @@
 import os
-import time
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Callable
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TypeAlias
+from typing import TypeVar
+from typing import Protocol
+from typing import cast
 
 from loguru import logger
-from transformers import PreTrainedModel
+import torch
 from transformers import Trainer as HFTrainer
 from transformers import TrainingArguments
-from typing import TypeAlias
 from carl.utils.training_metrics import MetricsHF
+from carl.utils.retry import RetryConfig
+from carl.utils.retry import retry
 
 @dataclass
 class TrainingModule:
@@ -18,16 +23,47 @@ class TrainingModule:
     trainer_args: Callable[..., TrainingArguments]
     metrics_for_component: MetricsHF
 
-RawSimpleComponent: TypeAlias = PreTrainedModel
-RawComplexComponent: TypeAlias = dict[str, PreTrainedModel]
+RawSimpleComponent: TypeAlias = torch.nn.Module
+RawComplexComponent: TypeAlias = Mapping[int, torch.nn.Module] | Mapping[str, torch.nn.Module]
 
 RawComponent: TypeAlias = RawSimpleComponent | RawComplexComponent
 
+NetworkFromPath: TypeAlias = Callable[[str], RawSimpleComponent]
+
 ComplexTrainingModule: TypeAlias = dict[str, TrainingModule]
+
+_TModule = TypeVar("_TModule", bound=torch.nn.Module)
+_TModule_co = TypeVar("_TModule_co", bound=torch.nn.Module, covariant=True)
+
+
+class _FromPretrained(Protocol[_TModule_co]):
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str, *args, **kwargs) -> _TModule_co: ...
+
+
+_PATH_RESOLUTION_RETRY = RetryConfig(
+    attempts=5,
+    delay_seconds=10.0,
+    backoff=1.0,
+    retry_on=(FileNotFoundError, RuntimeError),
+    on_retry=lambda attempt, exc: logger.info(
+        f"Weights path not ready (attempt {attempt}). Retrying... ({exc})"
+    ),
+)
+
+_LOAD_RETRY = RetryConfig(
+    attempts=5,
+    delay_seconds=10.0,
+    backoff=1.0,
+    retry_on=(Exception,),
+    on_retry=lambda attempt, exc: logger.critical(
+        f"Failed to load weights (attempt {attempt}). Retrying... ({exc})"
+    ),
+)
 
 
 class InferenceComponent(ABC):
-    device: str
+    device: torch.device
     
     @abstractmethod
     def get_network(self) -> RawComponent:
@@ -55,55 +91,94 @@ class InferenceComponent(ABC):
         """
         return None
 
-    def instantiate_network(self, network_fn, weights_path: str):
-        """Instantiate the networks."""
+    def _resolve_weights_path(self, weights_path: str) -> str:
+        if not weights_path:
+            raise RuntimeError('Empty weights_path')
+
+        if not os.path.exists(weights_path):
+            raise FileNotFoundError(f'Path does not exist: {weights_path}')
+
+        basename = os.path.basename(weights_path)
+        if basename.startswith('checkpoint'):
+            return weights_path
+
+        if not os.path.isdir(weights_path):
+            # Not a checkpoint dir and not a directory containing checkpoints.
+            return weights_path
+
+        entries = [f for f in os.listdir(weights_path) if f.startswith('checkpoint')]
+        if len(entries) == 0:
+            raise RuntimeError(f'No checkpoint* entries found in {weights_path}')
+        if len(entries) > 1:
+            raise RuntimeError(f'Found multiple checkpoint* entries in {weights_path}: {entries}')
+        return os.path.join(weights_path, entries[0])
+
+    def _validate_weights_path(self, resolved_path: str) -> None:
+        if not os.path.exists(resolved_path):
+            raise FileNotFoundError(f'Resolved weights path does not exist: {resolved_path}')
+
+        if os.path.isdir(resolved_path):
+            files = os.listdir(resolved_path)
+            if len(files) == 0:
+                raise RuntimeError(f'Resolved weights directory is empty: {resolved_path}')
+
+            allowed_markers = (
+                'config.json',
+                'pytorch_model.bin',
+                'model.safetensors',
+            )
+            allowed_suffixes = ('.safetensors', '.bin', '.pt', '.pth', '.ckpt')
+
+            has_marker = any(name in files for name in allowed_markers)
+            has_payload = any(name.endswith(allowed_suffixes) for name in files)
+            if not (has_marker or has_payload):
+                logger.warning(
+                    f"Weights directory {resolved_path} doesn't look like a typical checkpoint. "
+                    f"Proceeding anyway; loader may still handle it. Files: {files}"
+                )
+        else:
+            if os.path.getsize(resolved_path) == 0:
+                raise RuntimeError(f'Resolved weights file is empty: {resolved_path}')
+
+    @retry(_PATH_RESOLUTION_RETRY)
+    def _resolve_and_validate_weights_path(self, weights_path: str) -> str:
+        resolved = self._resolve_weights_path(weights_path)
+        self._validate_weights_path(resolved)
+        return resolved
+
+    @retry(_LOAD_RETRY)
+    def _load_network_once(
+        self,
+        network_factory: Callable[[str], _TModule] | type[_TModule],
+        resolved_path: str,
+    ) -> _TModule:
+        if isinstance(network_factory, type) and hasattr(network_factory, 'from_pretrained'):
+            factory = cast(_FromPretrained[_TModule], network_factory)
+            model = factory.from_pretrained(resolved_path)
+        else:
+            model = cast(Callable[[str], _TModule], network_factory)(resolved_path)
+        logger.success(f'Loaded weights from {resolved_path}')
+        return model
+
+    def instantiate_network(
+        self,
+        network_factory: Callable[[str], _TModule] | type[_TModule],
+        weights_path: str,
+    ) -> _TModule:
+        """Instantiate a network using a callable that accepts a weights path.
+
+        Contract: `network_fn(resolved_weights_path)` must return a torch.nn.Module.
+        This method then moves it to `self.device` and puts it in eval mode.
+        """
+
         logger.debug(f'Loading weights from {weights_path}')
-        full_weights_path = None
-        for _ in range(5):
-            if weights_path is not None and os.path.exists(weights_path):
-                basename = os.path.basename(weights_path)
+        resolved_path = self._resolve_and_validate_weights_path(weights_path)
+        logger.info(f'Resolved weights path: {resolved_path}')
 
-                if not basename.startswith('checkpoint'):
-                    fs = os.listdir(weights_path)
-                    fs = [f for f in fs if f.startswith('checkpoint')]
-
-                    if len(fs) == 0:
-                        logger.info(
-                            f'Checkpoints has not been found in {weights_path}. Waiting 10 seconds and retrying...')
-                        time.sleep(10)
-                        continue
-
-                    assert len(fs) == 1, f'Found multiple checkpoints in {weights_path}'
-
-                    ckpt_folder_name = fs[0]
-                    full_weights_path = os.path.join(weights_path, ckpt_folder_name)
-                    break
-                else:
-                    logger.info('Provided direct path to the ckpt')
-                    full_weights_path = weights_path
-                    break
-            else:
-                logger.info(f'Path {weights_path} does not exist.')
-                time.sleep(10)
-                continue
-
-        network = None
-        for _ in range(5):
-            try:
-                network = network_fn(full_weights_path)
-                logger.success(f'Loaded weights from {full_weights_path}')
-                break
-            except Exception as e:
-                logger.critical(f'Failed to load weights from {full_weights_path}. Retrying...')
-                logger.critical(e)
-                time.sleep(10)
-        if network is None:
-            raise RuntimeError(f'Failed to load weights from {full_weights_path}')
-
-        network.to(self.device)
-        network.eval()
-
-        return network
+        model = self._load_network_once(network_factory, resolved_path)
+        model.to(self.device)
+        model.eval()
+        return model
 
     def is_trainable(self) -> bool:
         """Returns whether the component is trainable."""

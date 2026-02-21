@@ -3,7 +3,7 @@ from abc import abstractmethod
 from collections.abc import Callable
 from functools import reduce
 from operator import or_
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -12,8 +12,9 @@ from torchmetrics import Metric
 from torchmetrics import MetricCollection
 from transformers import EvalPrediction
 
-Metrics = dict[str, float | list[float]]
 from carl.planners.base import Experience
+
+Metrics = dict[str, float | list[float]]
 
 
 def is_safe_list(lst: list[Any]) -> bool:
@@ -41,11 +42,8 @@ def safe_metric_update(logs, key, value) -> bool:
 
 
 def extract_metrics_from_experiences(experiences: list[Experience]) -> Metrics:
-    SOLUTION_IDX = 0
-    SEARCH_INFO_IDX = 1
-
-    keys_solution = reduce(or_, (experience[SOLUTION_IDX].keys() for experience in experiences))
-    keys_search_info = reduce(or_, (experience[SEARCH_INFO_IDX].keys() for experience in experiences))
+    keys_solution = reduce(or_, (experience.solution.__dict__.keys() for experience in experiences))
+    keys_search_info = reduce(or_, (experience.search_info.__dict__.keys() for experience in experiences))
 
     logs: Metrics = {k: [] for k in keys_solution | keys_search_info}
 
@@ -53,19 +51,20 @@ def extract_metrics_from_experiences(experiences: list[Experience]) -> Metrics:
     non_trackable_metrics: int = 0
 
     for experience in experiences:
-        solution, search_info = experience
-        for key, value in solution.items():
+        solution = experience.solution
+        search_info = experience.search_info
+        for key, value in solution.__dict__.items():
             trackable_metrics += int(safe_metric_update(logs, key, value))
             non_trackable_metrics += int(not safe_metric_update(logs, key, value))
 
-        for key, value in search_info.items():
+        for key, value in search_info.__dict__.items():
             trackable_metrics += int(safe_metric_update(logs, key, value))
             non_trackable_metrics += int(not safe_metric_update(logs, key, value))
 
     return logs
 
 
-def extract_metrics_from_buffer_logs(buffer_logs: list[dict[str, float]]) -> Metrics:
+def extract_metrics_from_buffer_logs(buffer_logs: list[dict[str, float | int]]) -> Metrics:
     # For each log sum and average the values
     keys = buffer_logs[0].keys()
     assert all(log.keys() == keys for log in buffer_logs)
@@ -86,6 +85,9 @@ def extract_metrics_from_buffer_logs(buffer_logs: list[dict[str, float]]) -> Met
 
 
 class GeneratorTokenAccuracy(Metric):
+    correct: Tensor
+    total: Tensor
+
     def __init__(self) -> None:
         super().__init__()
         self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
@@ -94,11 +96,17 @@ class GeneratorTokenAccuracy(Metric):
     def update(self, preds: Tensor, target: Tensor) -> None:
         preds, target = self._input_format(preds, target)
         assert preds.shape == target.shape
-        self.correct += torch.sum(preds == target)
-        self.total += target.numel()
+        correct: Tensor = cast(Tensor, self.correct)
+        total: Tensor = cast(Tensor, self.total)
+        correct = correct + torch.sum(preds == target)
+        total = total + target.numel()
+        self.correct = correct
+        self.total = total
 
     def compute(self) -> Tensor:
-        return self.correct.float() / self.total
+        correct: Tensor = cast(Tensor, self.correct)
+        total: Tensor = cast(Tensor, self.total)
+        return correct.float() / total
 
     @staticmethod
     def _input_format(logits: Tensor, target: Tensor) -> tuple[Tensor, Tensor]:
@@ -107,6 +115,9 @@ class GeneratorTokenAccuracy(Metric):
 
 
 class GeneratorSequenceTokensAccuracy(Metric):
+    correct: Tensor
+    total: Tensor
+
     def __init__(self) -> None:
         super().__init__()
         self.add_state('correct', default=torch.tensor(0), dist_reduce_fx='sum')
@@ -115,12 +126,18 @@ class GeneratorSequenceTokensAccuracy(Metric):
     def update(self, preds: Tensor, target: Tensor) -> None:
         preds, target = self._input_format(preds, target)
         assert preds.shape == target.shape
-        agg: Tensor = (preds == target).all(axis=1)
-        self.correct += torch.sum(agg)
-        self.total += agg.numel()
+        agg: Tensor = (preds == target).all(dim=1)
+        correct = cast(Tensor, self.correct)
+        total = cast(Tensor, self.total)
+        correct = correct + torch.sum(agg)
+        total = total + agg.numel()
+        self.correct = correct
+        self.total = total
 
     def compute(self) -> Tensor:
-        return self.correct.float() / self.total
+        correct = cast(Tensor, self.correct)
+        total = cast(Tensor, self.total)
+        return correct.float() / total
 
     @staticmethod
     def _input_format(logits: Tensor, target: Tensor) -> tuple[Tensor, Tensor]:
@@ -171,14 +188,14 @@ class ValueMetricsHF(MetricsHF):
         self,
     ) -> tuple[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], Callable[[EvalPrediction], dict]] | tuple[None,
                                                                                                                None]:
-
+        process_and_compute_metrics: (
+            tuple[Callable[[torch.Tensor, torch.Tensor], torch.Tensor], Callable[[EvalPrediction], dict]]
+            | tuple[None, None]
+        )
         if self.type_of_evaluation == 'classification':
-            process_and_compute_metrics: tuple[
-                Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-                Callable[[EvalPrediction], dict],
-            ] = self.preprocess_and_compute_value_classification_metrics()
+            process_and_compute_metrics = self.preprocess_and_compute_value_classification_metrics()
         else:
-            process_and_compute_metrics: tuple[None, None] = self.preprocess_and_compute_value_regression_metrics()
+            process_and_compute_metrics = self.preprocess_and_compute_value_regression_metrics()
 
         return process_and_compute_metrics
 
@@ -196,7 +213,7 @@ class ValueMetricsHF(MetricsHF):
             assert preds.shape == target.shape
             distances: np.ndarray = np.arange(0, len(probs[0]))
             expected_distance: np.ndarray = np.array([np.inner(probs[i], distances) for i in range(len(probs))])
-            l2_loss_expected_distance: np.ndarray = np.mean(np.square(expected_distance - target))
+            l2_loss_expected_distance: float = float(np.mean(np.square(expected_distance - target)))
             return {
                 'value_accuracy': (preds == target).astype(float).mean().item(),
                 'l2_loss_expected_distance': l2_loss_expected_distance,

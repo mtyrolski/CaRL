@@ -4,9 +4,12 @@ from collections import namedtuple
 
 import numpy as np
 from loguru import logger
+from typing import Protocol
 
-from carl.environment.sokoban.env import SokobanEnv
+from carl.utils.aliases import State
 from carl.utils.loggers import log_error_and_raise
+
+PriorityKey = float | tuple[int, float]
 
 
 class SearchTreeNode:
@@ -19,7 +22,7 @@ class SearchTreeNode:
     """
     def __init__(
         self,
-        state: str | np.ndarray,
+        state: State,
         value,
         low_level_path,
         parent_node,
@@ -31,7 +34,7 @@ class SearchTreeNode:
         self.low_level_path = low_level_path
         self.parent_node = parent_node
 
-        self.children = []
+        self.children: list["SearchTreeNode"] = []
         self.is_on_solving_path = False
 
         # None only if root or before adding to the planner
@@ -57,7 +60,7 @@ def copy_solving_node(solving_node: SearchTreeNode):
         # Create a raw nodes
         reversed_node_path.append(
             SearchTreeNode(
-                state=current_node.state.copy(),
+                state=current_node.state.copy() if isinstance(current_node.state, np.ndarray) else current_node.state,
                 value=current_node.value,
                 low_level_path=[x for x in current_node.low_level_path]
                 if current_node.low_level_path is not None else None,
@@ -77,22 +80,24 @@ def copy_solving_node(solving_node: SearchTreeNode):
 
 
 def prune_experiences(experiences):
+    from carl.planners.base import Experience, SearchInfo, Solution
+    from carl.planners.base import Experience, SearchInfo, Solution
     new_experiences = []
 
     for experience in experiences:
-        solution: dict[str, bool | list[np.ndarray]] = {
-            'solved': True,
-            'subgoal_path': [],
-            'action_path': [],
-            'subgoal_distance_path': [],
-        }
+        solution = Solution(
+            solved=True,
+            subgoal_path=[],
+            action_path=[],
+            subgoal_distance_path=[],
+        )
+        solving_node = experience.search_info.solving_node
+        search_info = SearchInfo(
+            finished_reason=experience.search_info.finished_reason,
+            solving_node=copy_solving_node(solving_node) if solving_node is not None else None,
+        )
 
-        search_info = {
-            'solved': True,
-            'solving_node': copy_solving_node(experience[1]['solving_node']),
-        }
-
-        new_experiences.append((solution, search_info))
+        new_experiences.append(Experience(solution=solution, search_info=search_info))
     return new_experiences
 
 
@@ -107,7 +112,7 @@ GeneratedSubgoal = namedtuple('GeneratedSubgoal', ['state', 'generation_metadata
 GeneratedAction = namedtuple('GeneratedAction', ['action', 'generation_metadata'])
 
 
-def hash_numpy_array(array):
+def hash_numpy_array(array: np.ndarray) -> str:
     """
     Hashes a NumPy array using SHA-256 and returns the hexadecimal hash value.
 
@@ -132,7 +137,7 @@ def hash_numpy_array(array):
     return hash_obj.hexdigest()
 
 
-def hash_numpy_arrays(arrays: list):
+def hash_numpy_arrays(arrays: list[np.ndarray]) -> str:
     """
     Hashes a list of NumPy arrays using SHA-256 and returns the hexadecimal hash value.
 
@@ -161,38 +166,40 @@ class SafePriorityQueue:
     """Priority queue that uses a counter to ensure unique keys, sorts the elements as lowest-first."""
     def __init__(self):
         super().__init__()
-        self.counter = 0
-        self.queue = queue.PriorityQueue()
+        self.counter: int = 0
+        self.queue: queue.PriorityQueue[tuple[PriorityKey, int, SearchTreeNode]] = queue.PriorityQueue()
 
-    def put(self, data, key):
+    def put(self, data: SearchTreeNode, key: PriorityKey) -> None:
         self.queue.put((key, self.counter, data))
         self.counter += 1
 
-    def get(self):
+    def get(self) -> SearchTreeNode | None:
         if self.queue.empty():
             return None
 
         return self.queue.get()[-1]
 
-    def empty(self):
+    def empty(self) -> bool:
         return self.queue.empty()
     
-    def __len__(self):
+    def __len__(self) -> int:
         return self.queue.qsize()
     
-    def size(self):
+    def size(self) -> int:
         """Returns the size of the queue."""
         return len(self)
 
-def get_solving_path_data(solving_node: SearchTreeNode,
-                          include_state_path: bool=True,
-                          env: SokobanEnv=None) -> tuple[list[np.ndarray], list[int], list[float], list[int], list[np.ndarray] | None]:
+def get_solving_path_data(
+    solving_node: SearchTreeNode,
+    include_state_path: bool = True,
+    env: "EnvWithRestore | None" = None,
+) -> tuple[list[State], list[int], list[float], list[int], list[State] | None]:
     """
     Extracts the solving path data from the solving node.
     Returns the subgoal path, action path, values, k_used, and state path if include_state_path is True.
     If env is None and include_state_path is True, raises an error.
     """
-    subgoal_path: list[np.ndarray] = []
+    subgoal_path: list[State] = []
     action_path: list[int] = []
     values: list[float] = []
     k_used: list[int] = []
@@ -207,7 +214,8 @@ def get_solving_path_data(solving_node: SearchTreeNode,
     while current_node.parent_node is not None:
         subgoal_path.append(current_node.state)
         values.append(current_node.value)
-        k_used.append(current_node.next_expand_with_k_generator)
+        if current_node.next_expand_with_k_generator is not None:
+            k_used.append(current_node.next_expand_with_k_generator)
         current_node.is_on_solving_path = True
 
         if current_node.low_level_path is not None:
@@ -224,6 +232,7 @@ def get_solving_path_data(solving_node: SearchTreeNode,
     action_path = flatten(action_path)
 
     if include_state_path:
+        assert env is not None
         env.restore_full_state_from_np_array_version(current_node.state)
         state_path = [env.get_state()]
 
@@ -234,8 +243,19 @@ def get_solving_path_data(solving_node: SearchTreeNode,
     return subgoal_path, action_path, values, k_used, state_path
 
 
-def flatten(l):
-    return [item for sublist in l for item in sublist]
+class EnvWithRestore(Protocol):
+    def restore_full_state_from_np_array_version(self, state: State) -> None:
+        ...
+
+    def get_state(self) -> State:
+        ...
+
+    def step(self, action: int) -> tuple[State, float, bool, dict]:
+        ...
+
+
+def flatten(lists):
+    return [item for sublist in lists for item in sublist]
 
 
 def print_search_tree(root_node, max_depth=4):

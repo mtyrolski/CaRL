@@ -1,4 +1,6 @@
 from abc import abstractmethod
+from collections.abc import Callable, Iterable
+from typing import cast
 
 import numpy as np
 import torch
@@ -9,18 +11,20 @@ from transformers import PreTrainedModel
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
 from carl.inference_components.component import InferenceComponent
+from carl.inference_components.component import RawComponent
 from carl.inference_components.subgoal_generator import SubgoalGenerator
 from carl.solver.nodes import GeneratedAction
 from carl.solver.nodes import GeneratedSubgoal
 from carl.solver.nodes import SearchTreeNode
+from carl.utils.torch_device import resolve_device
 
 
 class Policy(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        policy_network_class: type[nn.Module] | None,
-        env: GameEnv,
+        policy_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel] | None,
+        env: GameEnv | None,
     ) -> None:
         """
         Initialize the policy network.
@@ -40,7 +44,7 @@ class Policy(InferenceComponent):
         raise NotImplementedError
 
     @abstractmethod
-    def get_actions(self, state: np.ndarray | str) -> Tensor:
+    def get_actions(self, state: np.ndarray | str) -> Iterable[GeneratedAction]:
         """
         Get a list of actions for the given state.
 
@@ -56,14 +60,13 @@ class Policy(InferenceComponent):
 class TransformerPolicy(Policy):
     def __init__(
         self,
-        policy_network_class: type[PreTrainedModel],
+        policy_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         env: GameEnv,
         path_to_policy_weights: str,
         n_actions: int | None = None,
         confidence_threshold: float | None = None,
     ) -> None:
         super().__init__(policy_network_class, env)
-        print(torch.cuda.is_available())
         self.device: torch.device = torch.device('cpu')
         print(f'Using device: {self.device}')
         self.path_to_policy_weights = path_to_policy_weights
@@ -78,12 +81,19 @@ class TransformerPolicy(Policy):
     def construct_network(self) -> None:
         # We do not put the policy on the eval mode, because "from_pretrained" does it for us.
         # See: https://github.com/huggingface/transformers/blob/main/src/transformers/modeling_utils.py
-        self.policy = self.instantiate_network(self.policy_network_class, self.path_to_policy_weights)
+        assert self.policy_network_class is not None
+        self.policy = cast(
+            PreTrainedModel,
+            self.instantiate_network(self.policy_network_class, self.path_to_policy_weights),
+        )
 
-    def get_network(self) -> nn.Module:
+    def get_network(self) -> PreTrainedModel:
+        assert self.policy is not None, "Policy network is not constructed."
         return self.policy
 
     def get_actions(self, state: np.ndarray | str) -> list[GeneratedAction]:
+        assert self.policy is not None, "Policy network is not constructed."
+        assert self.env is not None, "Environment is not set for policy."
         encoded_board: torch.Tensor
         encoded_board, _ = self.env.tokenizer.x_y_tokenizer(x=state, y=0, training_goal=TrainingGoal.POLICY)
         encoded_board = encoded_board.to(self.device)
@@ -124,25 +134,34 @@ class TransformerPolicy(Policy):
 class TransformerPolicyGeneration(Policy):
     def __init__(
         self,
-        policy_network_class: type[PreTrainedModel],
+        policy_network_class: Callable[[str], PreTrainedModel] | type[PreTrainedModel],
         env: GameEnv,
         path_to_policy_weights: str,
         subgoal_generation_kwargs: dict[str, int] | None,
     ) -> None:
         super().__init__(policy_network_class, env)
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
         self.path_to_policy_weights = path_to_policy_weights
         self.subgoal_generation_kwargs = subgoal_generation_kwargs
 
         self.policy: PreTrainedModel | None = None
 
     def construct_network(self) -> None:
-        self.policy = self.instantiate_network(self.policy_network_class, self.path_to_policy_weights)
+        assert self.policy_network_class is not None
+        self.policy = cast(
+            PreTrainedModel,
+            self.instantiate_network(self.policy_network_class, self.path_to_policy_weights),
+        )
 
-    def get_network(self) -> nn.Module:
+    def get_network(self) -> PreTrainedModel:
+        assert self.policy is not None, "Policy network is not constructed."
         return self.policy
 
     def get_actions(self, state: np.ndarray | str) -> set[GeneratedAction]:
+        assert self.policy is not None, "Policy network is not constructed."
+        assert self.env is not None, "Environment is not set for policy."
+        if self.subgoal_generation_kwargs is None:
+            raise ValueError("subgoal_generation_kwargs must be provided for policy generation.")
         max_new_tokens: int = self.subgoal_generation_kwargs['max_new_tokens']
         num_beams: int = self.subgoal_generation_kwargs['num_beams']
         num_return_sequences: int = self.subgoal_generation_kwargs['num_return_sequences']
@@ -150,8 +169,10 @@ class TransformerPolicyGeneration(Policy):
         encoded_board: torch.Tensor
         encoded_board, _ = self.env.tokenizer.x_y_tokenizer(x=state, y=0, training_goal=TrainingGoal.POLICY_GENERATION)
         encoded_board = encoded_board.to(self.device)
+        policy = cast(PreTrainedModel, self.policy)
+        generate = cast(Callable[..., torch.Tensor], policy.generate)
         with torch.no_grad():
-            outputs: list[list[int]] = self.policy.generate(
+            outputs: list[list[int]] = generate(
                 encoded_board,
                 max_new_tokens=max_new_tokens,
                 num_beams=num_beams,
@@ -179,7 +200,7 @@ class ExhaustiveBaselinePolicy(Policy):
     def construct_network(self) -> None:
         pass
 
-    def get_actions(self, state: np.ndarray):
+    def get_actions(self, state: np.ndarray | str):
         return [GeneratedAction(action, {}) for action in range(self.n_actions)]
 
 
@@ -189,15 +210,15 @@ class PolicyGeneratorWrapper(SubgoalGenerator):
         policy: Policy,
         env: GameEnv,
     ) -> None:
-        super().__init__(None, '', env, None)
+        super().__init__(nn.Module, '', env, None)
         self.policy = policy
-        self.generator_k_list = []
+        self.generator_k_list: list[int] = []
 
     def construct_network(self) -> None:
         self.policy.construct_network()
 
-    def get_network(self) -> nn.Module:
-        return self.policy.policy_network
+    def get_network(self) -> RawComponent:
+        return self.policy.get_network()
 
     def get_subgoals(self, node: SearchTreeNode) -> list[GeneratedSubgoal]:
         state = node.state

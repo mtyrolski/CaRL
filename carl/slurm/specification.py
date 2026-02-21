@@ -13,7 +13,7 @@ class ClusterSpec:
     repo_url: str
     apptainer_container: str
     apptainer_exec_args: str
-    neptune_api_token: str
+    neptune_api_token: str | None
     node_specs: dict
     data_dir: str
 
@@ -68,7 +68,7 @@ class WorkerTypeSpec:
 @dataclass
 class JobSpec:
     nodes: int
-    account: str
+    account: str | None
     partition: str
     job_name: str
     time: int
@@ -77,7 +77,7 @@ class JobSpec:
     mem_per_cpu: str
     output: str
     error: str
-    gres: str
+    gres: str | None
 
     def to_slurm(self) -> str:
         type_hints = get_type_hints(JobSpec)
@@ -106,7 +106,7 @@ class JobSpec:
             mem_per_cpu = cluster_spec.node_specs[ws.node_spec_name]['mem-per-cpu']
             time: int = cluster_spec.node_specs[ws.node_spec_name]['time']
             if 'account' in cluster_spec.node_specs[ws.node_spec_name]:
-                account: str = cluster_spec.node_specs[ws.node_spec_name]['account']
+                account: str | None = cluster_spec.node_specs[ws.node_spec_name]['account']
             else:
                 account = None
 

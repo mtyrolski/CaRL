@@ -2,9 +2,9 @@ from abc import abstractmethod
 
 import numpy as np
 from torch import Tensor
-from transformers import PreTrainedModel
 from carl.environment.env import GameEnv
 from carl.inference_components.component import InferenceComponent
+from carl.inference_components.component import RawComponent
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
 from carl.solver.nodes import ValidationResult
 from carl.utils.aliases import State
@@ -64,10 +64,10 @@ class BasicValidator(Validator):
     def construct_network(self) -> None:
         self.cllp.construct_network()
 
-    def get_network(self) -> PreTrainedModel | dict[str, PreTrainedModel]:
+    def get_network(self) -> RawComponent:
         return self.cllp.get_network()
 
-    def is_valid(self, state: State, subgoal: State, steps_limit=None) -> ValidationResult:
+    def is_valid(self, state: State, subgoal: State, steps_limit=None, **kwargs) -> ValidationResult:
         step: int = 0
         action_path: list[int] = []
         is_solved: bool = False

@@ -2,14 +2,13 @@ import copy
 import os
 from abc import ABC
 from abc import abstractmethod
-from typing import Any
+from typing import Any, cast
 
 import neptune
 import numpy as np
 import torch
 from loguru import logger
 from omegaconf import ListConfig
-from omegaconf import OmegaConf
 from torch import Tensor
 from tqdm import tqdm
 from transformers.modeling_utils import PreTrainedModel
@@ -18,11 +17,11 @@ from transformers.integrations.integration_utils import NeptuneCallback
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
+from carl.utils.torch_device import resolve_device
 
 
 class CaRLLogger(ABC):
     """Abstract class for custom logger."""
-    @abstractmethod
     def __init__(self, *args, **kwargs) -> None:
         pass
 
@@ -46,7 +45,11 @@ class NeptuneCaRLLogger(CaRLLogger):
         self.name = name
         self.description = description
         self.project = project
-        self.tags = tags if isinstance(tags, str) else list(tags)
+        self.tags: str | list[str]
+        if isinstance(tags, str):
+            self.tags = tags
+        else:
+            self.tags = [str(tag) for tag in list(tags)]
         if api_token is None:
             self.api_token = os.getenv('NEPTUNE_API_TOKEN', neptune.ANONYMOUS_API_TOKEN)
             logger.success('Retrieved NEPTUNE_API_TOKEN from env.')
@@ -54,9 +57,6 @@ class NeptuneCaRLLogger(CaRLLogger):
             self.api_token = api_token
         print(f'Using Neptune API token: {self.api_token}')
         self.log_parameters = log_parameters
-
-        if not isinstance(self.tags, list):
-            self.tags = OmegaConf.to_container(self.tags)
 
         self.run = neptune.init_run(
             name=self.name,
@@ -87,12 +87,15 @@ class CLLPTestLogger(TrainerCallback):
         self.budget_for_achieving_subgoal: int = max(distance_range) + 2
         self.env = env
         self.step: int = 0
-        self.device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device: torch.device = resolve_device()
         self.model: PreTrainedModel | None = None
 
     def on_epoch_end(self, args, state, control, logs=None, **kwargs):
-        self.model = copy.deepcopy(kwargs['model'])
-        self.model.to(self.device)
+        self.model = cast(PreTrainedModel, copy.deepcopy(kwargs['model']))
+        assert self.model is not None
+        model_module = cast(torch.nn.Module, self.model)
+        model_module.to(self.device)
+        self.model = cast(PreTrainedModel, model_module)
         self.model.eval()
 
         cllp_achieved_goals: float
@@ -158,13 +161,13 @@ class CLLPTestLogger(TrainerCallback):
             step += 1
             distribution_over_actions: Tensor = self.get_action(state, subgoal)
             action: int = self.env.distribution_to_action(distribution_over_actions)
-            state: np.ndarray | str = self.env.next_state(state, action)
+            next_state: np.ndarray | str = self.env.next_state(state, action)
 
-            if isinstance(state, str):
-                if state == subgoal:
+            if isinstance(next_state, str):
+                if next_state == subgoal:
                     return True, step
-            elif isinstance(state, np.ndarray):
-                if np.array_equal(state, subgoal):
+            elif isinstance(next_state, np.ndarray):
+                if np.array_equal(next_state, subgoal):
                     return True, step
 
         return False, step
@@ -176,14 +179,23 @@ class CLLPTestLogger(TrainerCallback):
     ) -> Tensor:
 
         encoded_boards: Tensor
+        x_value: tuple[np.ndarray, np.ndarray] | tuple[str, str]
+        if isinstance(state, np.ndarray) and isinstance(state_after_k, np.ndarray):
+            x_value = (state, state_after_k)
+        elif isinstance(state, str) and isinstance(state_after_k, str):
+            x_value = (state, state_after_k)
+        else:
+            raise ValueError("State and subgoal types must match for CLLP evaluation.")
+
         encoded_boards, _ = self.env.tokenizer.x_y_tokenizer(
-            x=(state, state_after_k),
+            x=x_value,
             y=0,
             training_goal=TrainingGoal.CLLP,
         )
 
         encoded_boards = encoded_boards.to(self.device)
         with torch.no_grad():
+            assert self.model is not None
             output: torch.Tensor = self.model(encoded_boards).logits
         return output.softmax(dim=-1)[0]
 

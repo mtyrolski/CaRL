@@ -1,9 +1,11 @@
 import torch
 from sklearn.model_selection import train_test_split
+from typing import TypeGuard
 from transformers import PreTrainedModel
 
 from carl.dataloader.game_dataset import GameDataset
 from carl.inference_components.component import InferenceComponent
+from carl.inference_components.component import RawComponent
 from carl.inference_components.component import TrainingModule
 from carl.inference_components.conditional_low_level_policy import TransformerConditionalLowLevelPolicy
 from carl.inference_components.subgoal_generator import AdaptiveSubgoalGenerator
@@ -43,8 +45,16 @@ def is_hierarchical_component(component: InferenceComponent) -> bool:
     return isinstance(training_module, dict)
 
 
-BufferContainer = OfflineReplayBuffer | dict[str, OfflineReplayBuffer]
-NetworkContainer = PreTrainedModel | dict[str, PreTrainedModel]
+BufferContainer = OfflineReplayBuffer | dict[int, OfflineReplayBuffer] | dict[str, OfflineReplayBuffer]
+NetworkContainer = PreTrainedModel | dict[int, PreTrainedModel] | dict[str, PreTrainedModel]
+
+
+def _is_network_container(network_container: RawComponent) -> TypeGuard[NetworkContainer]:
+    if isinstance(network_container, PreTrainedModel):
+        return True
+    if not isinstance(network_container, dict):
+        return False
+    return all(isinstance(v, PreTrainedModel) for v in network_container.values())
 
 
 def get_buffer_for_training(component: InferenceComponent,
@@ -53,13 +63,24 @@ def get_buffer_for_training(component: InferenceComponent,
     Extract buffer for training.
     """
     if isinstance(component, TransformerSubgoalGenerator):
-        return reply_buffer.get_buffer_for_generator()
+        buffer = reply_buffer.get_buffer_for_generator(None)
+        assert isinstance(buffer, OfflineReplayBuffer)
+        return buffer
     if isinstance(component, TransformerValue):
-        return reply_buffer.get_buffer_for_value()
+        buffer = reply_buffer.get_buffer_for_value()
+        assert isinstance(buffer, OfflineReplayBuffer)
+        return buffer
     if isinstance(component, TransformerConditionalLowLevelPolicy):
-        return reply_buffer.get_buffer_for_policy()
+        buffer = reply_buffer.get_buffer_for_policy()
+        assert isinstance(buffer, OfflineReplayBuffer)
+        return buffer
     if isinstance(component, AdaptiveSubgoalGenerator):
-        return {k: reply_buffer.get_buffer_for_generator(k) for k in component.generator_k_list}
+        buffers: dict[int, OfflineReplayBuffer] = {}
+        for k in component.generator_k_list:
+            buffer = reply_buffer.get_buffer_for_generator(k)
+            assert isinstance(buffer, OfflineReplayBuffer)
+            buffers[k] = buffer
+        return buffers
 
     raise ValueError('Component does not have a buffer for training.')
 
@@ -73,14 +94,17 @@ def iterate_networks_for_training(
     network_container = component.get_network()
     buffer_container = get_buffer_for_training(component, reply_buffer)
 
-    # Validation
-    variant1: bool = isinstance(network_container, PreTrainedModel) and isinstance(buffer_container,
-                                                                                   OfflineReplayBuffer)
-    variant2: bool = isinstance(network_container, dict) and isinstance(buffer_container, dict) and all(
-        isinstance(v, PreTrainedModel) for v in network_container.values()) and all(
-            isinstance(v, OfflineReplayBuffer) for v in buffer_container.values())
+    if not _is_network_container(network_container):
+        raise ValueError('Invalid network container type.')
 
-    if not (variant1 or variant2):
+    is_singleton_variant = isinstance(network_container, PreTrainedModel) and isinstance(
+        buffer_container, OfflineReplayBuffer
+    )
+    is_collection_variant = isinstance(network_container, dict) and isinstance(buffer_container, dict) and all(
+        isinstance(v, OfflineReplayBuffer) for v in buffer_container.values()
+    )
+
+    if not (is_singleton_variant or is_collection_variant):
         raise ValueError('Invalid network and buffer containers.')
 
     return network_container, buffer_container

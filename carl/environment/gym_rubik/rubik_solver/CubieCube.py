@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from .Enums import Corner
 from .Enums import Edge
 
@@ -24,6 +26,8 @@ class ParityError(Exception):
 
 class CubieCube:
     """Cube on the cubie level"""
+
+    moveCube: ClassVar[list["CubieCube"]] = []
 
     ## moves on the cubie level
     cpU = [
@@ -249,20 +253,20 @@ class CubieCube:
         return s
 
     @staticmethod
-    def rotateLeft(arr, l, r):
-        """Left rotation of all array elements between l and r"""
-        tmp = arr[l]
-        for i in range(l, r):
+    def rotateLeft(arr, left, right):
+        """Left rotation of all array elements between left and right"""
+        tmp = arr[left]
+        for i in range(left, right):
             arr[i] = arr[i + 1]
-        arr[r] = tmp
+        arr[right] = tmp
 
     @staticmethod
-    def rotateRight(arr, l, r):
-        """Right rotation of all array elements between l and r"""
-        tmp = arr[r]
-        for i in range(r, l, -1):
+    def rotateRight(arr, left, right):
+        """Right rotation of all array elements between left and right"""
+        tmp = arr[right]
+        for i in range(right, left, -1):
             arr[i] = arr[i - 1]
-        arr[l] = tmp
+        arr[left] = tmp
 
     def cornerMultiply(self, b):
         """Multiply this CubieCube with another cubiecube b, restricted to the corners.<br>

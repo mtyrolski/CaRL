@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Union
+from typing import Any, Union, cast
 
 import numpy as np
 from omegaconf import OmegaConf
@@ -8,9 +8,10 @@ from tqdm import tqdm
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
-from carl.solver.nodes import SearchTreeNode
+from carl.solver.nodes import EnvWithRestore
 from carl.solver.nodes import get_solving_path_data
-from carl.planners.base import Experience, SearchInfo, Solution
+from carl.planners.base import Experience
+from carl.utils.aliases import State
 
 
 class UniversalReplayBuffer(ABC):
@@ -19,7 +20,7 @@ class UniversalReplayBuffer(ABC):
 
     Handles data replay for each component.
     """
-    def add(self, data: SearchTreeNode) -> None:
+    def add(self, data: Experience) -> dict[str, int]:
         raise NotImplementedError()
 
     def sample_for_generator(self, batch_size: int) -> np.ndarray:
@@ -50,7 +51,10 @@ class SimpleUniversalReplayBuffer(UniversalReplayBuffer):
         self.cllp_buffer = cllp_buffer
 
         if not isinstance(self.generator_buffer, SolvingPathGeneratorReplayBuffer):
-            self.generator_buffer = OmegaConf.to_container(self.generator_buffer)
+            self.generator_buffer = cast(
+                dict[int, SolvingPathGeneratorReplayBuffer],
+                OmegaConf.to_container(self.generator_buffer),
+            )
 
     def add_metrics(self, buffer, buffer_name, metrics, data):
         size_before = len(buffer)
@@ -58,7 +62,7 @@ class SimpleUniversalReplayBuffer(UniversalReplayBuffer):
         return {f'{buffer_name}/size': len(buffer), f'{buffer_name}/size_changed': len(buffer) - size_before}
 
     def add(self, data: Experience) -> dict[str, int]:
-        metrics = {}
+        metrics: dict[str, int] = {}
         if isinstance(self.generator_buffer, SolvingPathGeneratorReplayBuffer):
             metrics.update(self.add_metrics(self.generator_buffer, 'generator', metrics, data))
         else:
@@ -90,9 +94,10 @@ class SimpleUniversalReplayBuffer(UniversalReplayBuffer):
 
     def sample_for_generator(self, batch_size, k: int | None = None):
         if k is None:
+            assert isinstance(self.generator_buffer, SolvingPathGeneratorReplayBuffer)
             return self.generator_buffer.sample(batch_size)
-        else:
-            return self.generator_buffer[k].sample(batch_size)
+        assert isinstance(self.generator_buffer, dict)
+        return self.generator_buffer[k].sample(batch_size)
 
     def sample_for_value(self, batch_size):
         return self.value_buffer.sample(batch_size)
@@ -103,8 +108,8 @@ class SimpleUniversalReplayBuffer(UniversalReplayBuffer):
     def get_buffer_for_generator(self, k: int | None):
         if k is None:
             return self.generator_buffer
-        else:
-            return self.generator_buffer[k]
+        assert isinstance(self.generator_buffer, dict)
+        return self.generator_buffer[k]
 
     def get_buffer_for_value(self):
         return self.value_buffer
@@ -119,7 +124,7 @@ class ReplayBuffer:
 
     Handles data replay for a single component.
     """
-    def add(self, data: SearchTreeNode) -> None:
+    def add(self, data: Experience) -> None:
         raise NotImplementedError()
 
     def sample(self, batch_size: int) -> np.ndarray:
@@ -134,10 +139,10 @@ class OfflineReplayBuffer(ReplayBuffer):
     """
     def __init__(self, max_size: int) -> None:
         super().__init__()
-        self.buffer = []
+        self.buffer: list[Any] = []
         self.max_size = max_size
 
-    def add(self, data: SearchTreeNode) -> None:
+    def add(self, data: Experience) -> None:
         raise NotImplementedError()
 
     def sample(self, batch_size: int) -> np.ndarray:
@@ -164,7 +169,9 @@ class SolvingPathGeneratorReplayBuffer(OfflineReplayBuffer):
         search_info = data.search_info
         if search_info.solving_node is None:
             return
-        _, _, _, _, state_path = get_solving_path_data(search_info.solving_node, include_state_path=True, env=self.env)
+        env = cast(EnvWithRestore, self.env)
+        _, _, _, _, state_path = get_solving_path_data(search_info.solving_node, include_state_path=True, env=env)
+        assert state_path is not None
 
         for xy in self.preprocess_trajectory(state_path):
             self.buffer.append(xy)
@@ -179,10 +186,11 @@ class SolvingPathGeneratorReplayBuffer(OfflineReplayBuffer):
         :return: None
         """
         for trajectory in trajectories:
-            for xy in self.preprocess_trajectory(trajectory):
+            state_path = list(trajectory)
+            for xy in self.preprocess_trajectory(state_path):
                 self.buffer.append(xy)
 
-    def preprocess_trajectory(self, trajectory: list[np.ndarray]) -> list[tuple[Tensor, Tensor]]:
+    def preprocess_trajectory(self, trajectory: list[State]) -> list[tuple[Tensor, Tensor]]:
         preprocess_trajectory: list[tuple[Tensor, Tensor]] = []
         trajectory_length: int = len(trajectory)
 
@@ -191,7 +199,6 @@ class SolvingPathGeneratorReplayBuffer(OfflineReplayBuffer):
                 inner_dist: int = min(dist, trajectory_length - 1 - i)
                 x: Tensor
                 y: Tensor
-
                 x, y = self.env.tokenizer.x_y_tokenizer(
                     x=trajectory[i],
                     y=trajectory[i + inner_dist],
@@ -224,7 +231,9 @@ class SolvingPathValueReplayBuffer(OfflineReplayBuffer):
         if search_info.solving_node is None:
             return
 
-        _, _, _, _, state_path = get_solving_path_data(search_info.solving_node, include_state_path=True, env=self.env)
+        env = cast(EnvWithRestore, self.env)
+        _, _, _, _, state_path = get_solving_path_data(search_info.solving_node, include_state_path=True, env=env)
+        assert state_path is not None
 
         for x, y in self.preprocess_trajectory(state_path):
             self.buffer.append((x, y))
@@ -239,13 +248,14 @@ class SolvingPathValueReplayBuffer(OfflineReplayBuffer):
         :return: None
         """
         for trajectory in trajectories:
-            for xy in self.preprocess_trajectory(trajectory):
+            state_path = list(trajectory)
+            for xy in self.preprocess_trajectory(state_path):
                 self.buffer.append(xy)
 
                 if len(self.buffer) > self.max_size:
                     self.buffer.pop(0)
 
-    def preprocess_trajectory(self, trajectory: list[np.ndarray]) -> list[tuple[Tensor, Tensor]]:
+    def preprocess_trajectory(self, trajectory: list[State]) -> list[tuple[Tensor, Tensor]]:
         preprocess_trajectory: list[tuple[Tensor, Tensor]] = []
         trajectory_length: int = len(trajectory)
 
@@ -253,7 +263,6 @@ class SolvingPathValueReplayBuffer(OfflineReplayBuffer):
             distance_to_solution: int = trajectory_length - (position + 1)
             x: Tensor
             y: Tensor
-
             x, y = self.env.tokenizer.x_y_tokenizer(x=trajectory[position],
                                                     y=distance_to_solution,
                                                     training_goal=self.training_goal)
@@ -281,9 +290,13 @@ class SolvingPathConditionalLowLevelPolicyReplayBuffer(OfflineReplayBuffer):
         if search_info.solving_node is None:
             return
 
-        _, action_path, _, _, state_path = get_solving_path_data(search_info.solving_node,
-                                                              include_state_path=True,
-                                                              env=self.env)
+        env = cast(EnvWithRestore, self.env)
+        _, action_path, _, _, state_path = get_solving_path_data(
+            search_info.solving_node,
+            include_state_path=True,
+            env=env,
+        )
+        assert state_path is not None
         for xy in self.preprocess_trajectory(state_path, action_path):
             self.buffer.append(xy)
             if len(self.buffer) > self.max_size:
@@ -297,18 +310,19 @@ class SolvingPathConditionalLowLevelPolicyReplayBuffer(OfflineReplayBuffer):
         :return: None
         """
         for trajectory in trajectories:
+            state_path = list(trajectory)
             action_path: list[int] = []
 
-            for i in range(len(trajectory) - 1):
-                action_path.append(self.env.detect_action(trajectory[i], trajectory[i + 1]))
+            for i in range(len(state_path) - 1):
+                action_path.append(self.env.detect_action(state_path[i], state_path[i + 1]))
 
-            for xy in self.preprocess_trajectory(trajectory, action_path):
+            for xy in self.preprocess_trajectory(state_path, action_path):
                 self.buffer.append(xy)
 
                 if len(self.buffer) > self.max_size:
                     self.buffer.pop(0)
 
-    def preprocess_trajectory(self, state_path: list[np.ndarray],
+    def preprocess_trajectory(self, state_path: list[State],
                               action_path: list[int]) -> list[tuple[Tensor, Tensor]]:
         preprocess_trajectory: list[tuple[Tensor, Tensor]] = []
 

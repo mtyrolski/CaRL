@@ -16,11 +16,7 @@ class AdasubsPlanner(Planner):
     def __init__(self, root_state: np.ndarray, generators_k_list: list[int], prune_search_trees: bool = False) -> None:
         super().__init__(root_state)
         self.generators_k_list = generators_k_list
-        self.seen_states: set[tuple[
-            np.ndarray,
-        ]] = set()
-
-        root_key = (0, 0)
+        self.seen_states: set[tuple[int, ...] | tuple[str, ...]] = set()
 
         self.nodes_queue: SafePriorityQueue = SafePriorityQueue()
         self.root_node = SearchTreeNode(root_state, 0, None, None, metadata={'depth': -1})
@@ -52,9 +48,9 @@ class AdasubsPlanner(Planner):
     def is_seen(self, state: np.ndarray | str) -> bool:
         if isinstance(state, str):
             return tuple(state) in self.seen_states
-        elif isinstance(state, np.ndarray):
+        if isinstance(state, np.ndarray):
             return tuple(state.flatten()) in self.seen_states
-        return None
+        return False
 
     def add(self, node: SearchTreeNode) -> None:
         if node.next_expand_with_k_generator is not None:

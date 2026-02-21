@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TypeAlias
 
 import numpy as np
 import torch
@@ -8,6 +8,11 @@ from torch import tensor
 
 from carl.environment.tokenizer import GameTokenizer
 from carl.environment.training_goal import TrainingGoal
+from carl.utils.aliases import State
+
+StatePair: TypeAlias = tuple[State, State]
+StateAction: TypeAlias = tuple[State, int]
+ActionState: TypeAlias = tuple[int, State]
 
 
 class SokobanTokenizer(GameTokenizer):
@@ -148,8 +153,8 @@ class SokobanTokenizer(GameTokenizer):
 
     def x_y_tokenizer(
         self,
-        x: np.ndarray | tuple[np.ndarray, np.ndarray],
-        y: np.ndarray | int,
+        x: State | StatePair | StateAction,
+        y: State | int | StateAction | ActionState,
         training_goal: TrainingGoal,
     ) -> tuple[Tensor, Tensor]:
         match training_goal:

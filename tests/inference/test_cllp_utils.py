@@ -1,7 +1,5 @@
-import os
-import numpy as np
 import pytest
-from typing import List, Any, Tuple, Union
+from typing import Any, List, Tuple
 
 from carl.inference_components.cllp_utils import (
     trajectory_from_actions,
@@ -11,7 +9,6 @@ from carl.inference_components.cllp_utils import (
 from carl.environment.env import GameEnv
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
 from carl.inference_components.validator import BasicValidator
-from carl.solver.nodes import SearchTreeNode, ValidationResult
 from carl.utils.aliases import State
 
 class DummyEnv(GameEnv):

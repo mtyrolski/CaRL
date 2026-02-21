@@ -84,10 +84,10 @@ def read_or_func_list(file_name, func):
 def read_or_func_matrix(file_name, func):
     abspath = os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
     if os.path.exists(abspath):
-        return [list(map(int, list(map(str.strip, l.split(','))))) for l in open(abspath)]
+        return [list(map(int, list(map(str.strip, line.split(','))))) for line in open(abspath)]
     else:
         ret = func()
-        open(abspath, 'w').write('\n'.join(','.join(str(c) for c in l) for l in ret))
+        open(abspath, 'w').write('\n'.join(','.join(str(c) for c in line) for line in ret))
         return ret
 
 
