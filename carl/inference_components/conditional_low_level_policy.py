@@ -20,7 +20,7 @@ class ConditionalLowLevelPolicy(InferenceComponent):
     @abstractmethod
     def __init__(
         self,
-        conditional_low_level_policy_class: type[nn.Module],
+        conditional_low_level_policy_class: Callable[[str], nn.Module] | type[nn.Module],
         path_to_conditional_low_level_policy_weights: str,
         env: GameEnv,
     ) -> None:

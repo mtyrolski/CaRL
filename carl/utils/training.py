@@ -1,9 +1,11 @@
 import torch
 from sklearn.model_selection import train_test_split
+from typing import TypeGuard
 from transformers import PreTrainedModel
 
 from carl.dataloader.game_dataset import GameDataset
 from carl.inference_components.component import InferenceComponent
+from carl.inference_components.component import RawComponent
 from carl.inference_components.component import TrainingModule
 from carl.inference_components.conditional_low_level_policy import TransformerConditionalLowLevelPolicy
 from carl.inference_components.subgoal_generator import AdaptiveSubgoalGenerator
@@ -47,6 +49,14 @@ BufferContainer = OfflineReplayBuffer | dict[int, OfflineReplayBuffer] | dict[st
 NetworkContainer = PreTrainedModel | dict[int, PreTrainedModel] | dict[str, PreTrainedModel]
 
 
+def _is_network_container(network_container: RawComponent) -> TypeGuard[NetworkContainer]:
+    if isinstance(network_container, PreTrainedModel):
+        return True
+    if not isinstance(network_container, dict):
+        return False
+    return all(isinstance(v, PreTrainedModel) for v in network_container.values())
+
+
 def get_buffer_for_training(component: InferenceComponent,
                             reply_buffer: SimpleUniversalReplayBuffer) -> BufferContainer:
     """
@@ -84,14 +94,17 @@ def iterate_networks_for_training(
     network_container = component.get_network()
     buffer_container = get_buffer_for_training(component, reply_buffer)
 
-    # Validation
-    variant1: bool = isinstance(network_container, PreTrainedModel) and isinstance(buffer_container,
-                                                                                   OfflineReplayBuffer)
-    variant2: bool = isinstance(network_container, dict) and isinstance(buffer_container, dict) and all(
-        isinstance(v, PreTrainedModel) for v in network_container.values()) and all(
-            isinstance(v, OfflineReplayBuffer) for v in buffer_container.values())
+    if not _is_network_container(network_container):
+        raise ValueError('Invalid network container type.')
 
-    if not (variant1 or variant2):
+    is_singleton_variant = isinstance(network_container, PreTrainedModel) and isinstance(
+        buffer_container, OfflineReplayBuffer
+    )
+    is_collection_variant = isinstance(network_container, dict) and isinstance(buffer_container, dict) and all(
+        isinstance(v, OfflineReplayBuffer) for v in buffer_container.values()
+    )
+
+    if not (is_singleton_variant or is_collection_variant):
         raise ValueError('Invalid network and buffer containers.')
 
     return network_container, buffer_container
