@@ -8,7 +8,7 @@ from typing import Iterable, cast
 from tqdm import tqdm
 import joblib
 
-from carl.planners.base import Experience
+from carl.planners.base import Experience, Solution
 from carl.solver.nodes import SearchTreeNode
 import os
 
@@ -41,13 +41,27 @@ def main() -> None:
         experiences = joblib.load(path)
         experiences_by_solver[k].extend(experiences)
     
+    # Solve rates per Generator
     for k, experiences in experiences_by_solver.items():
         total = len(experiences)
         solved = sum(1 for exp in experiences if exp.solution.solved)
         print(f"K={k}: Solved {solved}/{total} ({solved/total:.2%})")
     
 
-    
+    # Subgoal distances used in each solver
+    for k, experiences in experiences_by_solver.items():
+        subgoals_count_per_distance: dict[int, int] = defaultdict(int)
+        for exp in experiences:
+            if exp.solution.solved:
+                solv: Solution = exp.solution
+                assert solv.subgoal_distance_path is not None
+                distances = solv.subgoal_distance_path
+                for d in distances:
+                    subgoals_count_per_distance[d] += 1
+        print(f"K={k}: Subgoal distance distribution:")
+        for d in sorted(subgoals_count_per_distance.keys()):
+            count = subgoals_count_per_distance[d]
+            print(f" * Distance {d}: {count} subgoals")
 
 if __name__ == "__main__":
     main()

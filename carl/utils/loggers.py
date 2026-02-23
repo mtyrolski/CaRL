@@ -17,6 +17,7 @@ from transformers.integrations.integration_utils import NeptuneCallback
 
 from carl.environment.env import GameEnv
 from carl.environment.training_goal import TrainingGoal
+from carl.utils.secrets import mask_secret
 from carl.utils.torch_device import resolve_device
 
 
@@ -55,7 +56,7 @@ class NeptuneCaRLLogger(CaRLLogger):
             logger.success('Retrieved NEPTUNE_API_TOKEN from env.')
         else:
             self.api_token = api_token
-        print(f'Using Neptune API token: {self.api_token}')
+        logger.info(f'Using Neptune API token: {mask_secret(self.api_token)}')
         self.log_parameters = log_parameters
 
         self.run = neptune.init_run(

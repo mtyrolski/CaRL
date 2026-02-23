@@ -278,9 +278,11 @@ python3 -m carl.run --config-dir experiments --config-name adaptive_subgoal_sear
 This method is suitable for quick tests or environments where a Jupyter Notebook is unavailable.
 
 #### Via Makefile Shortcut
-For convenience, you can invoke a local solve using the Makefile target:
+For convenience, you can invoke a local solve using the Makefile targets:
 ```sh
-make run_local_solve dir=configs/solve/sokoban name=sokoban_ada_solve
+make run_local_cpu dir=configs/solve/sokoban name=sokoban_ada_solve
+# or (GPU)
+make run_local_gpu dir=configs/solve/sokoban name=sokoban_ada_solve
 ```
 Under the hood this sets:
 ```sh
@@ -288,6 +290,12 @@ export HYDRA_FULL_ERROR=1 CUDA_VISIBLE_DEVICES=""
 python3 -m carl.run --config-dir=${dir} --config-name ${name}
 ```
 and provides a quick shortcut for local execution.
+
+Required Make variables for local run targets:
+- `dir` (or `CONFIG_DIR`): directory containing Hydra config files
+- `name` (or `CONFIG_NAME`): config basename without `.yaml`
+
+The Makefile validates that the directory exists and that `${dir}/${name}.yaml` is present before starting the run, and `make help` prints examples and target descriptions.
 
 ---
 

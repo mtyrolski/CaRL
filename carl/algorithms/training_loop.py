@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable
 from collections.abc import Iterable
 from pathlib import Path
@@ -46,6 +47,10 @@ from carl.utils.resources import read_resource_and_delete
 from carl.utils.resources import stop_signal
 from carl.utils.result_loggers import SubgoalSearchResultLogger
 from carl.utils.training_metrics import MetricsHF
+
+
+TensorPair = tuple[torch.Tensor, torch.Tensor]
+PARALLEL_DATA_PREP_MIN_ITEMS = 4096
 
 
 def solved_count(results: list[Solution]) -> int:
@@ -348,20 +353,54 @@ class TrainingLoopHF(Algorithm):
         self,
         data_x_y: list[tuple[torch.Tensor, torch.Tensor]],
     ) -> tuple[GameDataset, GameDataset]:
-        train_data_x_y: list[tuple[torch.Tensor, torch.Tensor]]
-        validation_data_x_y: list[tuple[torch.Tensor, torch.Tensor]]
+        train_data_x_y: list[TensorPair]
+        validation_data_x_y: list[TensorPair]
+
+        if len(data_x_y) < 2:
+            raise ValueError('Need at least 2 samples in replay buffer to create train/validation splits.')
 
         train_data_x_y, validation_data_x_y = train_test_split(data_x_y, test_size=self.replay_buffer_data_split)
 
-        x_train: torch.Tensor = torch.cat([x for x, _ in train_data_x_y])
-        y_train: torch.Tensor = torch.cat([y for _, y in train_data_x_y])
-        x_validation: torch.Tensor = torch.cat([x for x, _ in validation_data_x_y])
-        y_validation: torch.Tensor = torch.cat([y for _, y in validation_data_x_y])
+        x_train, y_train = self._concat_tensor_pairs_maybe_parallel(train_data_x_y)
+        x_validation, y_validation = self._concat_tensor_pairs_maybe_parallel(validation_data_x_y)
 
         train_dataset: GameDataset = GameDataset(x_train, y_train)
         validation_dataset: GameDataset = GameDataset(x_validation, y_validation)
 
         return train_dataset, validation_dataset
+
+    @staticmethod
+    def _concat_tensor_pairs(data_x_y: list[TensorPair]) -> tuple[torch.Tensor, torch.Tensor]:
+        if not data_x_y:
+            raise ValueError('Cannot concatenate an empty dataset split.')
+        return (
+            torch.cat([x for x, _ in data_x_y]),
+            torch.cat([y for _, y in data_x_y]),
+        )
+
+    def _concat_tensor_pairs_maybe_parallel(self, data_x_y: list[TensorPair]) -> tuple[torch.Tensor, torch.Tensor]:
+        if not data_x_y:
+            raise ValueError('Cannot concatenate an empty dataset split.')
+
+        worker_count = min(max(self.n_jobs, 1), len(data_x_y))
+        if worker_count <= 1 or len(data_x_y) < PARALLEL_DATA_PREP_MIN_ITEMS:
+            return self._concat_tensor_pairs(data_x_y)
+
+        chunk_size = max(1, (len(data_x_y) + worker_count - 1) // worker_count)
+        chunks: list[list[TensorPair]] = [
+            data_x_y[i:i + chunk_size] for i in range(0, len(data_x_y), chunk_size)
+        ]
+        logger.info(
+            'Preparing training data in parallel with {} threads over {} chunks ({} items).',
+            worker_count,
+            len(chunks),
+            len(data_x_y),
+        )
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            partial_results = list(executor.map(self._concat_tensor_pairs, chunks))
+
+        # Merge chunk-level tensors into one contiguous split for the HF trainer.
+        return self._concat_tensor_pairs(partial_results)
 
     def solve_one_rl_iteration(self, batch: list[np.ndarray], iteration: int) -> list[Experience]:
         num_solved_in_batch: float = 0.0

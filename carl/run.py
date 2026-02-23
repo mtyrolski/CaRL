@@ -19,6 +19,7 @@ from omegaconf import OmegaConf
 from carl.algorithms.algorithm import Algorithm
 from carl.slurm.grid_search import CarlGrid
 from carl.utils.result_loggers import SubgoalSearchResultLogger
+from carl.utils.secrets import mask_secret
 
 HIGHEST_PROTOCOL: Final[int] = pickle.HIGHEST_PROTOCOL
 DOTENV_PATH = './.tokens.env'
@@ -82,12 +83,13 @@ def run(config: DictConfig) -> None:
     """
     logger.info(OmegaConf.to_yaml(config))  # dump config to logs
     load_dotenv(DOTENV_PATH, override=True)
+    neptune_api_token = os.environ.get('NEPTUNE_API_TOKEN')
     logger.info(f'CUDA_VISIBLE_DEVICES: {os.environ.get("CUDA_VISIBLE_DEVICES")}')
-    logger.info(f'NEPTUNE_API_TOKEN: {os.environ.get("NEPTUNE_API_TOKEN")}')
+    logger.info(f'NEPTUNE_API_TOKEN: {mask_secret(neptune_api_token)}')
     logger.remove()
     logger.add(sys.stderr, level='INFO')
 
-    if os.environ.get('NEPTUNE_API_TOKEN') is None:
+    if neptune_api_token is None:
         logger.error('NEPTUNE_API_TOKEN is not set')
         sys.exit(1)
         
