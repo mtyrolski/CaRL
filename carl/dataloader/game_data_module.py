@@ -1,4 +1,7 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TypeAlias, cast
 
@@ -24,6 +27,10 @@ from carl.utils.generator_targets import generate_k_offset_generator_targets
 from carl.utils.generator_targets import generate_sliding_window_generator_targets
 
 UntokenizedTrajectory: TypeAlias = list[np.ndarray] | list[str]
+GeneratorTokenizeResult: TypeAlias = tuple[int, Tensor, Tensor] | None
+GENERATOR_TOKENIZE_PARALLEL_MIN_TRAJECTORIES = 32
+GENERATOR_TOKENIZE_BATCHES_PER_WORKER = 4
+GENERATOR_TOKENIZE_MAX_BATCH_SIZE = 8
 
 
 """
@@ -493,48 +500,103 @@ class GameDataModule(pl.LightningDataModule):
         x_tensors: dict[int, Tensor] = {}
         y_tensors: dict[int, Tensor] = {}
 
-        for key, trajectory in tqdm(untokenized_data.items()):
-            tem_x_tensor: list[Tensor] = []
-            tem_y_tensor: list[Tensor] = []
-            trajectory = trajectory[:self.trajectory_length]
-            if len(trajectory) == 0:
-                continue
-            if isinstance(trajectory[0], np.ndarray):
-                trajectory_states = trajectory
-            elif isinstance(trajectory[0], str):
-                trajectory_states = trajectory
-            else:
-                continue
-            trajectory_length: int = len(trajectory_states)
+        items = list(untokenized_data.items())
+        should_parallelize = self.num_workers > 1 and len(items) >= GENERATOR_TOKENIZE_PARALLEL_MIN_TRAJECTORIES
 
-            for position in range(trajectory_length - 1):
-                if self.cut_last_subgoals is not None and position == self.cut_last_subgoals:
-                    break
-                if self.subgoal_distance_interval is None:
-                    distance_range = range(1, trajectory_length - position)
-                else:
-                    distance_range = self.subgoal_distance_interval
-                for dist in distance_range:
-                    x: Tensor
-                    y: Tensor
-                    inner_dist: int = min(dist, trajectory_length - 1 - position)
-
-                    x, y = self.env.tokenizer.x_y_tokenizer(
-                        trajectory_states[position],
-                        trajectory_states[position + inner_dist],
-                        self.training_goal,
-                    )
-                    tem_x_tensor.append(x)
-                    tem_y_tensor.append(y)
-
-                    if position + inner_dist >= trajectory_length - 1:
-                        # don't add more than one copy of the last subgoal
-                        break
-
-            x_tensors[key] = torch.cat(tem_x_tensor, dim=0)
-            y_tensors[key] = torch.cat(tem_y_tensor, dim=0)
+        if should_parallelize:
+            worker_count = min(self.num_workers, len(items))
+            target_batch_count = max(worker_count * GENERATOR_TOKENIZE_BATCHES_PER_WORKER, worker_count)
+            batch_size = max(1, (len(items) + target_batch_count - 1) // target_batch_count)
+            batch_size = min(batch_size, GENERATOR_TOKENIZE_MAX_BATCH_SIZE)
+            batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+            logger.info(
+                'Parallel generator tokenization enabled ({} workers, {} trajectories, {} batches, batch_size≈{}).',
+                worker_count,
+                len(items),
+                len(batches),
+                batch_size,
+            )
+            # Per-trajectory tokenization is independent. Batching reduces thread scheduling overhead.
+            with ThreadPoolExecutor(max_workers=worker_count) as executor, tqdm(total=len(items)) as pbar:
+                future_to_batch_len = {
+                    executor.submit(self._generator_tokenize_batch, batch): len(batch)
+                    for batch in batches
+                }
+                for future in as_completed(future_to_batch_len):
+                    batch_results = future.result()
+                    for key, x_tensor, y_tensor in batch_results:
+                        x_tensors[key] = x_tensor
+                        y_tensors[key] = y_tensor
+                    pbar.update(future_to_batch_len[future])
+        else:
+            for result in tqdm((self._generator_tokenize_one_trajectory(item) for item in items), total=len(items)):
+                if result is None:
+                    continue
+                key, x_tensor, y_tensor = result
+                x_tensors[key] = x_tensor
+                y_tensors[key] = y_tensor
 
         return x_tensors, y_tensors
+
+    def _generator_tokenize_one_trajectory(
+        self,
+        item: tuple[int, UntokenizedTrajectory],
+    ) -> GeneratorTokenizeResult:
+        key, trajectory = item
+        tem_x_tensor: list[Tensor] = []
+        tem_y_tensor: list[Tensor] = []
+        trajectory = trajectory[:self.trajectory_length]
+        if len(trajectory) == 0:
+            return None
+        if isinstance(trajectory[0], np.ndarray):
+            trajectory_states = trajectory
+        elif isinstance(trajectory[0], str):
+            trajectory_states = trajectory
+        else:
+            return None
+        trajectory_length: int = len(trajectory_states)
+
+        for position in range(trajectory_length - 1):
+            if self.cut_last_subgoals is not None and position == self.cut_last_subgoals:
+                break
+            distance_range: Iterable[int]
+            if self.subgoal_distance_interval is None:
+                distance_range = range(1, trajectory_length - position)
+            else:
+                distance_range = self.subgoal_distance_interval
+            for dist in distance_range:
+                x: Tensor
+                y: Tensor
+                inner_dist: int = min(dist, trajectory_length - 1 - position)
+
+                x, y = self.env.tokenizer.x_y_tokenizer(
+                    trajectory_states[position],
+                    trajectory_states[position + inner_dist],
+                    self.training_goal,
+                )
+                tem_x_tensor.append(x)
+                tem_y_tensor.append(y)
+
+                if position + inner_dist >= trajectory_length - 1:
+                    # don't add more than one copy of the last subgoal
+                    break
+
+        if not tem_x_tensor or not tem_y_tensor:
+            return None
+
+        return key, torch.cat(tem_x_tensor, dim=0), torch.cat(tem_y_tensor, dim=0)
+
+    def _generator_tokenize_batch(
+        self,
+        batch: list[tuple[int, UntokenizedTrajectory]],
+    ) -> list[tuple[int, Tensor, Tensor]]:
+        batch_results: list[tuple[int, Tensor, Tensor]] = []
+        for item in batch:
+            result = self._generator_tokenize_one_trajectory(item)
+            if result is None:
+                continue
+            batch_results.append(result)
+        return batch_results
 
     def _policy_generation_tokenize(
             self, untokenized_data: dict[int, UntokenizedTrajectory]) -> tuple[dict[int, Tensor], dict[int, Tensor]]:

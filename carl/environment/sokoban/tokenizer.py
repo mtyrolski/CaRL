@@ -75,6 +75,10 @@ class SokobanTokenizer(GameTokenizer):
             5: 'agent',
             6: 'agent_on_goal',
         }
+        self._symbol_index_to_token = np.array(
+            [self._sokoban_vocab_to_tokens[self._symbol_to_position[i]] for i in range(len(self._symbol_to_position))],
+            dtype=np.int64,
+        )
         self._cut_distance = cut_distance
         self.remove_border = remove_border
         self._type_of_value_training = type_of_value_training
@@ -97,11 +101,9 @@ class SokobanTokenizer(GameTokenizer):
         assert width == height, 'Board must be square'
         assert (
             width == self._size_of_board[0]), f'Board must be of size {self._size_of_board[0]}x{self._size_of_board[1]}'
-        return tensor([
-            self._sokoban_vocab_to_tokens[self._symbol_to_position[int(np.argmax(board[i][j]))]]
-            for i in range(width)
-            for j in range(height)
-        ])
+        symbol_indices = np.argmax(board, axis=-1).reshape(-1)
+        tokens = self._symbol_index_to_token[symbol_indices]
+        return torch.as_tensor(tokens, dtype=torch.long)
 
     def board_detokenizer(self, tokens: list[int]) -> Optional[np.ndarray]:
         try:

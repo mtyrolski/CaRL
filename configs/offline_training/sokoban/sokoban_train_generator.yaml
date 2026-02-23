@@ -11,7 +11,7 @@ args:
       remove_border: False
     num_boxes: 4
 
-batch_size: 64
+batch_size: 128
 
 algorithm:
   _target_: carl.algorithms.train_supervised.TrainSupervisedHF
@@ -31,7 +31,7 @@ algorithm:
     num_of_trajectories: 1000
     subgoal_distance_interval: [8]
     validation_split: 0.1
-    num_workers: 1
+    num_workers: 4
   custom_metrics:
     _target_: carl.utils.training_metrics.GeneratorMetricsHF
   trainer:
