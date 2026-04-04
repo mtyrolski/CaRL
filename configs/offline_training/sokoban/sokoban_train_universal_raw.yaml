@@ -1,0 +1,71 @@
+args:
+  env:
+    _target_: carl.environment.sokoban.env.SokobanEnv
+    tokenizer:
+      _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+      cut_distance: 150
+      type_of_value_training: regression
+      size_of_board:
+        - 12
+        - 12
+      remove_border: False
+    num_boxes: 4
+
+batch_size: 32
+
+algorithm:
+  _target_: carl.algorithms.train_universal_generator.TrainUniversalGeneratorHF
+  recipe: "raw"
+  custom_logger: null
+  output_dir: "models_weights/sokoban/universal_generator/raw"
+  datamodule:
+    _target_: carl.dataloader.universal_generator_data_module.UniversalGeneratorDataModule
+    env: ${args.env}
+    recipe: "raw"
+    save_tokenized_dataset_path: "./validation/sokoban/tokenized_offline/universal_generator/raw"
+    raw_dataset_path: "./rl-data/validation/sokoban/offline/12-12-4"
+    subgoal_distance_interval: [8]
+    num_of_trajectories: 1000
+    max_samples: 200000
+    validation_split: 0.1
+    batch_size: ${batch_size}
+    num_workers: 0
+  model:
+    _partial_: true
+    _target_: transformers.BartForConditionalGeneration
+  config:
+    _target_: transformers.BartConfig
+    vocab_size: 22
+    d_model: 256
+    encoder_layers: 3
+    decoder_layers: 3
+    encoder_attention_heads: 4
+    decoder_attention_heads: 4
+    encoder_ffn_dim: 2048
+    decoder_ffn_dim: 1024
+    dropout: 0.1
+    max_position_embeddings: 256
+  do_finetune: False
+  path_to_model_weights: null
+  learning_rate: 1e-4
+  weight_decay: 0.0001
+  max_steps: 1000
+  num_train_epochs: 3
+  eval_every_n_steps: 100
+  log_every_n_steps: 20
+  save_every_n_steps: 200
+  grad_clip_norm: 1.0
+  temperature: 0.1
+  lambda_raw: 1.0
+  lambda_imit: 0.0
+  lambda_contrastive: 0.0
+  lambda_verifier: 0.0
+
+float32_matmul_precision: high
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.train_universal_generator.TrainUniversalGeneratorHF
+
+carl_grid:
+  - {}

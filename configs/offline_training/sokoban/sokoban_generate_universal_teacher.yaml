@@ -1,0 +1,20 @@
+args:
+  output_path: "./rl-data/validation/sokoban/universal_teacher/sokoban_12x12x4_teacher_annotations.joblib"
+
+algorithm:
+  _target_: carl.algorithms.generate_universal_teacher_annotations.GenerateUniversalTeacherAnnotations
+  input_path: "./solve_attempts"
+  input_glob: "solved_problems_*_12x12x4_batch_*.joblib"
+  output_path: ${args.output_path}
+  max_experiences: 5000
+  max_annotations: null
+  include_unsolved: False
+  include_rejected_from_events: True
+  prefer_proposal_events: True
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.generate_universal_teacher_annotations.GenerateUniversalTeacherAnnotations
+
+carl_grid:
+  - {}

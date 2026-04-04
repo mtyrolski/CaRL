@@ -1,0 +1,103 @@
+# Universal AdaSubS variant (single propositional generator, no explicit k bank)
+
+components_prefix: "./rl-data/validation/sokoban/components/full_data"
+
+args:
+  env:
+    _target_: carl.environment.sokoban.env.SokobanEnv
+    tokenizer:
+      _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+      cut_distance: 150
+      type_of_value_training: "regression"
+      size_of_board:
+        - 12
+        - 12
+    num_boxes: 4
+  ckpt_raw: "./models_weights/sokoban/universal_generator/raw/checkpoint-latest"
+  ckpt_ft: "./models_weights/sokoban/universal_generator/finetune/checkpoint-latest"
+  ckpt_con: "./models_weights/sokoban/universal_generator/contrastive/checkpoint-latest"
+
+subgoal_generator:
+  _target_: carl.inference_components.subgoal_generator.UniversalPropositionalSubgoalGenerator
+  mode: "propositional_universal"
+  env: ${args.env}
+  path_to_generator_weights: ${args.ckpt_raw}
+  subgoal_generation_kwargs:
+    max_new_tokens: 145
+    do_sample: False
+    temperature: 1.0
+    num_beams: 4
+    num_return_sequences: 4
+  generator_network_class:
+    _target_: transformers.BartForConditionalGeneration.from_pretrained
+    _partial_: true
+
+value_function:
+  _target_: carl.inference_components.value.TransformerValue
+  value_network_class:
+    _target_: transformers.BertForSequenceClassification.from_pretrained
+    _partial_: true
+  path_to_value_network_weights: "./rl-data/validation/sokoban/components/full_data/value/checkpoint-1343100"
+  type_of_evaluation: "regression"
+  noise_variance: 0.0
+  env: ${args.env}
+
+validator:
+  _target_: carl.inference_components.validator.BasicValidator
+  env: ${args.env}
+  cllp:
+    _target_: carl.inference_components.conditional_low_level_policy.TransformerConditionalLowLevelPolicy
+    conditional_low_level_policy_class:
+      _target_: transformers.BertForSequenceClassification.from_pretrained
+      _partial_: true
+    path_to_conditional_low_level_policy_weights: "./rl-data/validation/sokoban/components/full_data/cllp/8/checkpoint-167585"
+    env: ${args.env}
+  budget_for_achieving_subgoal: 10
+
+algorithm:
+  _target_: carl.algorithms.solve_instances.SolveInstances
+  dump_solved: True
+  tag: "ugen_raw_12x12x4"
+  solver:
+    _target_: carl.solver.subgoal_search.Solver
+    max_nodes: 500
+    planner_class:
+      _partial_: true
+      _target_: carl.planners.adasubs.UniversalPropositionalPlanner
+    subgoal_generator: ${subgoal_generator}
+    validator: ${validator}
+    value_function: ${value_function}
+  data_loader:
+    _target_: carl.environment.instance_generator.BasicInstanceGenerator
+    generator:
+      _target_: carl.environment.instance_generator.GeneralIterableDataLoader
+      path_to_folder_with_data: "./rl-data/validation/sokoban/progress/12_12_4"
+    batch_size: 50
+  result_logger:
+    _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
+    custom_logger:
+      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      name: "universal_adasubs solve"
+      description: "universal propositional generator solve"
+      project: "mtyrol/drop"
+      tags: ["sokoban", "AdaSubS", "UGEN_raw", "solve", "12x12x4"]
+      log_parameters: True
+    problem_to_solve: ${algorithm.problems_to_solve}
+    budget_logs: [1, 2, 5, 10, 25, 40, 50, 60, 70, 80, 90, 100, 120, 140, 160, 180, 200, 250, 300, 350, 400, 450, 500]
+  problems_to_solve: 1000
+  n_parallel_workers: 1
+
+carl_workers:
+  solve:
+    algorithm._target_: carl.algorithms.solve_instances.SolveInstances
+
+carl_grid:
+  - subgoal_generator.path_to_generator_weights: ["${args.ckpt_raw}"]
+    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "UGEN_raw", "solve", "12x12x4"]]
+    algorithm.tag: ["ugen_raw_12x12x4"]
+  - subgoal_generator.path_to_generator_weights: ["${args.ckpt_ft}"]
+    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "UGEN_ft", "solve", "12x12x4"]]
+    algorithm.tag: ["ugen_ft_12x12x4"]
+  - subgoal_generator.path_to_generator_weights: ["${args.ckpt_con}"]
+    algorithm.result_logger.custom_logger.tags: [["sokoban", "AdaSubS", "UGEN_con", "solve", "12x12x4"]]
+    algorithm.tag: ["ugen_con_12x12x4"]
