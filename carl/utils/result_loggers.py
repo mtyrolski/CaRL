@@ -114,6 +114,21 @@ class SubgoalSearchResultLogger(ResultLogger):
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{SOLVED_PREFIX}__leaf_nodes', search_info.leaf_nodes) # type: ignore
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{SOLVED_PREFIX}__branching_factor', search_info.branching_factor) # type: ignore
 
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__validator_rejection_rate',
+                                           search_info.validator_rejection_rate, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__realized_segment_len_mean',
+                                           search_info.realized_segment_length_mean, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__progress_per_segment_mean',
+                                           search_info.progress_per_segment_mean, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__backtracking_ratio',
+                                           search_info.backtracking_ratio, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__detour_ratio',
+                                           search_info.detour_ratio, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__proposal_diversity_unique_ratio',
+                                           search_info.proposal_diversity_unique_ratio, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__proposal_diversity_entropy',
+                                           search_info.proposal_diversity_entropy, solved_only=True)
+
 
     def _log_general_metrics(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
         assert search_info.is_valid_tree_search_info
@@ -131,6 +146,25 @@ class SubgoalSearchResultLogger(ResultLogger):
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__leaf_nodes', search_info.leaf_nodes) # type: ignore
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__branching_factor', search_info.branching_factor) # type: ignore
 
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__runtime_seconds',
+                                           search_info.runtime_seconds)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__validator_rejection_rate',
+                                           search_info.validator_rejection_rate)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_events_count',
+                                           search_info.proposal_events_count)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_duplicates',
+                                           search_info.proposal_duplicates)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_diversity_unique_ratio',
+                                           search_info.proposal_diversity_unique_ratio)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_diversity_entropy',
+                                           search_info.proposal_diversity_entropy)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__backtracking_ratio',
+                                           search_info.backtracking_ratio)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__realized_segment_len_mean',
+                                           search_info.realized_segment_length_mean)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__detour_ratio',
+                                           search_info.detour_ratio)
+
     def _log_budget_solved_rates(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
         for budget in self.budget_logs:
             is_solved_in_budget = solution.solved and (search_info.low_level_nodes_visited is not None and search_info.low_level_nodes_visited <= budget)
@@ -140,6 +174,20 @@ class SubgoalSearchResultLogger(ResultLogger):
     def _count_finished_reason(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
         finished_reason = search_info.finished_reason
         self.finished_reasons[finished_reason] = self.finished_reasons.get(finished_reason, 0) + 1
+
+    def _log_optional_instance_metric(
+        self,
+        base_completed_problems: int,
+        task_id: int,
+        name: str,
+        value: Any,
+        solved_only: bool = False,
+    ) -> None:
+        if value is None:
+            return
+        self.neptune_run[name].append(step=base_completed_problems + task_id, value=value)
+        avg_key = f'{AVG_PREFIX}__{name}'
+        self.solved_stats.log_metric_to_average(avg_key, value)
 
     def _log_final_solved_rates(self):
         self.neptune_run[join('problems/solved', self.node_global_id)].append(

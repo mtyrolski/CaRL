@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from dataclasses import field
 from enum import StrEnum
+from typing import Any
 
 from carl.solver.nodes import SearchTreeNode
 from carl.utils.aliases import State
@@ -25,6 +26,8 @@ class Solution:
 @dataclass
 class SearchInfo:
     finished_reason: str
+    generator_mode: str | None = None
+    runtime_seconds: float | None = None
     low_level_nodes_visited: int | None = None
     high_level_nodes_valid: int | None = None
     high_level_nodes_unreachable: int | None = None
@@ -41,6 +44,21 @@ class SearchInfo:
     subgoals_added_per_k: dict[int, int] = field(default_factory=dict)
     subgoals_selected_for_expansion: dict[int, int] = field(default_factory=dict)
     dead_ends_rate: float | None = None
+    # Universal/propositional analysis fields (optional, additive)
+    validator_rejection_rate: float | None = None
+    proposal_acceptances: int | None = None
+    proposal_rejections: int | None = None
+    proposal_duplicates: int | None = None
+    proposal_events_count: int | None = None
+    proposal_diversity_unique_ratio: float | None = None
+    proposal_diversity_entropy: float | None = None
+    realized_segment_lengths: list[int] = field(default_factory=list)
+    realized_segment_length_mean: float | None = None
+    progress_per_segment: list[float] = field(default_factory=list)
+    progress_per_segment_mean: float | None = None
+    backtracking_ratio: float | None = None
+    detour_ratio: float | None = None
+    proposal_events: list[dict[str, Any]] = field(default_factory=list)
     
     @property
     def is_valid_tree_search_info(self) -> bool:
