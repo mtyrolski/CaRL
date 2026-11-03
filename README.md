@@ -1,5 +1,11 @@
 # CaRL Library README
 
+For the current **100-board, 500-expansion comparison**, start with
+[LAUNCH_100.md](LAUNCH_100.md). It includes relative/absolute Luna search,
+optional fixed and verbal baselines, local Torch checkpoints, cost limits and
+offline reporting. [ICL_SEARCH.md](ICL_SEARCH.md) documents the underlying ICL
+implementation and earlier experiments.
+
 - [CaRL Library README](#carl-library-readme)
   - [Introduction](#introduction)
   - [Architecture Overview](#architecture-overview)

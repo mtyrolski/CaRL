@@ -14,7 +14,7 @@ and excluded from Git. The campaign journal is the only tracked run record here.
 | `trained_reference/random100_k841/` | Historical native AdaSubS cohort and replayed outcomes |
 | `notebook_executions/before_source_cleanup_20261103/` | Executed notebooks preserved before clearing source outputs |
 
-The launch inputs under `configs/icl/launch100/` are small, versioned snapshots.
+The launch inputs under `configs/icl/checkpoints/launch100/` are small, versioned snapshots.
 They contain training demonstrations and initial test states, not test solutions.
 Raw research artifacts remain separate from these inference inputs.
 
