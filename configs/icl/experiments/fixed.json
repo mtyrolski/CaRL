@@ -1,0 +1,1 @@
+{"extends": "base.json", "name": "fixed_12x12x4", "method": "fixed", "scales": [8, 4], "fixed_cap": "horizon"}

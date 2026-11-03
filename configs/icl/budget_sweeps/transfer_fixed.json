@@ -1,0 +1,7 @@
+{
+  "extends": "transfer_relative.json",
+  "name": "fixed_32x32x10",
+  "method": "fixed",
+  "scales": [8, 4],
+  "fixed_cap": "horizon"
+}

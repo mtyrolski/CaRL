@@ -1,0 +1,12 @@
+{
+  "run_dirs": ["analysis/luna_icl/evaluation_demo_runs"],
+  "output_dir": "analysis/luna_icl/evaluation_mock",
+  "bootstrap_replicates": 2000,
+  "bootstrap_seed": 0,
+  "budget_points": 65,
+  "comparison_methods": ["relative", "fixed"],
+  "comparison_configs": [],
+  "max_board_viewers": 4,
+  "max_viewer_attempts": 20,
+  "static_formats": []
+}

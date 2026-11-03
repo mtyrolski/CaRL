@@ -1,0 +1,105 @@
+{
+  "additionalProperties": false,
+  "description": "Local input roots and reproducible evaluation/export settings.",
+  "properties": {
+    "run_dirs": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Run Dirs",
+      "type": "array"
+    },
+    "output_dir": {
+      "default": "analysis/luna_icl/evaluation",
+      "title": "Output Dir",
+      "type": "string"
+    },
+    "bootstrap_replicates": {
+      "default": 2000,
+      "maximum": 100000,
+      "minimum": 100,
+      "title": "Bootstrap Replicates",
+      "type": "integer"
+    },
+    "bootstrap_seed": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Bootstrap Seed",
+      "type": "integer"
+    },
+    "budget_points": {
+      "default": 65,
+      "maximum": 1000,
+      "minimum": 2,
+      "title": "Budget Points",
+      "type": "integer"
+    },
+    "comparison_methods": {
+      "default": [
+        "relative",
+        "fixed"
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Comparison Methods",
+      "type": "array"
+    },
+    "comparison_configs": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "type": "array"
+      },
+      "title": "Comparison Configs",
+      "type": "array"
+    },
+    "max_board_viewers": {
+      "default": 4,
+      "maximum": 40,
+      "minimum": 0,
+      "title": "Max Board Viewers",
+      "type": "integer"
+    },
+    "max_viewer_attempts": {
+      "default": 20,
+      "maximum": 200,
+      "minimum": 1,
+      "title": "Max Viewer Attempts",
+      "type": "integer"
+    },
+    "static_formats": {
+      "items": {
+        "enum": [
+          "png",
+          "svg",
+          "pdf"
+        ],
+        "type": "string"
+      },
+      "title": "Static Formats",
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_dirs"
+  ],
+  "title": "EvaluationConfig",
+  "type": "object"
+}

@@ -1,0 +1,18 @@
+{
+  "dataset": "analysis/policy_relative_smoke_20261029/main",
+  "output": "analysis/icl_sokoban/smoke",
+  "model": "gpt-5.4-mini-2026-03-17",
+  "conditions": ["relative", "absolute", "none"],
+  "few_shot_examples": 4,
+  "query_contexts": 2,
+  "seed": 20261029,
+  "max_requests": 6,
+  "max_output_tokens": 2048,
+  "reasoning_effort": "low",
+  "timeout_seconds": 60,
+  "max_estimated_cost_usd": 0.20,
+  "input_usd_per_million": 0.75,
+  "output_usd_per_million": 4.50,
+  "execution_trials": 2,
+  "execution_cap": 20
+}

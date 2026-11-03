@@ -1,0 +1,5 @@
+{
+  "extends": "relative.json",
+  "name": "relative_generated_16x16x4",
+  "family": "generated_16x16x4"
+}

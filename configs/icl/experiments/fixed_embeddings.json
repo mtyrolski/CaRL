@@ -1,0 +1,1 @@
+{"extends": "fixed.json", "name": "fixed_embeddings_12x12x4", "selection": "embeddings"}

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "config_by_method": {
+    "relative_u": "configs/icl/campaign_data/relative_u.json",
+    "absolute_d": "configs/icl/campaign_data/absolute_d.json",
+    "fixed": "configs/icl/campaign_data/fixed_k.json"
+  },
+  "scale_pairs": {
+    "relative_u": [
+      [
+        0.85,
+        0.5
+      ],
+      [
+        0.65,
+        0.25
+      ]
+    ],
+    "absolute_d": [
+      [
+        8,
+        4
+      ],
+      [
+        6,
+        3
+      ]
+    ],
+    "fixed": [
+      [
+        8,
+        4
+      ],
+      [
+        6,
+        3
+      ]
+    ]
+  },
+  "families": [
+    "real_12x12x4",
+    "generated_32x32x10"
+  ],
+  "seed": 11,
+  "limits": {
+    "max_requests": 768,
+    "max_input_tokens": 16000,
+    "max_total_input_tokens": 8192000,
+    "max_output_tokens": 1048576,
+    "wall_seconds": 1800,
+    "timeout_seconds": 90
+  },
+  "max_generator_calls": 256,
+  "max_expansions": 256,
+  "tie_rule": "maximize solved count; ties choose lower pair index; reject API/parser errors, campaign stage guard, replay mismatch, or >=75% early local-limit stops",
+  "scope": "Only full boards from scale_validation; matched boards, seed, action/token/request/expansion/proposal limits across conditions.",
+  "budget": 128,
+  "instances_per_family": 1,
+  "num_subgoals": 2,
+  "max_total_tokens": 8192000,
+  "generation_cap_semantics": "Counts each logical generator API call, including cache hits and retries; each request asks for at most num_subgoals=2 boards.",
+  "early_limit_block_fraction": 0.75
+}

@@ -1,0 +1,6 @@
+{
+  "configs": [
+    "../../../analysis/luna_icl/budget_sweep_tuning/selected_relative.json",
+    "../../../analysis/luna_icl/budget_sweep_tuning/selected_fixed.json"
+  ]
+}

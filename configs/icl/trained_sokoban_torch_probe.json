@@ -1,0 +1,14 @@
+{
+  "checkpoint_root": "/home/mtyrolski/dev/carl/rl-data/rlloop_icml/sokoban/components/n_10k",
+  "generator_scales": [6, 4],
+  "controller_scale": 6,
+  "board_size": 10,
+  "boxes": 4,
+  "board_seed": 20261103,
+  "search_seed": 11,
+  "action_budget": 32,
+  "max_expansions": 64,
+  "num_subgoals": 2,
+  "torch_threads": 2,
+  "output": "analysis/torch_checkpoint_probe/10x10_seed20261103.json"
+}

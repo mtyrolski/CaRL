@@ -1,0 +1,5 @@
+{
+  "matrix": "mock_matrix.json",
+  "budgets": [4, 8],
+  "output_dir": "analysis/luna_icl/budget_sweep_mock"
+}

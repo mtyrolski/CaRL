@@ -1,0 +1,1 @@
+{"extends": "demo_relative.json", "name": "demo_fixed", "method": "fixed", "scales": [8, 4]}

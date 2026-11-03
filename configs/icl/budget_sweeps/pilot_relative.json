@@ -1,0 +1,10 @@
+{
+  "extends": "../experiments/relative.json",
+  "name": "relative_12x12x4",
+  "instances": 8,
+  "repeat_seeds": [11, 22, 33],
+  "action_budget": 256,
+  "max_expansions": 256,
+  "easy": false,
+  "tuning_status": "pilot_unvalidated"
+}

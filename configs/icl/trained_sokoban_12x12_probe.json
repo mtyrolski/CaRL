@@ -1,0 +1,24 @@
+{
+  "checkpoint_root": "/home/mtyrolski/dev/carl/rl-data/validation/sokoban/components/full_data",
+  "weights_file": "pytorch_model.bin",
+  "generator_scales": [8, 4],
+  "generator_paths": {
+    "8": "generator/border/8/checkpoint-75856",
+    "4": "generator/border/4/checkpoint-75856"
+  },
+  "controller_scale": 8,
+  "controller_path": "cllp/8/checkpoint-167585",
+  "value_path": "value/checkpoint-1343100",
+  "remove_border": false,
+  "board_size": 12,
+  "boxes": 4,
+  "validation_manifest": "data/icl/campaign_dataset_v2/real_12x12x4/scale_validation.json",
+  "validation_index": 0,
+  "board_seed": 20261103,
+  "search_seed": 11,
+  "action_budget": 128,
+  "max_expansions": 256,
+  "num_subgoals": 2,
+  "torch_threads": 2,
+  "output": "analysis/torch_checkpoint_probe/12x12_validation_board0_b128.json"
+}

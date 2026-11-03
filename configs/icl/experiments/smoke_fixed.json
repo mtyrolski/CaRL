@@ -1,0 +1,1 @@
+{"extends": "smoke_relative.json", "name": "smoke_fixed", "method": "fixed", "scales": [8, 4]}

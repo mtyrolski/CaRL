@@ -1,0 +1,6 @@
+{
+  "configs": [
+    "../../../analysis/luna_icl/budget_sweep_tuning/selected_relative_32.json",
+    "../../../analysis/luna_icl/budget_sweep_tuning/selected_fixed_32.json"
+  ]
+}

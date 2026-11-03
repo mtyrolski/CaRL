@@ -1,0 +1,1 @@
+{"extends":"../experiments/tuned_fixed.json","name":"campaign_component_validation_real","data_dir":"data/icl/campaign_dataset_v2","family":"real_12x12x4","split":"component_validation","instances":4,"repeat_seeds":[11],"easy":false}

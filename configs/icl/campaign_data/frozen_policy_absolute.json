@@ -1,0 +1,6 @@
+{
+  "extends": "frozen_policy_fixed.json",
+  "name": "campaign_frozen_policy_absolute_provisional_scales",
+  "method": "absolute",
+  "scales": [8, 4]
+}

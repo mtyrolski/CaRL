@@ -1,0 +1,551 @@
+{
+  "$defs": {
+    "Calibration": {
+      "additionalProperties": false,
+      "description": "Independent reference population, rollout and calibration budget settings.",
+      "properties": {
+        "reference_window": {
+          "default": 16,
+          "minimum": 1,
+          "title": "Reference Window",
+          "type": "integer"
+        },
+        "candidates": {
+          "default": 8,
+          "minimum": 1,
+          "title": "Candidates",
+          "type": "integer"
+        },
+        "trials": {
+          "default": 4,
+          "minimum": 1,
+          "title": "Trials",
+          "type": "integer"
+        },
+        "action_cap": {
+          "default": 16,
+          "minimum": 1,
+          "title": "Action Cap",
+          "type": "integer"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        }
+      },
+      "title": "Calibration",
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "description": "Per-run request, token and time ceilings, including logical cache use.",
+      "properties": {
+        "max_requests": {
+          "default": 128,
+          "minimum": 1,
+          "title": "Max Requests",
+          "type": "integer"
+        },
+        "max_input_tokens": {
+          "default": 16000,
+          "minimum": 1,
+          "title": "Max Input Tokens",
+          "type": "integer"
+        },
+        "max_total_input_tokens": {
+          "default": 1000000,
+          "minimum": 1,
+          "title": "Max Total Input Tokens",
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "default": 16384,
+          "minimum": 1,
+          "title": "Max Output Tokens",
+          "type": "integer"
+        },
+        "wall_seconds": {
+          "default": 600,
+          "exclusiveMinimum": 0,
+          "title": "Wall Seconds",
+          "type": "number"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "title": "Limits",
+      "type": "object"
+    },
+    "PromptSettings": {
+      "additionalProperties": false,
+      "description": "Frozen component instructions, saved with each experiment condition.",
+      "properties": {
+        "policy": {
+          "default": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nReturn a probability vector in action order [UP, DOWN, LEFT, RIGHT]\nfor the NEXT SINGLE primitive action towards the supplied subgoal. Use nonnegative\nprobabilities with positive sum. This same policy is sampled during calibration\nand search. The subgoal is an explicit board; do not invent a multi-action move.",
+          "minLength": 1,
+          "title": "Policy",
+          "type": "string"
+        },
+        "value": {
+          "default": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nEstimate value in [0,1]: the discounted continuation return for\nsolving this board. The examples use discount ** remaining_solution_actions.\nHigher is closer to solving; a solved board has value 1.",
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        },
+        "value_remaining": {
+          "default": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player, + player on goal. Estimate the number of remaining single player moves (including pushes) until all boxes are on goals. Examples are verified training trajectories, not necessarily optimal. Return 0 for a solved state. Use the board and the demonstrations to estimate remaining moves; output only the requested JSON.",
+          "minLength": 1,
+          "title": "Value Remaining",
+          "type": "string"
+        },
+        "generator": {
+          "default": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nPropose distinct intermediate subgoal boards, different from the input.",
+          "minLength": 1,
+          "title": "Generator",
+          "type": "string"
+        },
+        "fixed": {
+          "default": "k is a FIXED number of primitive moves along a successful trajectory. Propose a useful state k moves ahead, reachable within k actions when cap=k. The examples are verified k-action transitions. k never denotes a percentile.",
+          "minLength": 1,
+          "title": "Fixed",
+          "type": "string"
+        },
+        "relative": {
+          "default": "u is a policy-relative percentile, NOT a number of moves or a success probability. For each training context, targets were weighted by the frozen policy's exact-hit rates and ranked by mean successful first-hit time. Ties share the midpoint of their combined percentile interval. Infer this scale from examples without reconstructing a reference distribution for the query. The controller has a separate fixed action cap L.",
+          "minLength": 1,
+          "title": "Relative",
+          "type": "string"
+        },
+        "absolute": {
+          "default": "d is the frozen policy's mean successful first-hit execution time in primitive actions, measured by repeated rollouts. It is not necessarily the trajectory offset. The controller has a separate fixed action cap L.",
+          "minLength": 1,
+          "title": "Absolute",
+          "type": "string"
+        }
+      },
+      "title": "PromptSettings",
+      "type": "object"
+    },
+    "Tuning": {
+      "additionalProperties": false,
+      "description": "Equal-size validation grids for the two main comparison conditions.",
+      "properties": {
+        "relative_scales": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Relative Scales",
+          "type": "array"
+        },
+        "fixed_scales": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Fixed Scales",
+          "type": "array"
+        }
+      },
+      "title": "Tuning",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A complete reproducible inference condition with separate calibration limits.",
+  "properties": {
+    "name": {
+      "default": "luna_relative",
+      "title": "Name",
+      "type": "string"
+    },
+    "model": {
+      "default": "gpt-6-luna",
+      "title": "Model",
+      "type": "string"
+    },
+    "reasoning_effort": {
+      "default": "none",
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Reasoning Effort",
+      "type": "string"
+    },
+    "policy_reasoning_effort": {
+      "anyOf": [
+        {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Reasoning Effort"
+    },
+    "generator_reasoning_effort": {
+      "anyOf": [
+        {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generator Reasoning Effort"
+    },
+    "value_reasoning_effort": {
+      "anyOf": [
+        {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value Reasoning Effort"
+    },
+    "response_format": {
+      "default": "text",
+      "enum": [
+        "text",
+        "json_schema"
+      ],
+      "title": "Response Format",
+      "type": "string"
+    },
+    "policy_response_format": {
+      "anyOf": [
+        {
+          "enum": [
+            "text",
+            "json_schema"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Response Format"
+    },
+    "generator_response_format": {
+      "anyOf": [
+        {
+          "enum": [
+            "text",
+            "json_schema"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Generator Response Format"
+    },
+    "value_response_format": {
+      "anyOf": [
+        {
+          "enum": [
+            "text",
+            "json_schema"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value Response Format"
+    },
+    "generator_layout_schema": {
+      "default": false,
+      "title": "Generator Layout Schema",
+      "type": "boolean"
+    },
+    "generator_max_attempts": {
+      "default": 1,
+      "maximum": 5,
+      "minimum": 1,
+      "title": "Generator Max Attempts",
+      "type": "integer"
+    },
+    "value_target": {
+      "default": "return",
+      "enum": [
+        "return",
+        "remaining_actions"
+      ],
+      "title": "Value Target",
+      "type": "string"
+    },
+    "value_examples": {
+      "default": "initial",
+      "enum": [
+        "initial",
+        "trajectory"
+      ],
+      "title": "Value Examples",
+      "type": "string"
+    },
+    "value_board_features": {
+      "default": false,
+      "title": "Value Board Features",
+      "type": "boolean"
+    },
+    "prompts": {
+      "$ref": "#/$defs/PromptSettings"
+    },
+    "method": {
+      "default": "relative",
+      "enum": [
+        "relative",
+        "fixed",
+        "absolute",
+        "primitive",
+        "direct"
+      ],
+      "title": "Method",
+      "type": "string"
+    },
+    "scales": {
+      "items": {
+        "type": "number"
+      },
+      "title": "Scales",
+      "type": "array"
+    },
+    "fixed_cap": {
+      "default": "horizon",
+      "enum": [
+        "horizon",
+        "shared"
+      ],
+      "title": "Fixed Cap",
+      "type": "string"
+    },
+    "action_budget": {
+      "default": 256,
+      "minimum": 1,
+      "title": "Action Budget",
+      "type": "integer"
+    },
+    "max_expansions": {
+      "default": 128,
+      "minimum": 1,
+      "title": "Max Expansions",
+      "type": "integer"
+    },
+    "num_subgoals": {
+      "default": 1,
+      "maximum": 8,
+      "minimum": 1,
+      "title": "Num Subgoals",
+      "type": "integer"
+    },
+    "few_shot": {
+      "default": 4,
+      "minimum": 0,
+      "title": "Few Shot",
+      "type": "integer"
+    },
+    "selection": {
+      "default": "direct",
+      "enum": [
+        "direct",
+        "embeddings"
+      ],
+      "title": "Selection",
+      "type": "string"
+    },
+    "embedding_model": {
+      "default": "text-embedding-3-small",
+      "title": "Embedding Model",
+      "type": "string"
+    },
+    "discount": {
+      "default": 0.99,
+      "exclusiveMaximum": 1,
+      "exclusiveMinimum": 0,
+      "title": "Discount",
+      "type": "number"
+    },
+    "policy_temperature": {
+      "default": 1.0,
+      "exclusiveMinimum": 0,
+      "title": "Policy Temperature",
+      "type": "number"
+    },
+    "policy_coordinate_features": {
+      "default": false,
+      "title": "Policy Coordinate Features",
+      "type": "boolean"
+    },
+    "seed": {
+      "default": 20261029,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "repeat_seeds": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Repeat Seeds",
+      "type": "array"
+    },
+    "generator_tokens": {
+      "default": 4096,
+      "minimum": 128,
+      "title": "Generator Tokens",
+      "type": "integer"
+    },
+    "policy_tokens": {
+      "default": 128,
+      "minimum": 32,
+      "title": "Policy Tokens",
+      "type": "integer"
+    },
+    "value_tokens": {
+      "default": 64,
+      "minimum": 16,
+      "title": "Value Tokens",
+      "type": "integer"
+    },
+    "limits": {
+      "$ref": "#/$defs/Limits"
+    },
+    "calibration": {
+      "$ref": "#/$defs/Calibration"
+    },
+    "tuning": {
+      "$ref": "#/$defs/Tuning"
+    },
+    "trajectory_source": {
+      "default": "rl-data/validation/sokoban/offline/12-12-4/sokoban_12_12_4_trajectories_part_1.pkl",
+      "title": "Trajectory Source",
+      "type": "string"
+    },
+    "data_dir": {
+      "default": "data/icl",
+      "title": "Data Dir",
+      "type": "string"
+    },
+    "cache_dir": {
+      "default": "analysis/luna_icl/cache",
+      "title": "Cache Dir",
+      "type": "string"
+    },
+    "output_dir": {
+      "default": "analysis/luna_icl/runs",
+      "title": "Output Dir",
+      "type": "string"
+    },
+    "train_boards": {
+      "default": 8,
+      "minimum": 1,
+      "title": "Train Boards",
+      "type": "integer"
+    },
+    "validation_boards": {
+      "default": 4,
+      "minimum": 1,
+      "title": "Validation Boards",
+      "type": "integer"
+    },
+    "test_boards": {
+      "default": 8,
+      "minimum": 1,
+      "title": "Test Boards",
+      "type": "integer"
+    },
+    "family": {
+      "default": "real_12x12x4",
+      "title": "Family",
+      "type": "string"
+    },
+    "split": {
+      "default": "test",
+      "enum": [
+        "validation",
+        "test",
+        "component_validation",
+        "scale_validation",
+        "pilot100",
+        "holdout1000"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "instances": {
+      "default": 4,
+      "minimum": 1,
+      "title": "Instances",
+      "type": "integer"
+    },
+    "easy": {
+      "default": false,
+      "title": "Easy",
+      "type": "boolean"
+    },
+    "tuning_status": {
+      "default": "pilot_unvalidated",
+      "enum": [
+        "pilot_unvalidated",
+        "validation_selected"
+      ],
+      "title": "Tuning Status",
+      "type": "string"
+    }
+  },
+  "title": "ExperimentConfig",
+  "type": "object"
+}

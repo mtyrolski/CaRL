@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "campaign_id": "campaign_100_20261102",
+  "ledger_path": "analysis/luna_icl/campaign_100/cost_ledger.sqlite3",
+  "limit_usd": "40.00",
+  "stage_limits_usd": {
+    "policy_validation": "2.00",
+    "calibration": "4.00",
+    "scale_validation": "4.00",
+    "pilot_relative": "12.00",
+    "pilot_absolute": "12.00",
+    "pilot_fixed": "4.00",
+    "reporting": "0.50",
+    "reserve": "1.50",
+    "unassigned": "0.00"
+  },
+  "models": {
+    "gpt-6-luna": {
+      "input_usd_per_million": "0.10",
+      "cached_input_usd_per_million": "0.01",
+      "cache_write_30m_usd_per_million": "0.125",
+      "cache_write_12h_usd_per_million": "0.25",
+      "output_usd_per_million": "0.50",
+      "max_input_tokens": 1050000,
+      "max_output_tokens": 128000,
+      "long_context_threshold": 272000,
+      "regional_multiplier": "1.10",
+      "pricing_source": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "pricing_as_of": "2026-11-02"
+    }
+  }
+}
