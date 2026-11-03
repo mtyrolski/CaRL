@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from scripts.policy_relative_smoke import weighted_midpoints, valid_board, level_key
+from scripts.training.policy_relative_smoke import weighted_midpoints, valid_board, level_key
 
 
 def test_ties_share_success_weighted_interval_not_offset_rank():

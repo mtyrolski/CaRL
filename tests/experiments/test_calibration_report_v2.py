@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.report_calibration_v2 import ledger_summary, summarize
+from scripts.archive.campaign_20261102.report_calibration_v2 import ledger_summary, summarize
 
 
 def test_ledger_snapshot_filters_campaign_stage_and_preserves_unsettled(tmp_path: Path) -> None:
@@ -58,7 +58,7 @@ def test_calibration_summary_keeps_target_failures_and_early_task_solve_separate
 
 
 def test_policy_support_counts_distinct_cached_inputs(tmp_path: Path) -> None:
-    from scripts.report_calibration_v2 import policy_support
+    from scripts.archive.campaign_20261102.report_calibration_v2 import policy_support
 
     ledger = tmp_path / 'ledger.sqlite3'
     cache = tmp_path / 'cache' / 'openai'

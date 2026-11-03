@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.estimate_campaign_pilot import FAMILIES, METHOD_STAGES, ledger_snapshot, observation, project
+from scripts.archive.campaign_20261102.estimate_campaign_pilot import FAMILIES, METHOD_STAGES, ledger_snapshot, observation, project
 
 PRICE = {'cache_write_30m_usd_per_million': '0.125', 'output_usd_per_million': '0.50',
          'regional_multiplier': '1.10'}

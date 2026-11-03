@@ -13,7 +13,7 @@ from carl.icl.datasets import environment
 from carl.icl.types import Board
 from scripts.generator_probe.prepare_dataset import write_once
 from scripts.generator_probe.prepare_sources import sha256
-from scripts.prepare_fresh_trajectory_holdout import verified_trajectory
+from scripts.datasets.prepare_fresh_trajectory_holdout import verified_trajectory
 
 SOURCE = ROOT / 'analysis/luna_icl/campaign_100/generator_probe_v2'
 OUTPUT = ROOT / 'analysis/luna_icl/campaign_100/goal_progress_probe'

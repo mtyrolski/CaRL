@@ -7,7 +7,7 @@ import numpy as np
 from carl.icl.boards import from_rows
 from carl.icl.datasets import environment
 from carl.icl.luna import LunaComponents
-from scripts.campaign_policy_validation import result_row, seed_for, summary
+from scripts.archive.campaign_20261102.campaign_policy_validation import result_row, seed_for, summary
 
 
 def components_for(board: np.ndarray, action: int) -> tuple[LunaComponents, Any]:

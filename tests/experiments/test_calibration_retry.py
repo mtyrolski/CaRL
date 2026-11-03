@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import scripts.resume_calibration_v2 as recovery
+import scripts.archive.campaign_20261102.resume_calibration_v2 as recovery
 
 
 def record(text: str, role: str = 'policy') -> dict:

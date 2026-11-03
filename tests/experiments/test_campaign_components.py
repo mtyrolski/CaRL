@@ -1,7 +1,7 @@
 """Validation metrics preserve missing responses, ties, and terminal separation."""
 from carl.icl.boards import from_rows, to_rows
-from scripts.campaign_components_validation import classify
-from scripts.report_campaign_components import rank_metrics
+from scripts.archive.campaign_20261102.campaign_components_validation import classify
+from scripts.archive.campaign_20261102.report_campaign_components import rank_metrics
 
 
 def test_generator_filter_stages_do_not_credit_copies_or_duplicates() -> None:

@@ -39,7 +39,7 @@ def main() -> int:
     if args.pilot_freeze:
         if args.mock or args.replay or args.cache_dir or args.config != DEFAULT_CONFIG:
             parser.error("The frozen pilot supports only --plan or --execute and its frozen configuration")
-        from scripts.campaign_pilot_runner import main as run_frozen_pilot  # pylint: disable=import-outside-toplevel
+        from scripts.archive.campaign_20261102.campaign_pilot_runner import main as run_frozen_pilot  # pylint: disable=import-outside-toplevel
 
         return run_frozen_pilot(args.pilot_freeze, args.output, plan_only=args.plan, resume=args.resume, workers=args.workers)
     config_path = Path(args.config).expanduser()

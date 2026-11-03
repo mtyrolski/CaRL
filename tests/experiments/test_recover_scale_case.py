@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from scripts.recover_scale_case import save_immutable
-from scripts.resume_calibration_v2 import invalid_policy_output
+from scripts.archive.campaign_20261102.recover_scale_case import save_immutable
+from scripts.archive.campaign_20261102.resume_calibration_v2 import invalid_policy_output
 
 
 def test_rejects_completed_policy_response_with_unclosed_array() -> None:

@@ -10,7 +10,7 @@ from carl.icl.boards import from_rows, level_key
 from carl.icl.config import load_config
 from carl.icl.datasets import environment, load_data
 from scripts.evaluate_trajectory_components import parser, run
-from scripts.prepare_fresh_trajectory_holdout import prepare
+from scripts.datasets.prepare_fresh_trajectory_holdout import prepare
 
 ROOT = Path(__file__).resolve().parents[2]
 

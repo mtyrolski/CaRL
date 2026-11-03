@@ -149,4 +149,3 @@ def figures(output: Path, scales: list[Row], totals: list[Row], examples: list[R
         plot.write_html(output / f"{name}.html", include_plotlyjs=True)
         for extension in ("svg", "pdf"):
             plot.write_image(output / f"{name}.{extension}", width=1050, height=650)
-

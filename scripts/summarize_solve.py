@@ -3,13 +3,10 @@
 import argparse
 import glob
 from collections import defaultdict
-from statistics import mean
-from typing import Iterable, cast
 from tqdm import tqdm
 import joblib
 
 from carl.planners.base import Experience, Solution
-from carl.solver.nodes import SearchTreeNode
 import os
 
 def extract_ks_from_experiences(experience_path: str) -> str:

@@ -1,7 +1,7 @@
 """Contract checks for the separate, matched prompt exploration."""
 import json
 
-from scripts.campaign_generator_prompt import summarize, variant_prompt
+from scripts.archive.campaign_20261102.campaign_generator_prompt import summarize, variant_prompt
 
 
 def test_illustration_has_no_invented_scale_label() -> None:

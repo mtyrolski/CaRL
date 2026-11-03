@@ -19,7 +19,7 @@ from carl.icl.config import ROOT
 from carl.icl.types import Board, Candidate, TrainingContext
 from scripts.generator_probe.prepare_sources import OriginalSource, SourceState, sha256, verified_sources
 from scripts.generator_probe.source_selection import PART1, exclusion_snapshot, fresh_candidates
-from scripts.prepare_fresh_trajectory_holdout import verified_trajectory
+from scripts.datasets.prepare_fresh_trajectory_holdout import verified_trajectory
 
 OUTPUT = ROOT / 'analysis/luna_icl/campaign_100/generator_probe_v2'
 DEMONSTRATIONS = ROOT / 'data/icl/campaign_dataset_v2/demonstrations.json'

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.tune_real12_campaign_scales import DESIGN, FAMILY, manifest_for, read_design
+from scripts.archive.campaign_20261102.tune_real12_campaign_scales import DESIGN, FAMILY, manifest_for, read_design
 
 
 def test_design_rejects_large_board_and_unbalanced_grid(tmp_path: Path) -> None:

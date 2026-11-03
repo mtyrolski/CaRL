@@ -12,7 +12,7 @@ import pytest
 from carl.icl.api import BudgetExceeded
 from carl.icl.campaign_budget import CampaignLedger
 from carl.icl.config import Limits
-from scripts.campaign_bfs32_cllp import DESIGN, ROOT, DiagnosticAPI, selected_cases
+from scripts.archive.campaign_20261102.campaign_bfs32_cllp import DESIGN, ROOT, DiagnosticAPI, selected_cases
 
 
 def test_cases_exclude_identity_and_keep_bfs_out_of_policy_handoff() -> None:
@@ -41,7 +41,7 @@ def test_small_cost_cap_stops_before_provider_call(tmp_path: Path) -> None:
 
 
 def test_mock_prepare_execute_and_resume(tmp_path: Path) -> None:
-    command = [sys.executable, '-m', 'scripts.campaign_bfs32_cllp', '--provider', 'mock', '--output', str(tmp_path)]
+    command = [sys.executable, '-m', 'scripts.archive.campaign_20261102.campaign_bfs32_cllp', '--provider', 'mock', '--output', str(tmp_path)]
     subprocess.run([*command, '--prepare'], cwd=ROOT, check=True, capture_output=True, text=True)
     subprocess.run([*command, '--execute'], cwd=ROOT, check=True, capture_output=True, text=True)
     summary_path = tmp_path / 'mock' / 'summary.json'

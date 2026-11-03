@@ -14,9 +14,9 @@ import pytest
 from carl.icl.api import RequestFailed, write_json
 from carl.icl.config import ExperimentConfig, Limits
 from carl.icl.search import SearchResult
-from scripts.campaign_pilot_runner import (StopSignals, TrackingAPI, create_pilot_api, guard_scope,
+from scripts.archive.campaign_20261102.campaign_pilot_runner import (StopSignals, TrackingAPI, create_pilot_api, guard_scope,
                                           mark_interrupted_unknown, run_jobs, schedule, summarize_jobs, validate_freeze)
-from scripts import freeze_small_pilot
+from scripts.archive.campaign_20261102 import freeze_small_pilot
 
 
 def fixture_freeze() -> dict[str, Any]:
@@ -259,7 +259,7 @@ def test_workers_two_auth_failure_stops_scheduling_and_drains_inflight(tmp_path:
 @pytest.mark.parametrize('interrupt_at', ['progress', 'second_start'])
 def test_workers_two_interrupt_outside_wait_stops_and_drains(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                              interrupt_at: str) -> None:
-    from scripts import campaign_pilot_runner as runner  # pylint: disable=import-outside-toplevel
+    from scripts.archive.campaign_20261102 import campaign_pilot_runner as runner  # pylint: disable=import-outside-toplevel
 
     jobs = schedule(fixture_freeze(), 'freeze-hash')[:4]
     signals = StopSignals()
@@ -335,7 +335,7 @@ def test_stage_is_bound_per_client_under_forced_interleaving(monkeypatch: pytest
             self.stage = 'unassigned'
             barrier.wait()
 
-    monkeypatch.setattr('scripts.campaign_pilot_runner.TrackingAPI', FakeAPI)
+    monkeypatch.setattr('scripts.archive.campaign_20261102.campaign_pilot_runner.TrackingAPI', FakeAPI)
     config = ExperimentConfig()
     freeze = {'max_generator_calls': 10, 'max_total_tokens': 1000}
     signals = StopSignals()
@@ -379,7 +379,7 @@ class FakeHTTPError(Exception):
 def test_transient_http_has_separate_budgeted_retry_slot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: int) -> None:
     ledger = FakeLedger()
     monkeypatch.setattr('carl.icl.api._campaign_ledger', lambda: ledger)
-    monkeypatch.setattr('scripts.campaign_pilot_runner.time.sleep', lambda _seconds: None)
+    monkeypatch.setattr('scripts.archive.campaign_20261102.campaign_pilot_runner.time.sleep', lambda _seconds: None)
     requests: list[dict[str, Any]] = []
 
     def create(**kwargs: Any) -> SimpleNamespace:
@@ -426,7 +426,7 @@ def test_auth_and_nontransient_http_do_not_retry(tmp_path: Path, monkeypatch: py
 def test_transient_retry_is_bounded_and_unknown_transport_is_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ledger = FakeLedger()
     monkeypatch.setattr('carl.icl.api._campaign_ledger', lambda: ledger)
-    monkeypatch.setattr('scripts.campaign_pilot_runner.time.sleep', lambda _seconds: None)
+    monkeypatch.setattr('scripts.archive.campaign_20261102.campaign_pilot_runner.time.sleep', lambda _seconds: None)
     calls: list[str] = []
 
     def always_limited(**_kwargs: Any) -> None:

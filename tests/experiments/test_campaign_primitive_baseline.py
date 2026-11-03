@@ -7,8 +7,8 @@ import pytest
 
 from carl.icl.config import ExperimentConfig, Limits
 from carl.icl.types import Instance, TrainingData
-from scripts.campaign_primitive_baseline import DESIGN, prepare_or_check, primitive_config, run_one
-from scripts.tune_campaign_scales import configured, read_design
+from scripts.archive.campaign_20261102.campaign_primitive_baseline import DESIGN, prepare_or_check, primitive_config, run_one
+from scripts.archive.campaign_20261102.tune_campaign_scales import configured, read_design
 
 
 def test_primitive_config_matches_frozen_validation_resources() -> None:

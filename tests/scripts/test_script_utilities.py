@@ -14,7 +14,7 @@ from carl.solver.nodes import SearchTreeNode
 
 
 def _load_script_module(script_name: str):
-    scripts_dir = Path(__file__).resolve().parents[2] / "scripts"
+    scripts_dir = Path(__file__).resolve().parents[2] / "scripts" / "datasets"
     script_path = scripts_dir / f"{script_name}.py"
     module_name = f"test_script_{script_name}"
     spec = importlib.util.spec_from_file_location(module_name, script_path)

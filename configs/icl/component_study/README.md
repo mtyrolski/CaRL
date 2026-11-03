@@ -99,7 +99,7 @@ according to the main ICL documentation. Then run the following. Omit any
 whose layouts should not be reused.
 
 ```bash
-uv run python scripts/prepare_fresh_trajectory_holdout.py \
+uv run python scripts/datasets/prepare_fresh_trajectory_holdout.py \
   --config configs/icl/experiments/tuned_fixed.json \
   --output data/icl/component_study_100_clean --count 100 --seed 20261102 \
   --exclude data/icl/fresh_holdout_20261102 \

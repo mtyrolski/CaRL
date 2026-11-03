@@ -16,12 +16,12 @@ from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import credentials
 from carl.icl.search import search
 from carl.icl.search_tree import expansion_figure, tree_figure
-from scripts.campaign_scale_stress import DurableEnvironment, DurableTree, verify_actions
+from scripts.experiment_support.trace import DurableEnvironment, DurableTree, verify_actions
 from scripts.goal_probe.components import TaskProgressComponents
 from scripts.goal_probe.data import OUTPUT, goals
 from scripts.goal_probe.explicit import GoalAPI
 from scripts.goal_probe.runner import inputs
-from scripts.tune_campaign_scales import verify_tree
+from scripts.experiment_support.trace import verify_tree
 
 
 def main() -> None:
@@ -40,7 +40,7 @@ def main() -> None:
     directory = OUTPUT / "full_board_32"
     paths = [Path(__file__).resolve(), ROOT / "scripts/goal_probe/components.py",
              ROOT / "scripts/goal_probe/explicit.py", ROOT / "scripts/goal_probe/runner.py",
-             ROOT / "scripts/campaign_scale_stress.py", ROOT / "scripts/tune_campaign_scales.py",
+             ROOT / "scripts/experiment_support/trace.py",
              config.path("generator_checkpoint"), config.path("data_dir") / "training.json",
              config.path("data_dir") / "value_examples.json",
              config.path("data_dir") / config.family / "scale_validation.json",

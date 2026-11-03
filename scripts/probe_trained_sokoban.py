@@ -26,7 +26,7 @@ from carl.icl.datasets import reverse_board
 from carl.icl.search import search
 from carl.icl.search_tree import SearchTreeRecorder
 from carl.icl.types import Board, Probabilities
-from scripts.tune_campaign_scales import verify_tree
+from scripts.experiment_support.trace import verify_tree
 
 
 class ProbeConfig(TypedDict):

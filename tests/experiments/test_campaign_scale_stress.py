@@ -13,8 +13,8 @@ from carl.icl.datasets import environment
 from carl.icl.search import SearchResult, search
 from carl.icl.search_tree import SearchTreeRecorder, TreeNode
 from carl.icl.types import SearchComponents
-from scripts import campaign_scale_stress as stress
-from scripts.tune_campaign_scales import verify_tree
+from scripts.archive.campaign_20261102 import campaign_scale_stress as stress
+from scripts.archive.campaign_20261102.tune_campaign_scales import verify_tree
 
 
 def completed_summary() -> tuple[dict[str, Any], dict[str, Any]]:

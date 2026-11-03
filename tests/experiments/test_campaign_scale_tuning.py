@@ -13,7 +13,7 @@ from carl.icl.datasets import environment
 from carl.icl.search import search
 from carl.icl.search_tree import SearchTreeRecorder
 from carl.icl.types import SearchComponents
-from scripts.tune_campaign_scales import CappedAPI, read_design, summarize, verify_tree
+from scripts.archive.campaign_20261102.tune_campaign_scales import CappedAPI, read_design, summarize, verify_tree
 
 
 def test_generator_cap_counts_logical_cache_hits(tmp_path: Path) -> None:
@@ -76,7 +76,7 @@ def test_zero_success_uses_first_preregistered_pair() -> None:
 
 def test_resource_failure_categories_and_early_limit_gate() -> None:
     from carl.icl.search import SearchResult
-    from scripts.tune_campaign_scales import failure_category
+    from scripts.archive.campaign_20261102.tune_campaign_scales import failure_category
 
     assert failure_category(SearchResult(finish_reason='api_budget', error='Campaign or stage scale_validation budget would be exceeded')) == 'campaign_stage_guard'
     assert failure_category(SearchResult(finish_reason='api_budget', error='Logical generator request limit exhausted')) == 'local_generator_limit'
@@ -94,7 +94,7 @@ def test_resource_failure_categories_and_early_limit_gate() -> None:
 
 
 def test_run_case_saves_tree_even_if_replay_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from scripts import tune_campaign_scales as tuning
+    from scripts.archive.campaign_20261102 import tune_campaign_scales as tuning
     from carl.icl.types import Instance, TrainingData
 
     item = cast(Instance, {'id': 'case', 'state': ['#####', '#@--#', '#-$-#', '#-.-#', '#####'], 'level_key': 'x'})
@@ -110,7 +110,7 @@ def test_run_case_saves_tree_even_if_replay_raises(tmp_path: Path, monkeypatch: 
 
 
 def test_family_gate_detects_32x32_failure_despite_global_success() -> None:
-    from scripts.tune_campaign_scales import family_limit_summary
+    from scripts.archive.campaign_20261102.tune_campaign_scales import family_limit_summary
 
     cases = []
     for family in ('real', 'large'):

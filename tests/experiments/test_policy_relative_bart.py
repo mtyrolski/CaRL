@@ -2,7 +2,7 @@
 import torch
 from pathlib import Path
 from transformers import BartForConditionalGeneration
-from scripts.train_policy_relative_bart import ScaleBart
+from scripts.training.train_policy_relative_bart import ScaleBart
 
 
 def test_scratch_loads_no_weights_and_supports_conditioning_and_long_input(monkeypatch):

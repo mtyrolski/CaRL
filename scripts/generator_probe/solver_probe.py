@@ -17,11 +17,11 @@ from carl.icl.experiment import components_for_run, credentials
 from carl.icl.luna import LunaComponents
 from carl.icl.search import search
 from carl.icl.search_tree import expansion_figure, tree_figure
-from scripts.campaign_scale_stress import DurableEnvironment, DurableTree, verify_actions
+from scripts.experiment_support.trace import DurableEnvironment, DurableTree, verify_actions
 from scripts.generator_probe.cases import CapturedAPI
 from scripts.generator_probe.report import costs
 from scripts.luna_generator_probe import OUTPUT
-from scripts.tune_campaign_scales import verify_tree
+from scripts.experiment_support.trace import verify_tree
 
 CONFIG = ROOT / "configs/icl/experiments/luna_checkpoint26_retry2.json"
 
@@ -38,7 +38,7 @@ def main() -> None:
     initial = from_rows(instance["state"])
     reference = components_for_run(config, "replay", training, initial)
     paths = [CONFIG, config.path("generator_checkpoint"), Path(__file__).resolve(),
-             ROOT / "scripts/campaign_scale_stress.py", ROOT / "scripts/tune_campaign_scales.py",
+             ROOT / "scripts/experiment_support/trace.py",
              ROOT / "scripts/generator_probe/cases.py", *sorted((ROOT / "carl/icl").rglob("*.py")),
              config.path("data_dir") / "training.json", config.path("data_dir") / "value_examples.json",
              config.path("data_dir") / config.family / "scale_validation.json"]

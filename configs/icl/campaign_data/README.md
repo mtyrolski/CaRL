@@ -70,30 +70,30 @@ Losowy wybór realnej walidacji skal i realnego holdoutu ma seed `20261112`.
 Weryfikacja istniejącego przygotowania, bez wyświetlania rozwiązań:
 
 ```bash
-uv run --extra icl python scripts/index_campaign_shards.py --workers 4
-uv run --extra icl python scripts/audit_campaign_history.py
-uv run --extra icl python scripts/prepare_campaign_real.py
-uv run --extra icl python scripts/assemble_campaign_dataset.py --check
-uv run --extra icl python scripts/verify_campaign_dataset.py --workers 10
-uv run --extra icl python scripts/report_campaign_data.py
+uv run --extra icl python scripts/datasets/index_campaign_shards.py --workers 4
+uv run --extra icl python scripts/datasets/audit_campaign_history.py
+uv run --extra icl python scripts/datasets/prepare_campaign_real.py
+uv run --extra icl python scripts/datasets/assemble_campaign_dataset.py --check
+uv run --extra icl python scripts/datasets/verify_campaign_dataset.py --workers 10
+uv run --extra icl python scripts/archive/campaign_20261102/report_campaign_data.py
 ```
 
 Powtórzenie generatora w osobnych katalogach i porównanie hashy (obliczeniowo
 kosztowne, nadal offline):
 
 ```bash
-uv run --extra icl python scripts/prepare_campaign_synthetic.py --seed-base 2026120200 --count 500 --output /tmp/carl_campaign_synthetic_repro_20261102 --workers 8
-uv run --extra icl python scripts/prepare_campaign_synthetic.py --seed-base 2026110200 --count 50 --output /tmp/carl_campaign_pilot_repro_20261102 --workers 5
-uv run --extra icl python scripts/prepare_campaign_synthetic.py --seed-base 2026111500 --count 4 --output /tmp/carl_campaign_scale_repro_20261102 --workers 2
-uv run --extra icl python scripts/prepare_campaign_synthetic.py --seed-base 20761029 --count 4 --output /tmp/carl_campaign_component_repro_20261102 --workers 2
-uv run --extra icl python scripts/check_campaign_reproducibility.py
+uv run --extra icl python scripts/datasets/prepare_campaign_synthetic.py --seed-base 2026120200 --count 500 --output /tmp/carl_campaign_synthetic_repro_20261102 --workers 8
+uv run --extra icl python scripts/datasets/prepare_campaign_synthetic.py --seed-base 2026110200 --count 50 --output /tmp/carl_campaign_pilot_repro_20261102 --workers 5
+uv run --extra icl python scripts/datasets/prepare_campaign_synthetic.py --seed-base 2026111500 --count 4 --output /tmp/carl_campaign_scale_repro_20261102 --workers 2
+uv run --extra icl python scripts/datasets/prepare_campaign_synthetic.py --seed-base 20761029 --count 4 --output /tmp/carl_campaign_component_repro_20261102 --workers 2
+uv run --extra icl python scripts/datasets/check_campaign_reproducibility.py
 ```
 
 Tworzenie od zera wymaga też prywatnych stagingów syntetycznych:
 
 ```bash
-uv run --extra icl python scripts/prepare_campaign_synthetic.py --seed-base 2026111500 --count 4 --output data/icl/.private_campaign_scale_staging --workers 2
-uv run --extra icl python scripts/prepare_campaign_synthetic.py --seed-base 2026120200 --count 500 --output data/icl/.private_campaign_holdout_staging --workers 10
+uv run --extra icl python scripts/datasets/prepare_campaign_synthetic.py --seed-base 2026111500 --count 4 --output data/icl/.private_campaign_scale_staging --workers 2
+uv run --extra icl python scripts/datasets/prepare_campaign_synthetic.py --seed-base 2026120200 --count 500 --output data/icl/.private_campaign_holdout_staging --workers 10
 ```
 
 Skrypt składania bez `--check` nigdy nie nadpisuje istniejącego zbioru.

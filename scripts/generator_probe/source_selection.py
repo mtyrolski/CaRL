@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 from carl.icl.config import ROOT
-from scripts.audit_campaign_history import extract
+from scripts.datasets.audit_campaign_history import extract
 from scripts.generator_probe.prepare_sources import sha256
 
 DATA = ROOT / 'data/icl'
