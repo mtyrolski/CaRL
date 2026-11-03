@@ -1,0 +1,17 @@
+{
+  "selection_seed": 20261102,
+  "sample_size": 100,
+  "population_size": 1000,
+  "native_low_level_cap": 500,
+  "source_checkout": "/home/mtyrolski/dev/carl/CaRL",
+  "source_boards": "/home/mtyrolski/dev/carl/rl-data/validation/sokoban/progress/12_12_4/boards_sokoban_12x12x4_0.joblib",
+  "checkpoint_root": "/home/mtyrolski/dev/carl/rl-data/validation/sokoban/components/full_data",
+  "checkpoint_paths": {
+    "generator_k8": "generator/border/8/checkpoint-75856",
+    "generator_k4": "generator/border/4/checkpoint-75856",
+    "generator_k1": "generator/border/1/checkpoint-151712",
+    "cllp": "cllp/8/checkpoint-167585",
+    "value": "value/checkpoint-1343100"
+  },
+  "output": "analysis/trained_reference/random100_k841"
+}
