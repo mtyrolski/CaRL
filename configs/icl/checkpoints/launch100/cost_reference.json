@@ -1,0 +1,33 @@
+{
+  "source": "analysis/luna_icl/campaign_100/goal_progress_probe/full_board_32/case.json",
+  "source_sha256": "1baf254a6773563c09363951a1f01d1883e5c1c8609be38d85eaa900a13fed16",
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "family": "real_12x12x4",
+  "split": "scale_validation",
+  "independent_boards": 1,
+  "solved": false,
+  "expansions": 9,
+  "attempted_actions": 32,
+  "seconds": 145.75093863599614,
+  "settled_usd": 0.022443483,
+  "ledger_tag": "goal_progress_probe:full_board_32",
+  "metrics": {
+    "requests": 30,
+    "response_requests": 30,
+    "embedding_requests": 0,
+    "cache_hits": 16,
+    "input_tokens": 151912,
+    "output_tokens": 11496,
+    "cached_input_tokens": 37666,
+    "cache_write_tokens": 114156,
+    "api_seconds": 144.12750011097523,
+    "logical_requests": 46,
+    "logical_input_tokens": 223239,
+    "logical_output_tokens": 17960,
+    "generator_calls": 11,
+    "policy_calls": 28,
+    "value_calls": 7
+  },
+  "limitations": "One already inspected validation board, mixed cache, partial search. Cost scaling beyond the observed range is a scenario, not a prediction. No measured full-run absolute or verbal counterpart."
+}

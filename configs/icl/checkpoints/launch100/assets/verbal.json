@@ -1,0 +1,5434 @@
+{
+  "calibration_status": "completed",
+  "config": {
+    "action_budget": 8,
+    "cache_dir": "analysis/luna_icl/cache",
+    "calibration": {
+      "action_cap": 8,
+      "candidates": 2,
+      "limits": {
+        "max_input_tokens": 16000,
+        "max_output_tokens": 1048576,
+        "max_requests": 512,
+        "max_total_input_tokens": 4096000,
+        "timeout_seconds": 90.0,
+        "wall_seconds": 1800.0
+      },
+      "reference_window": 16,
+      "sampled_targets": 2,
+      "trials": 1
+    },
+    "data_dir": "data/icl/campaign_dataset_12x12_v1",
+    "discount": 0.99,
+    "easy": false,
+    "embedding_model": "text-embedding-3-small",
+    "family": "real_12x12x4",
+    "few_shot": 3,
+    "fixed_cap": "horizon",
+    "generator_checkpoint": null,
+    "generator_example_limit": null,
+    "generator_layout_schema": true,
+    "generator_max_attempts": 1,
+    "generator_reasoning_effort": "none",
+    "generator_response_format": "json_schema",
+    "generator_tokens": 4096,
+    "instances": 4,
+    "json_max_retries": 1,
+    "limits": {
+      "max_input_tokens": 16000,
+      "max_output_tokens": 1048576,
+      "max_requests": 512,
+      "max_total_input_tokens": 4096000,
+      "timeout_seconds": 90.0,
+      "wall_seconds": 1800.0
+    },
+    "locked_policy_fingerprint": null,
+    "max_expansions": 128,
+    "method": "relative_u",
+    "model": "gpt-6-luna",
+    "name": "verbal_goal_placement_tiny",
+    "num_subgoals": 1,
+    "offset_denominator": 16.0,
+    "output_dir": "analysis/luna_icl/runs",
+    "policy_coordinate_features": true,
+    "policy_reasoning_effort": "low",
+    "policy_response_format": null,
+    "policy_temperature": 1.0,
+    "policy_tokens": 2048,
+    "prompts": {
+      "absolute": "d is the frozen policy's mean successful first-hit execution time in primitive actions, measured by repeated rollouts. It is not necessarily the trajectory offset. The controller has a separate fixed action cap L.",
+      "fixed": "k is a FIXED number of primitive moves along a successful trajectory. Propose a useful state k moves ahead, reachable within k actions when cap=k. The examples are verified k-action transitions. k never denotes a percentile.",
+      "generator": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nPropose distinct intermediate subgoal boards, different from the input.",
+      "normalized_offset": "normalized_offset is the trajectory action offset divided by the fixed denominator shown below; infer the label from examples without accessing a future query trajectory.",
+      "policy": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nReturn a probability vector in action order [UP, DOWN, LEFT, RIGHT]\nfor the NEXT SINGLE primitive action towards the supplied subgoal. Use nonnegative\nprobabilities with positive sum. This same policy is sampled during calibration\nand search. The subgoal is an explicit board; do not invent a multi-action move.",
+      "ratio_d_over_ac": "ratio_d_over_ac is mean successful first-hit time divided by the training context weighted median; infer this normalized scale from examples without calculating it on the query.",
+      "relative": "u is a policy-relative percentile, NOT a number of moves or a success probability. For each training context, targets were weighted by the frozen policy's exact-hit rates and ranked by mean successful first-hit time. Ties share the midpoint of their combined percentile interval. Infer this scale from examples without reconstructing a reference distribution for the query. The controller has a separate fixed action cap L.",
+      "value": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nEstimate value in [0,1]: the discounted continuation return for\nsolving this board. The examples use discount ** remaining_solution_actions.\nHigher is closer to solving; a solved board has value 1.",
+      "value_remaining": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player, + player on goal. Estimate the number of remaining single player moves (including pushes) until all boxes are on goals. Examples are verified training trajectories, not necessarily optimal. Return 0 for a solved state. Use the board and the demonstrations to estimate remaining moves; output only the requested JSON."
+    },
+    "reasoning_effort": "none",
+    "repeat_seeds": [
+      11,
+      22,
+      33
+    ],
+    "response_format": "text",
+    "scales": [
+      0.85,
+      0.5
+    ],
+    "seed": 20261029,
+    "selection": "direct",
+    "split": "scale_validation",
+    "test_boards": 8,
+    "train_boards": 3,
+    "trajectory_source": "rl-data/validation/sokoban/offline/12-12-4/sokoban_12_12_4_trajectories_part_1.pkl",
+    "tuning": {
+      "fixed_scales": [
+        [
+          8,
+          4
+        ],
+        [
+          12,
+          4
+        ],
+        [
+          16,
+          8
+        ]
+      ],
+      "relative_scales": [
+        [
+          0.9,
+          0.5
+        ],
+        [
+          0.75,
+          0.25
+        ],
+        [
+          0.95,
+          0.65
+        ]
+      ]
+    },
+    "tuning_status": "pilot_unvalidated",
+    "validation_boards": 4,
+    "value_board_features": true,
+    "value_examples": "trajectory",
+    "value_reasoning_effort": "none",
+    "value_response_format": "json_schema",
+    "value_target": "remaining_actions",
+    "value_tokens": 128
+  },
+  "demonstrations": [
+    {
+      "action": 0,
+      "after": [
+        "############",
+        "######.-*--#",
+        "#####--.@--#",
+        "#####------#",
+        "#####-$-$$-#",
+        "#####----###",
+        "#####.--####",
+        "#####----###",
+        "#######-####",
+        "############",
+        "############",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [1,8].",
+      "reached": true,
+      "source": [
+        "############",
+        "######.-.--#",
+        "#####--.$--#",
+        "#####---@--#",
+        "#####-$-$$-#",
+        "#####----###",
+        "#####.--####",
+        "#####----###",
+        "#######-####",
+        "############",
+        "############",
+        "############"
+      ],
+      "state": [
+        "############",
+        "######.-.--#",
+        "#####--.$--#",
+        "#####---@--#",
+        "#####-$-$$-#",
+        "#####----###",
+        "#####.--####",
+        "#####----###",
+        "#######-####",
+        "############",
+        "############",
+        "############"
+      ]
+    },
+    {
+      "action": 3,
+      "after": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#--@---$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [5,3].",
+      "reached": false,
+      "source": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#-@----$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ],
+      "state": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#-@----$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ]
+    },
+    {
+      "action": 0,
+      "after": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--*--$----#",
+        "#-$@---#####",
+        "#------$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [5,3].",
+      "reached": true,
+      "source": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#-@----$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ],
+      "state": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#--@---$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ]
+    },
+    {
+      "action": 1,
+      "after": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#----#--####",
+        "###-@#--####",
+        "###-$##.####",
+        "###$-#######",
+        "###--#######",
+        "####.#######",
+        "############",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [9,4].",
+      "reached": false,
+      "source": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#---@#--####",
+        "###-$#--####",
+        "###--##.####",
+        "###$-#######",
+        "###--#######",
+        "####.#######",
+        "############",
+        "############"
+      ],
+      "state": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#---@#--####",
+        "###-$#--####",
+        "###--##.####",
+        "###$-#######",
+        "###--#######",
+        "####.#######",
+        "############",
+        "############"
+      ]
+    },
+    {
+      "action": 1,
+      "after": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#----#--####",
+        "###--#--####",
+        "###--##.####",
+        "###$-#######",
+        "###-@#######",
+        "####*#######",
+        "############",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [9,4].",
+      "reached": true,
+      "source": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#---@#--####",
+        "###-$#--####",
+        "###--##.####",
+        "###$-#######",
+        "###--#######",
+        "####.#######",
+        "############",
+        "############"
+      ],
+      "state": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#----#--####",
+        "###--#--####",
+        "###--##.####",
+        "###$@#######",
+        "###-$#######",
+        "####.#######",
+        "############",
+        "############"
+      ]
+    },
+    {
+      "action": 0,
+      "after": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.@$#--#",
+        "#####$-----#",
+        "#####---.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [5,8].",
+      "reached": false,
+      "source": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.-$#--#",
+        "#####$@----#",
+        "#####---.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ],
+      "state": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.-$#--#",
+        "#####$@----#",
+        "#####---.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ]
+    },
+    {
+      "action": 3,
+      "after": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.--#--#",
+        "#####$-----#",
+        "#####--@*-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [5,8].",
+      "reached": true,
+      "source": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.-$#--#",
+        "#####$@----#",
+        "#####---.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ],
+      "state": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.--#--#",
+        "#####$-----#",
+        "#####-@$.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ]
+    },
+    {
+      "action": 2,
+      "after": [
+        "############",
+        "#########.-#",
+        "#########$-#",
+        "#########--#",
+        "######.--$-#",
+        "#####.-$@--#",
+        "#####--$-.-#",
+        "############",
+        "############",
+        "############",
+        "############",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [5,5].",
+      "reached": false,
+      "source": [
+        "############",
+        "#########.-#",
+        "#########$-#",
+        "#########--#",
+        "######.--$-#",
+        "#####.--$@-#",
+        "#####--$-.-#",
+        "############",
+        "############",
+        "############",
+        "############",
+        "############"
+      ],
+      "state": [
+        "############",
+        "#########.-#",
+        "#########$-#",
+        "#########--#",
+        "######.--$-#",
+        "#####.--$@-#",
+        "#####--$-.-#",
+        "############",
+        "############",
+        "############",
+        "############",
+        "############"
+      ]
+    },
+    {
+      "action": 2,
+      "after": [
+        "############",
+        "#########.-#",
+        "#########$-#",
+        "#########--#",
+        "######.--$-#",
+        "#####*@----#",
+        "#####--$-.-#",
+        "############",
+        "############",
+        "############",
+        "############",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [5,5].",
+      "reached": true,
+      "source": [
+        "############",
+        "#########.-#",
+        "#########$-#",
+        "#########--#",
+        "######.--$-#",
+        "#####.--$@-#",
+        "#####--$-.-#",
+        "############",
+        "############",
+        "############",
+        "############",
+        "############"
+      ],
+      "state": [
+        "############",
+        "#########.-#",
+        "#########$-#",
+        "#########--#",
+        "######.--$-#",
+        "#####.$@---#",
+        "#####--$-.-#",
+        "############",
+        "############",
+        "############",
+        "############",
+        "############"
+      ]
+    },
+    {
+      "action": 0,
+      "after": [
+        "############",
+        "#@$----.####",
+        "#-.--$.-####",
+        "##-#-#######",
+        "#--#########",
+        "#-----######",
+        "#-$$########",
+        "#--.########",
+        "#--#########",
+        "#---########",
+        "#---########",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [2,6].",
+      "reached": false,
+      "source": [
+        "############",
+        "#-$----.####",
+        "#@.--$.-####",
+        "##-#-#######",
+        "#--#########",
+        "#-----######",
+        "#-$$########",
+        "#--.########",
+        "#--#########",
+        "#---########",
+        "#---########",
+        "############"
+      ],
+      "state": [
+        "############",
+        "#-$----.####",
+        "#@.--$.-####",
+        "##-#-#######",
+        "#--#########",
+        "#-----######",
+        "#-$$########",
+        "#--.########",
+        "#--#########",
+        "#---########",
+        "#---########",
+        "############"
+      ]
+    },
+    {
+      "action": 3,
+      "after": [
+        "############",
+        "#----$-.####",
+        "#-.--@*-####",
+        "##-#-#######",
+        "#--#########",
+        "#-----######",
+        "#-$$########",
+        "#--.########",
+        "#--#########",
+        "#---########",
+        "#---########",
+        "############"
+      ],
+      "goal": "Place a box on each of these goal squares: [2,6].",
+      "reached": true,
+      "source": [
+        "############",
+        "#-$----.####",
+        "#@.--$.-####",
+        "##-#-#######",
+        "#--#########",
+        "#-----######",
+        "#-$$########",
+        "#--.########",
+        "#--#########",
+        "#---########",
+        "#---########",
+        "############"
+      ],
+      "state": [
+        "############",
+        "#----$-.####",
+        "#-.-@$.-####",
+        "##-#-#######",
+        "#--#########",
+        "#-----######",
+        "#-$$########",
+        "#--.########",
+        "#--#########",
+        "#---########",
+        "#---########",
+        "############"
+      ]
+    }
+  ],
+  "examples": [
+    {
+      "attempts": 1,
+      "context": "train:part_1:329:4:6",
+      "d": 1.0,
+      "excluded_reason": null,
+      "goal": "Move the player to cell [7,3].",
+      "hits": 1,
+      "k": 1,
+      "p_hat": 1.0,
+      "source": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#-@----$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ],
+      "target_index": 0,
+      "u": 0.25,
+      "weight": 0.5
+    },
+    {
+      "attempts": 1,
+      "context": "train:part_1:294:13:17",
+      "d": 3.0,
+      "excluded_reason": null,
+      "goal": "Place boxes on these cells: [8,4].",
+      "hits": 1,
+      "k": 3,
+      "p_hat": 1.0,
+      "source": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#---@#--####",
+        "###-$#--####",
+        "###--##.####",
+        "###$-#######",
+        "###--#######",
+        "####.#######",
+        "############",
+        "############"
+      ],
+      "target_index": 0,
+      "u": 0.25,
+      "weight": 0.5
+    },
+    {
+      "attempts": 1,
+      "context": "train:part_1:181:7:15",
+      "d": 5.0,
+      "excluded_reason": null,
+      "goal": "Place boxes on these cells: [5,7].",
+      "hits": 1,
+      "k": 7,
+      "p_hat": 1.0,
+      "source": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.-$#--#",
+        "#####$@----#",
+        "#####---.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ],
+      "target_index": 0,
+      "u": 0.25,
+      "weight": 0.5
+    },
+    {
+      "attempts": 1,
+      "context": "train:part_1:329:4:6",
+      "d": 2.0,
+      "excluded_reason": null,
+      "goal": "Place a box on each of these goal squares: [5,3].",
+      "hits": 1,
+      "k": 2,
+      "p_hat": 1.0,
+      "source": [
+        "############",
+        "############",
+        "#########--#",
+        "##-.#####.-#",
+        "#.---------#",
+        "#--.--$----#",
+        "#-$$---#####",
+        "#-@----$-###",
+        "#--------###",
+        "#--#########",
+        "#---########",
+        "############"
+      ],
+      "target_index": 1,
+      "u": 0.75,
+      "weight": 0.5
+    },
+    {
+      "attempts": 1,
+      "context": "train:part_1:294:13:17",
+      "d": 4.0,
+      "excluded_reason": null,
+      "goal": "Place a box on each of these goal squares: [9,4].",
+      "hits": 1,
+      "k": 4,
+      "p_hat": 1.0,
+      "source": [
+        "############",
+        "#---*.---###",
+        "#-------####",
+        "#-----$-####",
+        "#---@#--####",
+        "###-$#--####",
+        "###--##.####",
+        "###$-#######",
+        "###--#######",
+        "####.#######",
+        "############",
+        "############"
+      ],
+      "target_index": 1,
+      "u": 0.75,
+      "weight": 0.5
+    },
+    {
+      "attempts": 1,
+      "context": "train:part_1:181:7:15",
+      "d": 8.0,
+      "excluded_reason": null,
+      "goal": "Place a box on each of these goal squares: [5,8].",
+      "hits": 1,
+      "k": 8,
+      "p_hat": 1.0,
+      "source": [
+        "############",
+        "###---.----#",
+        "###-$$--#--#",
+        "#####.-$#--#",
+        "#####$@----#",
+        "#####---.-##",
+        "#####---#.-#",
+        "########---#",
+        "########--##",
+        "#########-##",
+        "#######----#",
+        "############"
+      ],
+      "target_index": 1,
+      "u": 0.75,
+      "weight": 0.5
+    }
+  ],
+  "generator_examples": 6,
+  "prompts": {
+    "generator": "Produce exactly one concrete intermediate goal as JSON {\"subgoals\":[\"...\"]}. Ground every coordinate in the supplied board and state_coordinates. If you ask to place a box onto a goal, the destination MUST be an exact coordinate in question.goal.goals (the goal.goals list of this input object); an ordinary floor square is NOT a goal. Select a currently unoccupied goal when proposing new placement progress. Any named source box coordinate MUST occur in state_coordinates.boxes_rc; never invent a box. A preparation goal may instead specify a player position needed for a later push, but label it as preparation, never call ordinary floor a goal square. Consider walls, access to the pushing side and intervening boxes. Do not output a full board or action sequence. Use u only as the within-source percentile learned from this same verbal controller and judge's observed first-hit times; it is not a move count. Demonstrations are training-only. Return one worded observable condition.",
+    "judge": "Independently judge whether subgoal is satisfied NOW in state, using source only to interpret relative wording. Return only JSON {\"reached\":false,\"reason\":\"specific observed evidence\"}. Inspect requested coordinates and distinguish a box from the player and empty goal. A plan, proximity, or an unrelated occupied goal is not satisfaction. No future board, action witness, or policy claim is available; explain ambiguity rather than inventing evidence.",
+    "policy": "Choose the NEXT single legal action toward subgoal using source (the original board) and state (the current board). Return only JSON {\"action\":\"UP\"}; action is UP/DOWN/LEFT/RIGHT. Plan necessary walking and pushes; never pull. A box on any goal does not suffice when subgoal names a particular square. Do not claim success or output a sequence."
+  },
+  "provenance": {
+    "calibration_contexts_with_hits": 3,
+    "calibration_trials": 6,
+    "grounded_generator_signature": "7bfd933812e61e587cf83225d94519513c2de4cc1ce16c9f761e837f7bc709d4",
+    "note": "Training only; original controller/judge and measured labels retained. Generator prompt changed after observed validation failures; not independent retest.",
+    "original_reference_config": {
+      "action_budget": 256,
+      "cache_dir": "analysis/luna_icl/cache",
+      "calibration": {
+        "action_cap": 8,
+        "candidates": 8,
+        "limits": {
+          "max_input_tokens": 8000,
+          "max_output_tokens": 1572864,
+          "max_requests": 768,
+          "max_total_input_tokens": 6144000,
+          "timeout_seconds": 90.0,
+          "wall_seconds": 14400.0
+        },
+        "reference_window": 16,
+        "sampled_targets": 4,
+        "trials": 3
+      },
+      "data_dir": "data/icl/campaign_dataset_v2",
+      "discount": 0.99,
+      "easy": false,
+      "embedding_model": "text-embedding-3-small",
+      "family": "real_12x12x4",
+      "few_shot": 4,
+      "fixed_cap": "horizon",
+      "generator_checkpoint": null,
+      "generator_example_limit": null,
+      "generator_layout_schema": true,
+      "generator_max_attempts": 1,
+      "generator_reasoning_effort": "none",
+      "generator_response_format": "json_schema",
+      "generator_tokens": 4096,
+      "instances": 4,
+      "json_max_retries": 1,
+      "limits": {
+        "max_input_tokens": 16000,
+        "max_output_tokens": 32768,
+        "max_requests": 512,
+        "max_total_input_tokens": 1000000,
+        "timeout_seconds": 60.0,
+        "wall_seconds": 1800.0
+      },
+      "locked_policy_fingerprint": "3e422d383fe00a6272a0791b8b3d3b58c360f010467a1c0dce86d39e60599fd6",
+      "max_expansions": 128,
+      "method": "relative_u",
+      "model": "gpt-6-luna",
+      "name": "campaign_relative_u_json_retry_v1",
+      "num_subgoals": 2,
+      "offset_denominator": 16.0,
+      "output_dir": "analysis/luna_icl/runs",
+      "policy_coordinate_features": true,
+      "policy_reasoning_effort": "low",
+      "policy_response_format": null,
+      "policy_temperature": 1.0,
+      "policy_tokens": 2048,
+      "prompts": {
+        "absolute": "d is the frozen policy's mean successful first-hit execution time in primitive actions, measured by repeated rollouts. It is not necessarily the trajectory offset. The controller has a separate fixed action cap L.",
+        "fixed": "k is a FIXED number of primitive moves along a successful trajectory. Propose a useful state k moves ahead, reachable within k actions when cap=k. The examples are verified k-action transitions. k never denotes a percentile.",
+        "generator": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nPropose distinct intermediate subgoal boards, different from the input.",
+        "normalized_offset": "normalized_offset is the trajectory action offset divided by the fixed denominator shown below; infer the label from examples without accessing a future query trajectory.",
+        "policy": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nReturn a probability vector in action order [UP, DOWN, LEFT, RIGHT]\nfor the NEXT SINGLE primitive action towards the supplied subgoal. Use nonnegative\nprobabilities with positive sum. This same policy is sampled during calibration\nand search. The subgoal is an explicit board; do not invent a multi-action move.",
+        "ratio_d_over_ac": "ratio_d_over_ac is mean successful first-hit time divided by the training context weighted median; infer this normalized scale from examples without calculating it on the query.",
+        "relative": "u is a policy-relative percentile, NOT a number of moves or a success probability. For each training context, targets were weighted by the frozen policy's exact-hit rates and ranked by mean successful first-hit time. Ties share the midpoint of their combined percentile interval. Infer this scale from examples without reconstructing a reference distribution for the query. The controller has a separate fixed action cap L.",
+        "value": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nEstimate value in [0,1]: the discounted continuation return for\nsolving this board. The examples use discount ** remaining_solution_actions.\nHigher is closer to solving; a solved board has value 1.",
+        "value_remaining": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player, + player on goal. Estimate the number of remaining single player moves (including pushes) until all boxes are on goals. Examples are verified training trajectories, not necessarily optimal. Return 0 for a solved state. Use the board and the demonstrations to estimate remaining moves; output only the requested JSON."
+      },
+      "reasoning_effort": "none",
+      "repeat_seeds": [
+        11,
+        22,
+        33
+      ],
+      "response_format": "text",
+      "scales": [
+        0.9,
+        0.5
+      ],
+      "seed": 20261029,
+      "selection": "direct",
+      "split": "component_validation",
+      "test_boards": 8,
+      "train_boards": 8,
+      "trajectory_source": "rl-data/validation/sokoban/offline/12-12-4/sokoban_12_12_4_trajectories_part_1.pkl",
+      "tuning": {
+        "fixed_scales": [
+          [
+            8,
+            4
+          ],
+          [
+            12,
+            4
+          ],
+          [
+            16,
+            8
+          ]
+        ],
+        "relative_scales": [
+          [
+            0.9,
+            0.5
+          ],
+          [
+            0.75,
+            0.25
+          ],
+          [
+            0.95,
+            0.65
+          ]
+        ]
+      },
+      "tuning_status": "pilot_unvalidated",
+      "validation_boards": 4,
+      "value_board_features": true,
+      "value_examples": "trajectory",
+      "value_reasoning_effort": "none",
+      "value_response_format": "json_schema",
+      "value_target": "remaining_actions",
+      "value_tokens": 128
+    },
+    "original_reference_config_sha256": "59ab73ca0419353c05257135827e64d480f3754e67d8c2a90116fdd5b95bd9b2",
+    "reference_policy_fingerprint": "3e422d383fe00a6272a0791b8b3d3b58c360f010467a1c0dce86d39e60599fd6",
+    "relocated_generator_checkpoint": "configs/icl/checkpoints/launch100/assets/checkpoint/generator.json",
+    "source_files": {
+      "analysis/luna_icl/campaign_100/goal_progress_probe/verbal/3907728c160d892bf5763a7054b9729c05244562491854905d5b984ff6a2091a/calibration/3907728c160d892bf5763a7054b9729c05244562491854905d5b984ff6a2091a/calibration.json": "7b173915db37756c13e5c3b5f09746090b0fcd672a66550997baaa0e6eca1939",
+      "analysis/luna_icl/campaign_100/goal_progress_probe/verbal/3907728c160d892bf5763a7054b9729c05244562491854905d5b984ff6a2091a/checkpoint.json": "17d17e003a2008688173ceb2c21831d1f40c18f6fba7dab575acfba0386ea2c1",
+      "analysis/luna_icl/campaign_100/goal_progress_probe/verbal_grounded_retry/7bfd933812e61e587cf83225d94519513c2de4cc1ce16c9f761e837f7bc709d4/checkpoint.json": "32f7eca181915a13fff791a5c20eb10683400d2fe2cb4ed0ba82aedcad7cd5f2"
+    },
+    "source_signature": "3907728c160d892bf5763a7054b9729c05244562491854905d5b984ff6a2091a"
+  },
+  "reference": {
+    "config": {
+      "action_budget": 256,
+      "cache_dir": "analysis/luna_icl/cache",
+      "calibration": {
+        "action_cap": 8,
+        "candidates": 8,
+        "limits": {
+          "max_input_tokens": 8000,
+          "max_output_tokens": 1572864,
+          "max_requests": 768,
+          "max_total_input_tokens": 6144000,
+          "timeout_seconds": 90.0,
+          "wall_seconds": 14400.0
+        },
+        "reference_window": 16,
+        "sampled_targets": 4,
+        "trials": 3
+      },
+      "data_dir": "data/icl/campaign_dataset_v2",
+      "discount": 0.99,
+      "easy": false,
+      "embedding_model": "text-embedding-3-small",
+      "family": "real_12x12x4",
+      "few_shot": 4,
+      "fixed_cap": "horizon",
+      "generator_checkpoint": "configs/icl/checkpoints/launch100/assets/checkpoint/generator.json",
+      "generator_example_limit": null,
+      "generator_layout_schema": true,
+      "generator_max_attempts": 1,
+      "generator_reasoning_effort": "none",
+      "generator_response_format": "json_schema",
+      "generator_tokens": 4096,
+      "instances": 4,
+      "json_max_retries": 1,
+      "limits": {
+        "max_input_tokens": 16000,
+        "max_output_tokens": 32768,
+        "max_requests": 512,
+        "max_total_input_tokens": 1000000,
+        "timeout_seconds": 60.0,
+        "wall_seconds": 1800.0
+      },
+      "locked_policy_fingerprint": "3e422d383fe00a6272a0791b8b3d3b58c360f010467a1c0dce86d39e60599fd6",
+      "max_expansions": 128,
+      "method": "relative_u",
+      "model": "gpt-6-luna",
+      "name": "campaign_relative_u_json_retry_v1",
+      "num_subgoals": 2,
+      "offset_denominator": 16.0,
+      "output_dir": "analysis/luna_icl/runs",
+      "policy_coordinate_features": true,
+      "policy_reasoning_effort": "low",
+      "policy_response_format": null,
+      "policy_temperature": 1.0,
+      "policy_tokens": 2048,
+      "prompts": {
+        "absolute": "d is the frozen policy's mean successful first-hit execution time in primitive actions, measured by repeated rollouts. It is not necessarily the trajectory offset. The controller has a separate fixed action cap L.",
+        "fixed": "k is a FIXED number of primitive moves along a successful trajectory. Propose a useful state k moves ahead, reachable within k actions when cap=k. The examples are verified k-action transitions. k never denotes a percentile.",
+        "generator": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nPropose distinct intermediate subgoal boards, different from the input.",
+        "normalized_offset": "normalized_offset is the trajectory action offset divided by the fixed denominator shown below; infer the label from examples without accessing a future query trajectory.",
+        "policy": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nReturn a probability vector in action order [UP, DOWN, LEFT, RIGHT]\nfor the NEXT SINGLE primitive action towards the supplied subgoal. Use nonnegative\nprobabilities with positive sum. This same policy is sampled during calibration\nand search. The subgoal is an explicit board; do not invent a multi-action move.",
+        "ratio_d_over_ac": "ratio_d_over_ac is mean successful first-hit time divided by the training context weighted median; infer this normalized scale from examples without calculating it on the query.",
+        "relative": "u is a policy-relative percentile, NOT a number of moves or a success probability. For each training context, targets were weighted by the frozen policy's exact-hit rates and ranked by mean successful first-hit time. Ties share the midpoint of their combined percentile interval. Infer this scale from examples without reconstructing a reference distribution for the query. The controller has a separate fixed action cap L.",
+        "value": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nEstimate value in [0,1]: the discounted continuation return for\nsolving this board. The examples use discount ** remaining_solution_actions.\nHigher is closer to solving; a solved board has value 1.",
+        "value_remaining": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player, + player on goal. Estimate the number of remaining single player moves (including pushes) until all boxes are on goals. Examples are verified training trajectories, not necessarily optimal. Return 0 for a solved state. Use the board and the demonstrations to estimate remaining moves; output only the requested JSON."
+      },
+      "reasoning_effort": "none",
+      "repeat_seeds": [
+        11,
+        22,
+        33
+      ],
+      "response_format": "text",
+      "scales": [
+        0.9,
+        0.5
+      ],
+      "seed": 20261029,
+      "selection": "direct",
+      "split": "component_validation",
+      "test_boards": 8,
+      "train_boards": 8,
+      "trajectory_source": "rl-data/validation/sokoban/offline/12-12-4/sokoban_12_12_4_trajectories_part_1.pkl",
+      "tuning": {
+        "fixed_scales": [
+          [
+            8,
+            4
+          ],
+          [
+            12,
+            4
+          ],
+          [
+            16,
+            8
+          ]
+        ],
+        "relative_scales": [
+          [
+            0.9,
+            0.5
+          ],
+          [
+            0.75,
+            0.25
+          ],
+          [
+            0.95,
+            0.65
+          ]
+        ]
+      },
+      "tuning_status": "pilot_unvalidated",
+      "validation_boards": 4,
+      "value_board_features": true,
+      "value_examples": "trajectory",
+      "value_reasoning_effort": "none",
+      "value_response_format": "json_schema",
+      "value_target": "remaining_actions",
+      "value_tokens": 128
+    },
+    "training": {
+      "contexts": [
+        {
+          "calibration_indices": [
+            14,
+            1,
+            0,
+            9,
+            11,
+            4,
+            3,
+            12
+          ],
+          "candidates": [
+            {
+              "actions": [
+                1
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "######.-.--#",
+                "#####--.-$@#",
+                "#####------#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "######.-.--#",
+                "#####--.$@-#",
+                "#####------#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "######.-.--#",
+                "#####--.$--#",
+                "#####----@-#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "######.-.--#",
+                "#####--.$--#",
+                "#####---@--#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.@--#",
+                "#####------#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.---#",
+                "#####---@--#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.---#",
+                "#####--@---#",
+                "#####-$-$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.---#",
+                "#####------#",
+                "#####-$@$$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.---#",
+                "#####------#",
+                "#####-$-$$-#",
+                "#####--@-###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.---#",
+                "#####------#",
+                "#####-$-$$-#",
+                "#####---@###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                0
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.---#",
+                "#####---$--#",
+                "#####-$-@$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                0,
+                0
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.$--#",
+                "#####---@--#",
+                "#####-$--$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                0,
+                0,
+                3
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.$--#",
+                "#####----@-#",
+                "#####-$--$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                0,
+                0,
+                3,
+                0
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--.$@-#",
+                "#####------#",
+                "#####-$--$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                0,
+                0,
+                3,
+                0,
+                2
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--*@--#",
+                "#####------#",
+                "#####-$--$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                2,
+                1,
+                2,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                0,
+                0,
+                3,
+                0,
+                2,
+                1
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "######.-*--#",
+                "#####--*---#",
+                "#####---@--#",
+                "#####-$--$-#",
+                "#####----###",
+                "#####.--####",
+                "#####----###",
+                "#######-####",
+                "############",
+                "############",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_186",
+          "remaining_actions": 37,
+          "state": [
+            "############",
+            "######.-.-@#",
+            "#####--.-$-#",
+            "#####------#",
+            "#####-$-$$-#",
+            "#####----###",
+            "#####.--####",
+            "#####----###",
+            "#######-####",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            2,
+            1,
+            0,
+            9,
+            3,
+            14,
+            12,
+            10
+          ],
+          "candidates": [
+            {
+              "actions": [
+                3
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--.--$----#",
+                "#--$---#####",
+                "#------$-###",
+                "#--------###",
+                "#-$#########",
+                "#-@-########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--.--$----#",
+                "#--$---#####",
+                "#------$-###",
+                "#-$------###",
+                "#-@#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--.--$----#",
+                "#--$---#####",
+                "#-$----$-###",
+                "#-@------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--.--$----#",
+                "#-$$---#####",
+                "#-@----$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--.--$----#",
+                "#-$$---#####",
+                "#--@---$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--*--$----#",
+                "#-$@---#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--*--$----#",
+                "#-$-@--#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--*--$----#",
+                "#-$--@-#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.---------#",
+                "#--*--$----#",
+                "#-$---@#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.----$----#",
+                "#--*--@----#",
+                "#-$----#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0,
+                1
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.----$----#",
+                "#--*-------#",
+                "#-$---@#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0,
+                1,
+                2
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.----$----#",
+                "#--*-------#",
+                "#-$--@-#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0,
+                1,
+                2,
+                2
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.----$----#",
+                "#--*-------#",
+                "#-$-@--#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0,
+                1,
+                2,
+                2,
+                2
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.----$----#",
+                "#--*-------#",
+                "#-$@---#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0,
+                1,
+                2,
+                2,
+                2,
+                0
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-.#####.-#",
+                "#.-$--$----#",
+                "#--+-------#",
+                "#-$----#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                0,
+                0,
+                0,
+                3,
+                0,
+                3,
+                3,
+                3,
+                0,
+                1,
+                2,
+                2,
+                2,
+                0,
+                0
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "############",
+                "#########--#",
+                "##-*#####.-#",
+                "#.-@--$----#",
+                "#--.-------#",
+                "#-$----#####",
+                "#------$-###",
+                "#--------###",
+                "#--#########",
+                "#---########",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_329",
+          "remaining_actions": 47,
+          "state": [
+            "############",
+            "############",
+            "#########--#",
+            "##-.#####.-#",
+            "#.---------#",
+            "#--.--$----#",
+            "#--$---#####",
+            "#------$-###",
+            "#--------###",
+            "#-$#########",
+            "#@--########",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            6,
+            1,
+            10,
+            9,
+            13,
+            2,
+            4,
+            5
+          ],
+          "candidates": [
+            {
+              "actions": [
+                0
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "#@$-..---###",
+                "#-$-----####",
+                "#-----$-####",
+                "#----#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "#-@$..---###",
+                "#-$-----####",
+                "#-----$-####",
+                "#----#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "#--@*.---###",
+                "#-$-----####",
+                "#-----$-####",
+                "#----#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "#-@-*.---###",
+                "#-$-----####",
+                "#-----$-####",
+                "#----#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-@-----####",
+                "#-$---$-####",
+                "#----#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-@---$-####",
+                "#-$--#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#@----$-####",
+                "#-$--#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#@$--#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#-@$-#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#--@$#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3,
+                0
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#--@--$-####",
+                "#---$#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#---@-$-####",
+                "#---$#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3,
+                1
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#---@#--####",
+                "###-$#--####",
+                "###--##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3,
+                1,
+                1
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#----#--####",
+                "###-@#--####",
+                "###-$##.####",
+                "###$-#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3,
+                1,
+                1,
+                1
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#----#--####",
+                "###--#--####",
+                "###-@##.####",
+                "###$$#######",
+                "###--#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                3,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3,
+                1,
+                1,
+                1,
+                1
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "#---*.---###",
+                "#-------####",
+                "#-----$-####",
+                "#----#--####",
+                "###--#--####",
+                "###--##.####",
+                "###$@#######",
+                "###-$#######",
+                "####.#######",
+                "############",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_294",
+          "remaining_actions": 44,
+          "state": [
+            "############",
+            "#-$-..---###",
+            "#@$-----####",
+            "#-----$-####",
+            "#----#--####",
+            "###--#--####",
+            "###--##.####",
+            "###$-#######",
+            "###--#######",
+            "####.#######",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            3,
+            12,
+            11,
+            14,
+            9,
+            5,
+            13,
+            4
+          ],
+          "candidates": [
+            {
+              "actions": [
+                2
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####-@----#",
+                "#####$--.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####------#",
+                "#####$@-.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####------#",
+                "#####$--.-##",
+                "#####-@-#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####------#",
+                "#####$--.-##",
+                "#####@--#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####$-----#",
+                "#####@--.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####$-----#",
+                "#####-@-.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-$#--#",
+                "#####$@----#",
+                "#####---.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.@$#--#",
+                "#####$-----#",
+                "#####---.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$@-#--#",
+                "#####.-$#--#",
+                "#####$-----#",
+                "#####---.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$-@#--#",
+                "#####.-$#--#",
+                "#####$-----#",
+                "#####---.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3,
+                1
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.-@#--#",
+                "#####$-$---#",
+                "#####---.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3,
+                1,
+                1
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.--#--#",
+                "#####$-@---#",
+                "#####--$.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3,
+                1,
+                1,
+                2
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.--#--#",
+                "#####$@----#",
+                "#####--$.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3,
+                1,
+                1,
+                2,
+                1
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.--#--#",
+                "#####$-----#",
+                "#####-@$.-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3,
+                1,
+                1,
+                2,
+                1,
+                3
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.--#--#",
+                "#####$-----#",
+                "#####--@*-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                2,
+                1,
+                1,
+                2,
+                0,
+                3,
+                0,
+                0,
+                0,
+                3,
+                1,
+                1,
+                2,
+                1,
+                3,
+                0
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "###---.----#",
+                "###-$$--#--#",
+                "#####.--#--#",
+                "#####$-@---#",
+                "#####---*-##",
+                "#####---#.-#",
+                "########---#",
+                "########--##",
+                "#########-##",
+                "#######----#",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_181",
+          "remaining_actions": 103,
+          "state": [
+            "############",
+            "###---.----#",
+            "###-$$--#--#",
+            "#####.-$#--#",
+            "#####--@---#",
+            "#####$--.-##",
+            "#####---#.-#",
+            "########---#",
+            "########--##",
+            "#########-##",
+            "#######----#",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            11,
+            1,
+            14,
+            8,
+            2,
+            15,
+            6,
+            0
+          ],
+          "candidates": [
+            {
+              "actions": [
+                1
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$@#",
+                "#########--#",
+                "######.----#",
+                "#####.--$$-#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########-@#",
+                "######.----#",
+                "#####.--$$-#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.---@#",
+                "#####.--$$-#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.----#",
+                "#####.--$$@#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.----#",
+                "#####.--$$-#",
+                "#####--$-.@#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.----#",
+                "#####.--$$-#",
+                "#####--$-+-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####.--$@-#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####.-$@--#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####.$@---#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*@----#",
+                "#####--$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2,
+                1
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*-----#",
+                "#####-@$-.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2,
+                1,
+                3
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*-----#",
+                "#####--@$.-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2,
+                1,
+                3,
+                3
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*-----#",
+                "#####---@*-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2,
+                1,
+                3,
+                3,
+                0
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*--@--#",
+                "#####----*-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*---@-#",
+                "#####----*-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                0,
+                2,
+                2,
+                2,
+                1,
+                3,
+                3,
+                0,
+                3,
+                3
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "#########.-#",
+                "#########$-#",
+                "#########--#",
+                "######.--$-#",
+                "#####*----@#",
+                "#####----*-#",
+                "############",
+                "############",
+                "############",
+                "############",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_431",
+          "remaining_actions": 24,
+          "state": [
+            "############",
+            "#########.@#",
+            "#########$-#",
+            "#########--#",
+            "######.----#",
+            "#####.--$$-#",
+            "#####--$-.-#",
+            "############",
+            "############",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            1,
+            12,
+            15,
+            8,
+            13,
+            3,
+            5,
+            10
+          ],
+          "candidates": [
+            {
+              "actions": [
+                0
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-.--$.-####",
+                "##$#-#######",
+                "#-@#########",
+                "#-----######",
+                "#-$-########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##@#-#######",
+                "#--#########",
+                "#-----######",
+                "#-$-########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#-@#########",
+                "#-----######",
+                "#-$-########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#@-#########",
+                "#-----######",
+                "#-$-########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#@----######",
+                "#-$-########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#@$-########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#-@$########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#@-$########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#@-.########",
+                "#--#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#--.########",
+                "#@-#########",
+                "#-$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1,
+                1
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#--.########",
+                "#--#########",
+                "#@$-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1,
+                1,
+                1
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#@--########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#--.########",
+                "#--#########",
+                "#-$-########",
+                "#-@-########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3,
+                0
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#--.########",
+                "#-$#########",
+                "#-@-########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3,
+                0,
+                0
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#--$########",
+                "#-$.########",
+                "#-@#########",
+                "#---########",
+                "#---########",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                0,
+                0,
+                1,
+                2,
+                1,
+                1,
+                3,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3,
+                0,
+                0,
+                0
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "#------.####",
+                "#-*--$.-####",
+                "##-#-#######",
+                "#--#########",
+                "#-----######",
+                "#-$$########",
+                "#-@.########",
+                "#--#########",
+                "#---########",
+                "#---########",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_526",
+          "remaining_actions": 54,
+          "state": [
+            "############",
+            "#------.####",
+            "#-.--$.-####",
+            "##-#-#######",
+            "#-$#########",
+            "#-@---######",
+            "#-$-########",
+            "#--.########",
+            "#--#########",
+            "#-$-########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            9,
+            5,
+            12,
+            4,
+            10,
+            11,
+            7,
+            15
+          ],
+          "candidates": [
+            {
+              "actions": [
+                3
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#-$-.#######",
+                "#-@-$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#-$-.#######",
+                "#--@$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#-$-.#######",
+                "#-@-$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#-$-.#######",
+                "#@--$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#@$-.#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#-@$.#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#--@*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#--@$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#-@-$.-#####",
+                "#--##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#-@##--#####",
+                "#-$-----####",
+                "#-.#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1,
+                1
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-@-----####",
+                "#-*#-.#-####",
+                "#--##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-------####",
+                "#-+#-.#-####",
+                "#-$##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1,
+                2
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-------####",
+                "#@.#-.#-####",
+                "#-$##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1,
+                2,
+                1
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-------####",
+                "#-.#-.#-####",
+                "#@$##$######",
+                "#------#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-------####",
+                "#-.#-.#-####",
+                "#-$##$######",
+                "#@-----#####",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                3,
+                2,
+                2,
+                0,
+                3,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                3
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "############",
+                "############",
+                "####-#######",
+                "#---*#######",
+                "#---$.-#####",
+                "#--##--#####",
+                "#-------####",
+                "#-.#-.#-####",
+                "#-$##$######",
+                "#-@----#####",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_138",
+          "remaining_actions": 37,
+          "state": [
+            "############",
+            "############",
+            "############",
+            "####-#######",
+            "#-$-.#######",
+            "#@--$.-#####",
+            "#--##--#####",
+            "#-$-----####",
+            "#-.#-.#-####",
+            "#--##$######",
+            "#------#####",
+            "############"
+          ]
+        },
+        {
+          "calibration_indices": [
+            7,
+            2,
+            10,
+            11,
+            12,
+            14,
+            5,
+            3
+          ],
+          "candidates": [
+            {
+              "actions": [
+                3
+              ],
+              "k": 1,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########--#",
+                "#######-$--#",
+                "#######-@.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2
+              ],
+              "k": 2,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########--#",
+                "#######-$--#",
+                "#######@-.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0
+              ],
+              "k": 3,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########--#",
+                "#######@$--#",
+                "#######--.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3
+              ],
+              "k": 4,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########--#",
+                "#######-@$-#",
+                "#######--.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1
+              ],
+              "k": 5,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########--#",
+                "#######--$-#",
+                "#######-@.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3
+              ],
+              "k": 6,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########--#",
+                "#######--$-#",
+                "#######--+-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0
+              ],
+              "k": 7,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######--@-#",
+                "#######--.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2
+              ],
+              "k": 8,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######-@--#",
+                "#######--.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1
+              ],
+              "k": 9,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######-@.-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3
+              ],
+              "k": 10,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--+-#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3,
+                3
+              ],
+              "k": 11,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--.@#",
+                "#######-$$-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3,
+                3,
+                1
+              ],
+              "k": 12,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--.-#",
+                "#######-$$@#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3,
+                3,
+                1,
+                1
+              ],
+              "k": 13,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--.-#",
+                "#######-$$-#",
+                "########--@#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3,
+                3,
+                1,
+                1,
+                2
+              ],
+              "k": 14,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--.-#",
+                "#######-$$-#",
+                "########-@-#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3,
+                3,
+                1,
+                1,
+                2,
+                0
+              ],
+              "k": 15,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--*-#",
+                "#######-$@-#",
+                "########---#",
+                "############"
+              ]
+            },
+            {
+              "actions": [
+                3,
+                2,
+                0,
+                3,
+                1,
+                3,
+                0,
+                2,
+                1,
+                3,
+                3,
+                1,
+                1,
+                2,
+                0,
+                1
+              ],
+              "k": 16,
+              "subgoal": [
+                "############",
+                "#########-.#",
+                "#########$-#",
+                "#########..#",
+                "#########--#",
+                "#########--#",
+                "#########$-#",
+                "#######----#",
+                "#######--*-#",
+                "#######-$--#",
+                "########-@-#",
+                "############"
+              ]
+            }
+          ],
+          "id": "trajectory_682",
+          "remaining_actions": 75,
+          "state": [
+            "############",
+            "#########-.#",
+            "#########$-#",
+            "#########..#",
+            "#########--#",
+            "#########--#",
+            "#########--#",
+            "#######-$--#",
+            "#######@-.-#",
+            "#######-$$-#",
+            "########---#",
+            "############"
+          ]
+        }
+      ],
+      "provenance": {
+        "generator_version": 1,
+        "replayed_transitions": 967,
+        "signature": {
+          "candidates": 8,
+          "reference_window": 16,
+          "seed": 20261029,
+          "source": "/home/mtyrolski/phd/2026/CaRL/rl-data/validation/sokoban/offline/12-12-4/sokoban_12_12_4_trajectories_part_1.pkl",
+          "test_boards": 8,
+          "train_boards": 8,
+          "validation_boards": 4
+        },
+        "source_sha256": "b9a80033a8b96080ab21b2cfc50e49cf26345c0ca3725275823ee61493b96c9f",
+        "source_trajectories": 1000,
+        "split_unit": "walls + goals + board shape"
+      },
+      "value_examples": [
+        {
+          "context": "trajectory_186",
+          "remaining_actions": 37,
+          "state": [
+            "############",
+            "######.-.-@#",
+            "#####--.-$-#",
+            "#####------#",
+            "#####-$-$$-#",
+            "#####----###",
+            "#####.--####",
+            "#####----###",
+            "#######-####",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_186",
+          "remaining_actions": 19,
+          "state": [
+            "############",
+            "######.-*--#",
+            "#####--*---#",
+            "#####-----@#",
+            "#####-$--$-#",
+            "#####----###",
+            "#####.--####",
+            "#####----###",
+            "#######-####",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_186",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "######*-*--#",
+            "#####--*---#",
+            "#####------#",
+            "#####@-----#",
+            "#####$---###",
+            "#####.--####",
+            "#####----###",
+            "#######-####",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_186",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "######*-*--#",
+            "#####--*---#",
+            "#####------#",
+            "#####------#",
+            "#####@---###",
+            "#####*--####",
+            "#####----###",
+            "#######-####",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_329",
+          "remaining_actions": 47,
+          "state": [
+            "############",
+            "############",
+            "#########--#",
+            "##-.#####.-#",
+            "#.---------#",
+            "#--.--$----#",
+            "#--$---#####",
+            "#------$-###",
+            "#--------###",
+            "#-$#########",
+            "#@--########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_329",
+          "remaining_actions": 24,
+          "state": [
+            "############",
+            "############",
+            "#########--#",
+            "##-*#####.-#",
+            "#.-------$-#",
+            "#--.-----@-#",
+            "#-$----#####",
+            "#------$-###",
+            "#--------###",
+            "#--#########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_329",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "############",
+            "#########--#",
+            "##-*#####*-#",
+            "#.---------#",
+            "#$-*-------#",
+            "#@-----#####",
+            "#--------###",
+            "#--------###",
+            "#--#########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_329",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "############",
+            "#########--#",
+            "##-*#####*-#",
+            "#*---------#",
+            "#@-*-------#",
+            "#------#####",
+            "#--------###",
+            "#--------###",
+            "#--#########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_294",
+          "remaining_actions": 44,
+          "state": [
+            "############",
+            "#-$-..---###",
+            "#@$-----####",
+            "#-----$-####",
+            "#----#--####",
+            "###--#--####",
+            "###--##.####",
+            "###$-#######",
+            "###--#######",
+            "####.#######",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_294",
+          "remaining_actions": 22,
+          "state": [
+            "############",
+            "#---*.---###",
+            "#-------####",
+            "#--$--$-####",
+            "#--@-#--####",
+            "###--#--####",
+            "###--##.####",
+            "###--#######",
+            "###--#######",
+            "####*#######",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_294",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "#---*.---###",
+            "#----$--####",
+            "#----@--####",
+            "#----#--####",
+            "###--#--####",
+            "###--##*####",
+            "###--#######",
+            "###--#######",
+            "####*#######",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_294",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "#---**---###",
+            "#----@--####",
+            "#-------####",
+            "#----#--####",
+            "###--#--####",
+            "###--##*####",
+            "###--#######",
+            "###--#######",
+            "####*#######",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_181",
+          "remaining_actions": 103,
+          "state": [
+            "############",
+            "###---.----#",
+            "###-$$--#--#",
+            "#####.-$#--#",
+            "#####--@---#",
+            "#####$--.-##",
+            "#####---#.-#",
+            "########---#",
+            "########--##",
+            "#########-##",
+            "#######----#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_181",
+          "remaining_actions": 52,
+          "state": [
+            "############",
+            "###@--.----#",
+            "###-$---#--#",
+            "#####*--#--#",
+            "#####------#",
+            "#####$--*-##",
+            "#####---#.-#",
+            "########---#",
+            "########--##",
+            "#########-##",
+            "#######----#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_181",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "###---*----#",
+            "###-----#--#",
+            "#####*--#--#",
+            "#####------#",
+            "#####-@$.-##",
+            "#####---#*-#",
+            "########---#",
+            "########--##",
+            "#########-##",
+            "#######----#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_181",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "###---*----#",
+            "###-----#--#",
+            "#####*--#--#",
+            "#####------#",
+            "#####--@*-##",
+            "#####---#*-#",
+            "########---#",
+            "########--##",
+            "#########-##",
+            "#######----#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_431",
+          "remaining_actions": 24,
+          "state": [
+            "############",
+            "#########.@#",
+            "#########$-#",
+            "#########--#",
+            "######.----#",
+            "#####.--$$-#",
+            "#####--$-.-#",
+            "############",
+            "############",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_431",
+          "remaining_actions": 12,
+          "state": [
+            "############",
+            "#########.-#",
+            "#########$-#",
+            "#########--#",
+            "######.--$-#",
+            "#####*-----#",
+            "#####--@$.-#",
+            "############",
+            "############",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_431",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "#########*-#",
+            "#########--#",
+            "#########--#",
+            "######.$@--#",
+            "#####*-----#",
+            "#####----*-#",
+            "############",
+            "############",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_431",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "#########*-#",
+            "#########--#",
+            "#########--#",
+            "######*@---#",
+            "#####*-----#",
+            "#####----*-#",
+            "############",
+            "############",
+            "############",
+            "############",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_526",
+          "remaining_actions": 54,
+          "state": [
+            "############",
+            "#------.####",
+            "#-.--$.-####",
+            "##-#-#######",
+            "#-$#########",
+            "#-@---######",
+            "#-$-########",
+            "#--.########",
+            "#--#########",
+            "#-$-########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_526",
+          "remaining_actions": 27,
+          "state": [
+            "############",
+            "#--@$--.####",
+            "#-.--$.-####",
+            "##-#-#######",
+            "#--#########",
+            "#-----######",
+            "#-$$########",
+            "#--.########",
+            "#--#########",
+            "#---########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_526",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "#------*####",
+            "#-*---*-####",
+            "##-#-#######",
+            "#--#########",
+            "#--@--######",
+            "#--$########",
+            "#--.########",
+            "#--#########",
+            "#---########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_526",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "#------*####",
+            "#-*---*-####",
+            "##-#-#######",
+            "#--#########",
+            "#-----######",
+            "#--@########",
+            "#--*########",
+            "#--#########",
+            "#---########",
+            "#---########",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_138",
+          "remaining_actions": 37,
+          "state": [
+            "############",
+            "############",
+            "############",
+            "####-#######",
+            "#-$-.#######",
+            "#@--$.-#####",
+            "#--##--#####",
+            "#-$-----####",
+            "#-.#-.#-####",
+            "#--##$######",
+            "#------#####",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_138",
+          "remaining_actions": 19,
+          "state": [
+            "############",
+            "############",
+            "############",
+            "####-#######",
+            "#---*#######",
+            "#---$.-#####",
+            "#--##--#####",
+            "#-------####",
+            "#-.#-.#-####",
+            "#-$##$######",
+            "#---@--#####",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_138",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "############",
+            "############",
+            "####-#######",
+            "#---*#######",
+            "#----*-#####",
+            "#-@##--#####",
+            "#-$-----####",
+            "#-.#-*#-####",
+            "#--##-######",
+            "#------#####",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_138",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "############",
+            "############",
+            "####-#######",
+            "#---*#######",
+            "#----*-#####",
+            "#--##--#####",
+            "#-@-----####",
+            "#-*#-*#-####",
+            "#--##-######",
+            "#------#####",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_682",
+          "remaining_actions": 75,
+          "state": [
+            "############",
+            "#########-.#",
+            "#########$-#",
+            "#########..#",
+            "#########--#",
+            "#########--#",
+            "#########--#",
+            "#######-$--#",
+            "#######@-.-#",
+            "#######-$$-#",
+            "########---#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_682",
+          "remaining_actions": 38,
+          "state": [
+            "############",
+            "#########-.#",
+            "#########--#",
+            "#########*.#",
+            "#########--#",
+            "#########$-#",
+            "#########-@#",
+            "#######---$#",
+            "#######--*-#",
+            "#######----#",
+            "########---#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_682",
+          "remaining_actions": 1,
+          "state": [
+            "############",
+            "#########-*#",
+            "#########--#",
+            "#########*.#",
+            "#########-$#",
+            "#########-@#",
+            "#########--#",
+            "#######----#",
+            "#######--*-#",
+            "#######----#",
+            "########---#",
+            "############"
+          ]
+        },
+        {
+          "context": "trajectory_682",
+          "remaining_actions": 0,
+          "state": [
+            "############",
+            "#########-*#",
+            "#########--#",
+            "#########**#",
+            "#########-@#",
+            "#########--#",
+            "#########--#",
+            "#######----#",
+            "#######--*-#",
+            "#######----#",
+            "########---#",
+            "############"
+          ]
+        }
+      ]
+    }
+  },
+  "schema": "carl-verbal-launch-v1"
+}
