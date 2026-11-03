@@ -13,7 +13,7 @@ from carl.icl.api import write_json
 from carl.icl.config import ROOT
 from carl.icl.types import JSONObject
 from scripts.launch100.plan import OUTPUT
-from scripts.launch100.runtime import job_key
+from scripts.launch100.runtime import job_key, status
 
 
 def costs(freeze_id: str) -> dict[str, JSONObject]:
@@ -155,12 +155,16 @@ def figure(summary: list[JSONObject], plan: JSONObject) -> go.Figure:
                        title=f'Real 12×12×4 · {plan["node_budget"]} expansion cap · {plan["action_budget"]} action cap',
                        yaxis={"title": "Verified board solve rate (%) · Wilson 95%", "range": [-5, 110]},
                        xaxis={"categoryorder": "array", "categoryarray": plan["methods"]})
+    if not observed:
+        plot.update_xaxes(visible=False)
+        plot.update_yaxes(visible=False)
     return plot
 
 
 def export(output: Path, *, static: bool = False) -> JSONObject:
     """Read only completed records and the ledger; never load credentials or infer."""
     plan = json.loads((output / "manifest.json").read_text())
+    status(plan, output)  # Validate saved identities and completion digests before exporting.
     rows = run_rows(plan, output, costs(plan["freeze_id"]))
     summary, contrast = summaries(rows), paired(rows)
     target = output / "plot_data"
