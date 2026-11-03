@@ -1,0 +1,49 @@
+{
+  "base_config": "configs/icl/campaign_data/relative_u_retry.json",
+  "overrides": {
+    "name": "verbal_relative_validation",
+    "data_dir": "data/icl/campaign_dataset_12x12_v1",
+    "family": "real_12x12x4",
+    "split": "scale_validation",
+    "instances": 2,
+    "train_boards": 8,
+    "few_shot": 4,
+    "num_subgoals": 1,
+    "scales": [
+      0.85,
+      0.5
+    ],
+    "action_budget": 64,
+    "max_expansions": 128,
+    "limits": {
+      "max_requests": 512,
+      "max_input_tokens": 16000,
+      "max_total_input_tokens": 4096000,
+      "max_output_tokens": 1048576,
+      "wall_seconds": 1800,
+      "timeout_seconds": 90
+    },
+    "calibration": {
+      "reference_window": 16,
+      "candidates": 8,
+      "sampled_targets": 4,
+      "trials": 1,
+      "action_cap": 8,
+      "limits": {
+        "max_requests": 512,
+        "max_input_tokens": 16000,
+        "max_total_input_tokens": 4096000,
+        "max_output_tokens": 1048576,
+        "wall_seconds": 1800,
+        "timeout_seconds": 90
+      }
+    }
+  },
+  "prompts": {
+    "generator": "Produce up to num_subgoals distinct concrete intermediate goals as JSON {\"subgoals\":[\"...\"]}. Prefer placing a box onto an unoccupied goal, or a precise necessary preparation. Name box/destination coordinates. A goal is a condition on the current board, never a sequence, full board, or claim of past success. u is a within-source percentile of successful first-hit times measured by this verbal policy and independent judge, not a move count; examples are training only.",
+    "policy": "Choose the NEXT single legal action toward subgoal using source (the original board) and state (the current board). Return only JSON {\"action\":\"UP\"}; action is UP/DOWN/LEFT/RIGHT. Plan necessary walking and pushes; never pull. A box on any goal does not suffice when subgoal names a particular square. Do not claim success or output a sequence.",
+    "judge": "Independently judge whether subgoal is satisfied NOW in state, using source only to interpret relative wording. Return only JSON {\"reached\":false,\"reason\":\"specific observed evidence\"}. Inspect requested coordinates and distinguish a box from the player and empty goal. A plan, proximity, or an unrelated occupied goal is not satisfaction. No future board, action witness, or policy claim is available; explain ambiguity rather than inventing evidence."
+  },
+  "output_dir": "analysis/luna_icl/verbal_relative/v1",
+  "ledger_stage": "reserve"
+}
