@@ -130,7 +130,7 @@ class ExperimentConfig(Settings):
     scales: list[float] = Field(default_factory=lambda: [0.9, 0.5])
     fixed_cap: Literal["horizon", "shared"] = "horizon"
     action_budget: int = Field(default=256, ge=1)
-    max_expansions: int = Field(default=128, ge=1)
+    max_expansions: int | None = Field(default=128, ge=1)
     num_subgoals: int = Field(default=1, ge=1, le=8)
     few_shot: int = Field(default=4, ge=0)
     generator_checkpoint: str | None = Field(default=None, min_length=1)

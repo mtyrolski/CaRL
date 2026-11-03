@@ -31,7 +31,8 @@ def test_plan_never_constructs_api_and_matches_u_d_demonstrations(assets: Bundle
     monkeypatch.setattr(ExperimentAPI, "__init__", forbidden)
     plan = build_plan(assets, ["relative_u", "absolute_d", "fixed_k", "verbal_relative"])
     assert plan["jobs"] == 400 and len(plan["cohort"]) == 100
-    assert plan["node_budget"] == 500 and plan["action_budget"] == 4000
+    assert plan["node_budget"] == 500 and "action_budget" not in plan
+    assert all(value["action_budget"] == 500 and value["max_expansions"] is None for value in plan["configs"].values())
     relative, absolute = plan["prompt_previews"][0]["payload"], plan["prompt_previews"][2]["payload"]
     for payload, label in ((relative, "u"), (absolute, "d")):
         users = [json.loads(message["content"][0]["text"]) for message in payload["input"] if message["role"] == "user"]
@@ -45,9 +46,9 @@ def test_plan_never_constructs_api_and_matches_u_d_demonstrations(assets: Bundle
     assert plan["configs"]["fixed_k"]["fixed_cap"] == "horizon"
 
 
-def test_action_cap_is_separate_and_default_progress_payload_is_unchanged(assets: Bundle) -> None:
+def test_one_budget_and_default_progress_payload_is_unchanged(assets: Bundle) -> None:
     config = configuration(assets, "relative_u", 7)
-    assert config.max_expansions == 500 and config.action_budget == 7
+    assert config.max_expansions is None and config.action_budget == 7
     assert config.calibration.action_cap == 8
     offline = cast(ExperimentAPI, SimpleNamespace(provider="replay"))
     launched = component(assets, config, offline, assets.instances[0])
@@ -58,11 +59,11 @@ def test_action_cap_is_separate_and_default_progress_payload_is_unchanged(assets
 
 def test_prepare_rejects_protocol_drift_and_status_keeps_missing(tmp_path: Path) -> None:
     plan = {"freeze_id": "a", "methods": ["relative_u", "absolute_d"], "seed": 11,
-            "node_budget": 500, "action_budget": 4000, "cohort": [{"id": "first"}, {"id": "second"}]}
+            "node_budget": 500, "cohort": [{"id": "first"}, {"id": "second"}]}
     prepare(plan, tmp_path)
     prepare(plan, tmp_path)
     with pytest.raises(ValueError, match="differs"):
-        prepare({**plan, "action_budget": 500}, tmp_path)
+        prepare({**plan, "node_budget": 250}, tmp_path)
     result = status(plan, tmp_path, write_csv=True)
     assert result["expected"] == result["counts"]["missing"] == 4
     assert len((tmp_path / "status.csv").read_text().splitlines()) == 5
@@ -181,7 +182,7 @@ def test_production_search_records_actions_and_solution_without_model_calls(
     model = SimpleNamespace(diagnostics={}, propose=lambda _state, _scale: [target],
                             probabilities=lambda _state, _target: np.array([0., 0., 0., 1.]), value=lambda _state: 0.5)
     monkeypatch.setattr("scripts.launch100.runtime.component", lambda *_args: model)
-    plan = {"freeze_id": "unit", "seed": 11, "node_budget": 500, "action_budget": 2,
+    plan = {"freeze_id": "unit", "seed": 11, "node_budget": 2,
             "configs": {"relative_u": config.model_dump(mode="json")}}
     row = run_job(assets, plan, {"id": "unit", "state": source, "level_key": "unit"}, "relative_u", tmp_path)
     assert row["outcome"]["solved"] and row["outcome"]["attempted_actions"] == 1
@@ -206,7 +207,7 @@ def test_model_resource_cap_is_observed_but_shared_exhaustion_stops(
     model = SimpleNamespace(diagnostics={}, value=value)
     monkeypatch.setattr("scripts.launch100.runtime.component", lambda *_args: model)
     config = configuration(assets, "relative_u", 2)
-    plan = {"freeze_id": "captest", "seed": 11, "node_budget": 500, "action_budget": 2,
+    plan = {"freeze_id": "captest", "seed": 11, "node_budget": 2,
             "configs": {"relative_u": config.model_dump(mode="json")}}
     row = run_job(assets, plan, assets.instances[0], "relative_u", tmp_path)
     assert row["complete"] is complete

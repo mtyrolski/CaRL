@@ -8,7 +8,7 @@ from carl.icl.types import Board, BoardEnvironment
 
 
 def verify_saved(env: BoardEnvironment, initial: Board, saved: dict[str, Any],
-                 action_budget: int, node_budget: int) -> dict[str, Any]:
+                 action_budget: int, max_expansions: int | None) -> dict[str, Any]:
     """Replay every recorded edge and any successful solution before accepting completion."""
     nodes, outcome = saved['nodes'], saved['outcome']
     if not nodes or nodes[0]['state'] != to_rows(initial):
@@ -31,7 +31,8 @@ def verify_saved(env: BoardEnvironment, initial: Board, saved: dict[str, Any],
         actions += len(node['actions'])
     if actions != outcome['attempted_actions'] or not 0 <= actions <= action_budget:
         raise ValueError('Action accounting differs')
-    if len(saved['expansions']) != outcome['expansions'] or not 0 <= outcome['expansions'] <= node_budget:
+    if (len(saved['expansions']) != outcome['expansions'] or outcome['expansions'] < 0
+            or (max_expansions is not None and outcome['expansions'] > max_expansions)):
         raise ValueError('Expansion accounting differs')
     if outcome['solved']:
         current = initial.copy()

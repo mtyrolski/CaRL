@@ -253,9 +253,10 @@ def estimate(
                         ),
                     )
                 )
+                expansion_overflow = config.max_expansions is not None and expansions > config.max_expansions
                 if (
                     request_count > config.limits.max_requests
-                    or expansions > config.max_expansions
+                    or expansion_overflow
                     or per_input > config.limits.max_total_input_tokens
                     or per_output > config.limits.max_output_tokens
                     or max(

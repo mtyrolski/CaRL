@@ -380,10 +380,17 @@
       "type": "integer"
     },
     "max_expansions": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "default": 128,
-      "minimum": 1,
-      "title": "Max Expansions",
-      "type": "integer"
+      "title": "Max Expansions"
     },
     "num_subgoals": {
       "default": 1,

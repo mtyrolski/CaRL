@@ -7,17 +7,15 @@ from carl.icl.types import JSONObject
 
 
 def forecast(plan: JSONObject) -> JSONObject:
-    """Scale one observed explicit run in two ways, with its sampling limits attached."""
+    """Scale one observed explicit run by its low-level work, with sampling limits attached."""
     path = ROOT / "configs/icl/checkpoints/launch100/cost_reference.json"
     measured = json.loads(path.read_text())
     explicit_methods = [name for name in plan["methods"] if name != "verbal_relative"]
     jobs = len(plan["cohort"]) * len(explicit_methods)
-    expansion_factor = plan["node_budget"] / measured["expansions"]
-    action_factor = plan["action_budget"] / measured["attempted_actions"]
+    action_factor = plan["node_budget"] / measured["attempted_actions"]
     metrics = measured["metrics"]
     scenarios = []
-    for name, factor in (("same_usage_per_expansion", expansion_factor),
-                         ("same_usage_per_action", action_factor)):
+    for name, factor in (("same_usage_per_low_level_node", action_factor),):
         scenarios.append({"assumption": name, "jobs": jobs,
                           "mixed_cache_usd": jobs * factor * measured["settled_usd"],
                           "logical_tokens": int(jobs * factor * (metrics["logical_input_tokens"]
@@ -28,7 +26,7 @@ def forecast(plan: JSONObject) -> JSONObject:
             "measured_cost_usd": measured["settled_usd"], "concurrency": 1,
             "explicit_methods": explicit_methods, "scenarios": scenarios,
             "limitations": measured["limitations"],
-            "interpretation": "These scenarios exceed the existing $40 campaign cap. "
+            "interpretation": "This is an extrapolation, not an upper bound. "
                               "The ledger stops execution at the lower remaining campaign or stage limit. "
                               "The full 100-board comparison is prepared, not guaranteed to complete within that cap. "
                               "No verbal whole-search cost forecast is supported by existing observations."}

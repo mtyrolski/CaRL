@@ -23,7 +23,7 @@ from scripts.goal_probe.components import MechanicsExample, TaskProgressComponen
 from scripts.launch100.retry import HTTP_RETRY_POLICY
 
 ASSETS = ROOT / "configs/icl/checkpoints/launch100/assets"
-OUTPUT = ROOT / "analysis/luna_icl/launch100_nodes500"
+OUTPUT = ROOT / "analysis/luna_icl/launch100_low_level_b500"
 METHODS = {"relative_u": ("relative_u", [0.85, 0.5], "u", "pilot_relative"),
            "absolute_d": ("absolute_d", [8.0, 4.0], "d", "pilot_absolute"),
            "fixed_k": ("fixed", [8.0, 4.0], "k", "pilot_fixed"),
@@ -85,13 +85,13 @@ def load_assets(path: Path = ASSETS) -> Bundle:
     return Bundle(path, config, training, instances, demos, manifest)
 
 
-def configuration(bundle: Bundle, method: str, action_budget: int) -> ExperimentConfig:
-    """Carry forward scales; 500 counts expanded queue entries, not actions."""
-    if not 1 <= action_budget <= 4000:
-        raise ValueError("Action budget must be in 1..4000; node budget remains 500")
+def configuration(bundle: Bundle, method: str, node_budget: int) -> ExperimentConfig:
+    """Use one budget for low-level steps; report high-level work separately."""
+    if not 1 <= node_budget <= 500:
+        raise ValueError("Low-level node budget must be in 1..500")
     name, scales, _, _ = METHODS[method]
     return ExperimentConfig.model_validate({**bundle.config.model_dump(), "name": f"launch100_{method}",
-        "method": name, "scales": scales, "max_expansions": 500, "action_budget": action_budget,
+        "method": name, "scales": scales, "max_expansions": None, "action_budget": node_budget,
         "repeat_seeds": [11], "instances": 100, "split": "pilot100", "family": "real_12x12x4",
         "generator_example_limit": 26, "num_subgoals": 1, "limits": LIMITS.model_dump()})
 
@@ -103,11 +103,11 @@ def component(bundle: Bundle, config: ExperimentConfig, api: ExperimentAPI, stat
                                   bundle.training, bundle.demonstrations, scale_label=label)
 
 
-def build_plan(bundle: Bundle, methods: list[str], action_budget: int = 4000) -> JSONObject:
+def build_plan(bundle: Bundle, methods: list[str], node_budget: int = 500) -> JSONObject:
     """Preflight actual prompts and all source identities without constructing an API client."""
     if not methods or len(methods) != len(set(methods)) or any(name not in METHODS for name in methods):
         raise ValueError("Select distinct supported methods")
-    configs = {name: configuration(bundle, name, action_budget) for name in methods}
+    configs = {name: configuration(bundle, name, node_budget) for name in methods}
     offline = cast(ExperimentAPI, SimpleNamespace(provider="replay"))
     encoder = tiktoken.get_encoding("o200k_base")
     prompts = []
@@ -140,8 +140,9 @@ def build_plan(bundle: Bundle, methods: list[str], action_budget: int = 4000) ->
     if verbal is not None:
         paths.extend(sorted((ROOT / "scripts/verbal_icl").glob("*.py")))
     contract = {"version": 1, "provider": "openai", "methods": methods, "seed": 11,
-                "node_budget": 500, "action_budget": action_budget, "action_cap": 8,
-                "node_definition": "expanded non-stale frontier entries, including scale and primitive fallback entries",
+                "node_budget": node_budget, "high_level_expansion_cap": None, "action_cap": 8,
+                "node_definition": "executed low-level simulator actions including failed attempts and no-ops; "
+                                   "high-level expansions are reported separately and not counted again",
                 "cohort": [{"id": row["id"], "state_hash": state_hash(from_rows(row["state"]))} for row in bundle.instances],
                 "configs": {name: config.model_dump(mode="json") for name, config in configs.items()},
                 "asset_manifest_sha256": sha256(bundle.path / "manifest.json"),

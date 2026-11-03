@@ -40,7 +40,7 @@ class ProbeConfig(TypedDict):
     board_seed: int
     search_seed: int
     action_budget: int
-    max_expansions: int
+    max_expansions: int | None
     num_subgoals: int
     torch_threads: int
     output: str

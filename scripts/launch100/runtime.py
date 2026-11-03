@@ -24,9 +24,9 @@ from scripts.launch100.plan import Bundle, METHODS, component, digest, ledger_st
 
 
 def job_key(plan: JSONObject, instance: Mapping[str, object], method: str) -> str:
-    """Bind results to the freeze, board, condition, seed and both budgets."""
+    """Bind results to the freeze, board, condition, seed and node budget."""
     return digest({"freeze": plan["freeze_id"], "board": instance["id"], "method": method,
-                   "seed": plan["seed"], "nodes": plan["node_budget"], "actions": plan["action_budget"]})
+                   "seed": plan["seed"], "nodes": plan["node_budget"]})
 
 
 class RecordedEnvironment:
@@ -49,6 +49,8 @@ class RecordedEnvironment:
 def run_job(bundle: Bundle, plan: JSONObject, instance: Instance, method: str, directory: Path) -> JSONObject:
     """Rebuild the frontier deterministically from saved responses before continuing."""
     config = ExperimentConfig.model_validate(plan["configs"][method])
+    if config.action_budget != plan["node_budget"] or config.max_expansions is not None:
+        raise ValueError("Launch must use one low-level node budget and no high-level expansion cap")
     key = job_key(plan, instance, method)
     os.environ["CARL_CAMPAIGN_STAGE"] = METHODS[method][3]
     api = JournalAPI(config, directory / "responses", f"launch100:{plan['freeze_id']}:{key}")
@@ -61,8 +63,7 @@ def run_job(bundle: Bundle, plan: JSONObject, instance: Instance, method: str, d
             from scripts.verbal_icl.launch import load_bundle, run_case
 
             verbal = load_bundle(bundle.path / "verbal.json")
-            outcome = run_case(verbal, api, initial, action_budget=plan["action_budget"],
-                               node_budget=plan["node_budget"], trace=journal)
+            outcome = run_case(verbal, api, initial, node_budget=plan["node_budget"], trace=journal)
         else:
             env = RecordedEnvironment(initial, journal)
             model = component(bundle, config, api, instance)
@@ -75,7 +76,7 @@ def run_job(bundle: Bundle, plan: JSONObject, instance: Instance, method: str, d
 
         events = [json.loads(line) for line in journal.path.read_text().splitlines()] if journal.path.exists() else []
         verify_trace(environment(initial), initial, events, outcome.attempted_actions)
-        if outcome.attempted_actions > config.action_budget or outcome.expansions > config.max_expansions:
+        if outcome.attempted_actions > plan["node_budget"]:
             raise ValueError("Search exceeded its declared budget")
         if outcome.solved:
             replay, replay_env = initial, environment(initial)
@@ -87,7 +88,7 @@ def run_job(bundle: Bundle, plan: JSONObject, instance: Instance, method: str, d
             word in (outcome.error or "").lower() for word in ("campaign", "stage", "pricing"))
         result = {"job_key": key, "freeze_id": plan["freeze_id"], "board_id": instance["id"], "method": method,
                   "initial_state_hash": state_hash(initial),
-                  "seed": plan["seed"], "node_budget": config.max_expansions, "action_budget": config.action_budget,
+                  "seed": plan["seed"], "node_budget": plan["node_budget"],
                   "complete": outcome.finish_reason != "api_error" and not shared_stop, "outcome": asdict(outcome),
                   "stop_category": "shared_budget" if shared_stop else
                                    "model_resource_cap" if outcome.finish_reason == "api_budget" else outcome.finish_reason,
@@ -123,6 +124,8 @@ def verify_saved(plan: JSONObject, instance: Instance, method: str, directory: P
         raise ValueError("Saved action trace differs")
     events = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
     verify_trace(environment(initial), initial, events, saved["outcome"]["attempted_actions"])
+    if saved["outcome"]["attempted_actions"] > plan["node_budget"]:
+        raise ValueError("Saved run exceeds its low-level node budget")
     if saved["outcome"]["solved"]:
         current, env = initial, environment(initial)
         for action in saved["outcome"]["action_path"]:

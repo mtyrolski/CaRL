@@ -22,12 +22,16 @@ def main() -> None:
     modes.add_argument("--prepare", action="store_true")
     modes.add_argument("--execute", action="store_true")
     parser.add_argument("--assets", type=Path, default=ASSETS)
-    parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--output", type=Path, help="Override the budget-specific output directory")
     parser.add_argument("--preset", choices=("core", "extended"), default="core")
-    parser.add_argument("--action-budget", type=int, default=4000)
+    parser.add_argument("--budget", type=int, default=500, help="Shared low-level node budget for each run (1–500)")
     parser.add_argument("--usd-cap", type=float, help="Absolute shared campaign USD ceiling, maximum 40")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+    if not 1 <= args.budget <= 500:
+        parser.error("--budget must be in 1..500")
+    if args.output is None:
+        args.output = OUTPUT.with_name(f"launch100_low_level_b{args.budget}")
     if args.execute and args.usd_cap is None:
         parser.error("--execute requires --usd-cap (absolute shared campaign ceiling)")
     if args.resume and not args.execute:
@@ -43,7 +47,7 @@ def main() -> None:
         methods += ["fixed_k", "verbal_relative"]
     with redirect_stdout(io.StringIO()):
         bundle = load_assets(args.assets)
-        plan = build_plan(bundle, methods, args.action_budget)
+        plan = build_plan(bundle, methods, args.budget)
     if not args.prepare and not args.execute:
         summary = {key: value for key, value in plan.items()
                    if key not in {"configs", "source_hashes", "cohort", "prompt_previews"}}

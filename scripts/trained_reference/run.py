@@ -28,13 +28,15 @@ class TrainedRuntime(SearchComponents, Protocol):
     diagnostics: Counter[str]
 
 
-def prepare(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+def prepare(path: Path, budget: int | None = None) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
     """Read public boards and hash local checkpoint bytes, without loading model tensors."""
     config = json.loads(path.read_text())
+    if budget is not None:
+        config['action_budget'] = budget
     if (config['instances'] != 100 or config['generator_scales'] != [8, 4]
-            or config['max_expansions'] != 500 or config['action_budget'] != 4000
+            or config['max_expansions'] is not None or not 1 <= config['action_budget'] <= 500
             or config['num_subgoals'] != 1 or config['num_beams'] != 4):
-        raise ValueError('Launch contract requires 100 boards, scales8/4, nodes500/actions4000, one proposal/beam4')
+        raise ValueError('Launch contract requires 100 boards, scales8/4, low-level budget500, one proposal/beam4')
     cohort_path = ROOT / config['cohort']
     instances = json.loads(cohort_path.read_text())['instances']
     if len(instances) != 100 or len({row['id'] for row in instances}) != 100:
@@ -70,7 +72,7 @@ def prepare(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str,
     contract = {'name': 'trained_fixed_k_shared_search', 'config': config,
                 'cohort_sha256': digest(cohort_path), 'checkpoint_sha256': checkpoint_hashes,
                 'code_sha256': {str(file.relative_to(ROOT)): digest(file) for file in sources},
-                'node_budget_semantics': 'Non-stale frontier entries expanded; distinct from attempted primitive actions',
+                'node_budget_semantics': 'Executed low-level actions; high-level expansions are reported separately',
                 'interpretation': 'New execution of local trained checkpoints through shared search with primitive fallback. '
                                   'Not the original native k=8,4,1 AdaSubS loop and not the historical 91/100 result.',
                 'library_versions': {name: version(name) for name in ('torch', 'transformers', 'numpy')},
@@ -120,17 +122,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', nargs='?', choices=('plan', 'status', 'run'), default='plan')
     parser.add_argument('--config', type=Path, default=DEFAULT)
+    parser.add_argument('--budget', type=int, help='Low-level node budget (1–500); default is the preset value')
     parser.add_argument('--execute', action='store_true', help='Explicitly load local torch checkpoints and run inference')
     parser.add_argument('--resume', action='store_true')
     args = parser.parse_args()
     if args.command == 'run' and not args.execute:
         parser.error('Local model inference requires --execute')
-    config, instances, contract = prepare(args.config)
+    config, instances, contract = prepare(args.config, args.budget)
     label = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
     output = ROOT / config['output_dir'] / label
     if args.command != 'run':
-        print(json.dumps({'name': contract['name'], 'boards': len(instances), 'max_expansions': 500,
-                          'action_budget': 4000, 'signature': label, 'output': str(output),
+        print(json.dumps({'name': contract['name'], 'boards': len(instances), 'node_budget': config['action_budget'],
+                          'high_level_expansion_cap': None, 'signature': label, 'output': str(output),
                           'completed': len(list(output.glob('*/case.json'))),
                           'checkpoint_sha256': contract['checkpoint_sha256'],
                           'interpretation': contract['interpretation'], 'inference_executed': False}, indent=2))
@@ -150,7 +153,7 @@ def main() -> None:
         components = TrainedComponents(cast(ProbeConfig, config))
         search_config = ExperimentConfig.model_validate({
             'method': 'fixed', 'scales': [8, 4], 'fixed_cap': 'horizon', 'num_subgoals': 1,
-            'action_budget': 4000, 'max_expansions': 500, 'calibration': {'action_cap': 8}})
+            'action_budget': config['action_budget'], 'max_expansions': None, 'calibration': {'action_cap': 8}})
         for index, instance in enumerate(instances):
             state = from_rows(instance['state'])
             case_contract = {'launch_signature': label, 'board_id': instance['id'], 'state_hash': state_hash(state)}

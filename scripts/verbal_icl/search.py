@@ -84,10 +84,11 @@ class Entry:
 
 
 def search(env: BoardEnvironment, components: Components, initial: Board, scales: tuple[float, float],
-           action_budget: int, action_cap: int, max_expansions: int,
+           action_budget: int, action_cap: int, max_expansions: int | None,
            trace: Callable[[dict[str, object]], None] | None = None) -> Result:
     """Run bounded best-first search. Primitive fallback executes four visible actions."""
-    if not 0 < scales[1] < scales[0] < 1 or min(action_budget, action_cap, max_expansions) < 1:
+    if (not 0 < scales[1] < scales[0] < 1 or min(action_budget, action_cap) < 1
+            or (max_expansions is not None and max_expansions < 1)):
         raise ValueError('Expected descending relative scales in (0,1) and positive budgets')
     result = Result()
     heap: list[Entry] = []
@@ -123,7 +124,7 @@ def search(env: BoardEnvironment, components: Components, initial: Board, scales
             return result
         add(initial, [])
         while heap and result.attempted_actions < action_budget:
-            if result.expansions >= max_expansions:
+            if max_expansions is not None and result.expansions >= max_expansions:
                 result.finish_reason = 'expansion_budget'
                 return result
             entry = heapq.heappop(heap)

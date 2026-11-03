@@ -248,7 +248,7 @@ class SearchSession:
         while self.frontier.queue and self.remaining_actions > 0:
             if time.perf_counter() - started >= self.config.limits.wall_seconds:
                 raise BudgetExceeded("Search wall-time budget exhausted")
-            if self.result.expansions >= self.config.max_expansions:
+            if self.config.max_expansions is not None and self.result.expansions >= self.config.max_expansions:
                 self.result.finish_reason = "expansion_budget"
                 return
             entry = self.frontier.pop()

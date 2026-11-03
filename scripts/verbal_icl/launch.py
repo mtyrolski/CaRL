@@ -69,7 +69,7 @@ def load_bundle(path: Path) -> FrozenVerbal:
                 'api_and_usd_limits': 'Owned by the shared launch executor and its injected ExperimentAPI/ledger',
                 'reference_usage': 'Original V and fingerprint; unused explicit generator checkpoint is not loaded',
                 'task_success': 'environment.is_solved', 'subgoal_stop': 'independent Luna judge',
-                'node_budget_semantics': 'popped frontier entries expanded, including scale/fallback entries',
+                'node_budget_semantics': 'low-level simulator actions, including failed attempts and no-ops',
                 'limitations': 'Tiny observed calibration; u uses judge claims, not semantic ground truth. '
                                'Grounded generator wording was selected after observing validation failures. '
                                'This is a new 100-board launch, not a measured success claim.'}
@@ -78,13 +78,13 @@ def load_bundle(path: Path) -> FrozenVerbal:
                         cast(TrainingData, payload['reference']['training']), contract)
 
 
-def run_case(bundle: FrozenVerbal, api: ExperimentAPI, state: Board, *, action_budget: int = 4000,
-             node_budget: int = 500, trace: Callable[[dict[str, object]], None] | None = None,
+def run_case(bundle: FrozenVerbal, api: ExperimentAPI, state: Board, *, node_budget: int = 500,
+             trace: Callable[[dict[str, object]], None] | None = None,
              audit_path: Path | None = None) -> Result:
-    """Execute one board with independent finite node/action/API/USD limits."""
-    if min(action_budget, node_budget) < 1:
-        raise ValueError('Node and action budgets must be positive')
+    """Count each executed action once; high-level expansions are reported separately."""
+    if node_budget < 1:
+        raise ValueError('Node budget must be positive')
     component = bundle.build(api, audit_path)
     return search(environment(state), component, state,
-                  (bundle.config.scales[0], bundle.config.scales[1]), action_budget,
-                  bundle.config.calibration.action_cap, node_budget, trace)
+                  (bundle.config.scales[0], bundle.config.scales[1]), node_budget,
+                  bundle.config.calibration.action_cap, None, trace)

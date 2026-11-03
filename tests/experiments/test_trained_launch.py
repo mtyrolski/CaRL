@@ -36,7 +36,7 @@ def test_completed_success_resume_is_replay_verified(tmp_path: Path) -> None:
     state = from_rows(['#####', '#---#', '#@$.#', '#---#', '#####'])
     model = ScriptedModel(state)
     config = ExperimentConfig(method='fixed', scales=[8, 4], fixed_cap='horizon',
-                              action_budget=4000, max_expansions=500)
+                              action_budget=500, max_expansions=None)
     result = execute_case(model, state, config, 11, tmp_path, {'fixture': True}, resume=False)
     assert result['outcome']['solved'] and result['verification']['solution_replayed']
     calls = model.diagnostics['propose']

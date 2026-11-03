@@ -78,6 +78,35 @@ def test_multiple_subgoals_share_remaining_action_budget() -> None:
     assert sum(len(node.actions) for node in observer.nodes) == result.attempted_actions
 
 
+def test_one_low_level_budget_does_not_charge_high_level_expansions() -> None:
+    original = state(1)
+    visited_actions: list[int] = []
+
+    def transition(current: Board, action: int) -> Board:
+        visited_actions.append(action)
+        return current.copy()
+
+    env = cast(BoardEnvironment, SimpleNamespace(next_state=transition, is_solved=lambda _state: False))
+    components = cast(SearchComponents, SimpleNamespace(value=lambda _state: 0.5, propose=lambda _state, _scale: []))
+    result = search(env, components, original, ExperimentConfig(action_budget=1, max_expansions=None), 11)
+    assert result.expansions == 3  # Two scales and primitive fallback; none consumes a low-level node.
+    assert visited_actions == [0] and result.attempted_actions == 1
+    assert result.finish_reason == 'action_budget'
+
+
+def test_reached_high_level_state_is_not_charged_twice() -> None:
+    source, target = state(0), state(1)
+    env = cast(BoardEnvironment, SimpleNamespace(next_state=lambda _state, _action: target.copy(),
+                                               is_solved=lambda _state: False))
+    components = cast(SearchComponents, SimpleNamespace(
+        value=lambda _state: 0.5, propose=lambda _state, _scale: [target],
+        probabilities=lambda _state, _target: np.array([1.0, 0.0, 0.0, 0.0]),
+    ))
+    result = search(env, components, source, ExperimentConfig(action_budget=1, max_expansions=None), 11)
+    assert result.accepted == 1 and result.expansions == 1
+    assert result.attempted_actions == 1 and result.finish_reason == 'action_budget'
+
+
 def test_task_solution_before_another_subgoal_stops_immediately() -> None:
     source, solved, requested = state(0), state(1), state(2)
     actions: list[int] = []

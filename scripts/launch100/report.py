@@ -60,6 +60,7 @@ def run_rows(plan: JSONObject, output: Path, charges: dict[str, JSONObject]) -> 
                 raise ValueError(f"Run identity mismatch: {path}")
             outcome = record["outcome"] if record else {}
             metrics = record["metrics"] if record else {}
+            actions, expansions = outcome.get("attempted_actions"), outcome.get("expansions")
             completed = bool(record and record["complete"])
             solved = outcome.get("solved") if completed else None
             replay = record.get("solution_replay_verified") if record else None
@@ -69,14 +70,14 @@ def run_rows(plan: JSONObject, output: Path, charges: dict[str, JSONObject]) -> 
                 "freeze_id": plan["freeze_id"], "job_key": key, "board_id": board["id"],
                 "state_hash": board["state_hash"], "family": "real_12x12x4", "split": "pilot100",
                 "method": method, "seed": plan["seed"], "node_budget": plan["node_budget"],
-                "action_budget": plan["action_budget"], "status": "complete" if completed else
+                "status": "complete" if completed else
                 "blocked" if record else "interrupted" if directory.exists() else "missing",
                 "solved": solved, "solution_replay_verified": replay,
                 "all_actions_replay_verified": record.get("all_actions_replay_verified") if record else None,
-                "finish_reason": outcome.get("finish_reason"), "attempted_actions": outcome.get("attempted_actions"),
+                "finish_reason": outcome.get("finish_reason"), "attempted_actions": actions,
                 "stop_category": record.get("stop_category") if record else None,
                 "wall_seconds": outcome.get("seconds"),
-                "expansions": outcome.get("expansions"),
+                "expansions": expansions, "low_level_nodes": actions, "high_level_expansions": expansions,
                 "solution_length": len(outcome["action_path"]) if solved else None,
                 "accepted": outcome.get("accepted"), "rejected": outcome.get("rejected"),
                 "fallback_state_changes": outcome.get("primitive_successors"),
@@ -111,12 +112,13 @@ def wilson(successes: int, total: int) -> tuple[float | None, float | None]:
 def summaries(rows: list[JSONObject]) -> list[JSONObject]:
     """Report observed rates alongside coverage and full-cohort possible ranges."""
     result = []
-    for method in dict.fromkeys(row["method"] for row in rows):
-        selected = [row for row in rows if row["method"] == method]
+    groups = sorted({(row["node_budget"], row["method"]) for row in rows})
+    for budget, method in groups:
+        selected = [row for row in rows if row["method"] == method and row["node_budget"] == budget]
         observed = [row for row in selected if row["solved"] is not None]
         successes = sum(row["solved"] is True for row in observed)
         lower, upper = wilson(successes, len(observed))
-        result.append({"method": method, "expected": len(selected), "observed": len(observed),
+        result.append({"node_budget": budget, "method": method, "expected": len(selected), "observed": len(observed),
                        "verified_successes": successes, "denominator": len(observed),
                        "solve_rate": successes / len(observed) if observed else None,
                        "wilson95_low": lower, "wilson95_high": upper,
@@ -154,56 +156,86 @@ def figure(summary: list[JSONObject], plan: JSONObject) -> go.Figure:
     """Show observed board solve rates; a missing cohort is not a zero-success cohort."""
     observed = [row for row in summary if row["observed"]]
     plot = go.Figure()
-    if observed:
-        rates = [100 * row["solve_rate"] for row in observed]
+    for method in plan["methods"]:
+        selected = [row for row in summary if row["method"] == method]
+        if not any(row["observed"] for row in selected):
+            continue
+        rates = [100 * row["solve_rate"] if row["solve_rate"] is not None else None for row in selected]
         plot.add_trace(go.Scatter(
-            x=[row["method"] for row in observed], y=rates, mode="markers+text",
-            text=[f'{row["verified_successes"]}/{row["observed"]} observed; {row["expected"]} planned' for row in observed],
-            textposition="top center", marker={"size": 12},
+            x=[row["node_budget"] for row in selected], y=rates, mode="lines+markers", name=method,
+            text=[f'{row["verified_successes"]}/{row["observed"]} observed; {row["expected"]} planned' for row in selected],
+            hovertemplate="B=%{x}<br>solve rate=%{y:.1f}%<br>%{text}<extra>%{fullData.name}</extra>",
+            marker={"size": 10},
             error_y={"type": "data", "symmetric": False,
-                     "array": [100 * (row["wilson95_high"] - row["solve_rate"]) for row in observed],
-                     "arrayminus": [100 * (row["solve_rate"] - row["wilson95_low"]) for row in observed]},
+                     "array": [100 * (row["wilson95_high"] - row["solve_rate"]) if row["observed"] else 0 for row in selected],
+                     "arrayminus": [100 * (row["solve_rate"] - row["wilson95_low"]) if row["observed"] else 0 for row in selected]},
         ))
-    else:
+    if not observed:
         plot.add_annotation(text="No completed observations. All planned runs remain missing.",
                             x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
     plot.update_layout(template="plotly_white", width=1000, height=500,
-                       title=f'Real 12×12×4 · {plan["node_budget"]} expansion cap · {plan["action_budget"]} action cap',
+                       title='Solve rate by low-level node budget · real 12×12×4',
                        yaxis={"title": "Verified board solve rate (%) · Wilson 95%", "range": [-5, 110]},
-                       xaxis={"categoryorder": "array", "categoryarray": plan["methods"]})
+                       xaxis={"title": "Low-level nodes (simulator actions)", "tickmode": "array",
+                              "tickvals": sorted({row["node_budget"] for row in summary})})
     if not observed:
         plot.update_xaxes(visible=False)
         plot.update_yaxes(visible=False)
     return plot
 
 
-def export(output: Path, *, static: bool = False) -> JSONObject:
+def compatible(first: JSONObject, other: JSONObject) -> None:
+    """Only combine separately executed budgets from the same frozen protocol."""
+    for field in ("provider", "methods", "seed", "cohort", "asset_manifest_sha256", "policy_fingerprint", "source_hashes"):
+        if first[field] != other[field]:
+            raise ValueError(f"Incompatible budget protocols: {field}")
+    for method in first["methods"]:
+        left = {key: value for key, value in first["configs"][method].items() if key != "action_budget"}
+        right = {key: value for key, value in other["configs"][method].items() if key != "action_budget"}
+        if left != right:
+            raise ValueError(f"Incompatible budget configuration: {method}")
+
+
+def export(output: Path, *, static: bool = False, additional: list[Path] | None = None) -> JSONObject:
     """Read only completed records and the ledger; never load credentials or infer."""
     plan = json.loads((output / "manifest.json").read_text())
     status(plan, output)  # Validate saved identities and completion digests before exporting.
     rows = run_rows(plan, output, costs(plan["freeze_id"]))
-    summary, contrast = summaries(rows), paired(rows)
+    seen = {plan["node_budget"]}
+    for other_output in additional or []:
+        other = json.loads((other_output / "manifest.json").read_text())
+        compatible(plan, other)
+        if other["node_budget"] in seen:
+            raise ValueError("Duplicate independently executed node budget")
+        seen.add(other["node_budget"])
+        status(other, other_output)
+        rows.extend(run_rows(other, other_output, costs(other["freeze_id"])))
+    summary = summaries(rows)
+    contrasts = [{"node_budget": budget, **paired([row for row in rows if row["node_budget"] == budget])}
+                 for budget in sorted(seen)]
     target = output / "plot_data"
     target.mkdir(parents=True, exist_ok=True)
     write_csv(target / "runs.csv", rows)
     write_csv(target / "solve_rates.csv", summary)
-    write_csv(target / "paired_delta.csv", [contrast])
+    write_csv(target / "paired_delta.csv", contrasts)
     plot = figure(summary, plan)
     plot.write_html(target / "solve_rate.html", include_plotlyjs=True)
+    plot.write_json(target / "solve_rate.json")
     if static:
         for extension in ("svg", "pdf"):
             plot.write_image(target / f"solve_rate.{extension}")
     result = {"freeze_id": plan["freeze_id"], "expected": len(rows), "methods": summary,
-              "paired_relative_minus_absolute": contrast, "source": str(output),
+              "paired_relative_minus_absolute": contrasts, "source": str(output),
               "note": "Single seed, observed-board denominator; no invented missing outcomes. "
                       "Logical tokens include cache replay. Provider tokens and settled USD describe charged calls. "
                       "Unsettled reservations are not confirmed charges. Calibration is reused and excluded."}
     write_json(target / "summary.json", result)
     (target / "COLUMNS.md").write_text(
-        "# Launch tables\n\n`runs.csv` key: freeze_id + board_id + method + seed + node_budget + action_budget.\n"
+        "# Launch tables\n\n`runs.csv` key: freeze_id + board_id + method + seed + node_budget.\n"
         "Empty fields are missing observations. `solved` is populated only for completed runs.\n"
-        "`node_budget` and `expansions` count expanded queue entries; `action_budget` and `attempted_actions` "
-        "count actual simulator moves, including no-ops and failed attempts. Solution length counts path moves.\n"
+        "`node_budget` and `low_level_nodes` count actual simulator moves, including no-ops and failed attempts. "
+        "`high_level_expansions` counts queue expansions separately and is not added to low-level nodes; "
+        "the reached high-level state is already visited in the low-level rollout. Solution length counts path moves.\n"
         "Token counts are tokens; requests are calls; cost columns are USD. Logical metrics include local cache "
         "replay. Journal replay restores earlier cumulative client metrics; a recovered in-flight request can "
         "be absent from those client counters. The authoritative `paid_*` counters come from the shared ledger. "
@@ -225,9 +257,10 @@ def main() -> None:
     """Offline report command; HTML always, optional SVG/PDF through local Kaleido."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--additional", type=Path, nargs="*", default=[], help="Other independent budget output directories")
     parser.add_argument("--static", action="store_true")
     arguments = parser.parse_args()
-    print(json.dumps(export(arguments.output, static=arguments.static), indent=2))
+    print(json.dumps(export(arguments.output, static=arguments.static, additional=arguments.additional), indent=2))
 
 
 if __name__ == "__main__":
