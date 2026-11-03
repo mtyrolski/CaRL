@@ -1,11 +1,12 @@
 """Coverage and paired statistics must never turn missing jobs into failed observations."""
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
-from scripts.launch100.report import paired, run_rows, summaries, wilson
+from scripts.launch100.report import costs, paired, run_rows, summaries, wilson
 from scripts.launch100.runtime import job_key
 
 
@@ -55,3 +56,23 @@ def test_solved_record_requires_verified_replay(tmp_path: Path) -> None:
     lower, upper = wilson(0, 100)
     assert lower == 0 and upper is not None and 0.036 < upper < 0.038
     assert wilson(0, 0) == (None, None)
+
+
+def test_costs_include_settled_usage_and_keep_unknown_reservations_separate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("scripts.launch100.report.ROOT", tmp_path)
+    config = tmp_path / "configs/icl/campaign_budget.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps({"ledger_path": "cost.sqlite3"}))
+    with sqlite3.connect(tmp_path / "cost.sqlite3") as database:
+        database.execute("CREATE TABLE attempts(tag TEXT, charged_nanos INTEGER, reserved_nanos INTEGER, usage_json TEXT)")
+        database.executemany("INSERT INTO attempts VALUES(?,?,?,?)", [
+            ("launch100:frozen:job", 1000000, 500000000, json.dumps({"input_tokens": 100, "output_tokens": 20})),
+            ("launch100:frozen:job", None, 500000000, None),
+            ("launch100:other:job", 9000000, 500000000, None),
+        ])
+    row = costs("frozen")["job"]
+    assert row["paid_attempts"] == 2 and row["paid_usage_unknown_attempts"] == 1
+    assert row["settled_usd"] == 0.001 and row["unsettled_reserved_usd"] == 0.5
+    assert row["paid_input_tokens"] == 100 and row["paid_output_tokens"] == 20

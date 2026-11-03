@@ -25,13 +25,25 @@ def costs(freeze_id: str) -> dict[str, JSONObject]:
     prefix = f"launch100:{freeze_id}:"
     with sqlite3.connect(ledger.resolve().as_uri() + "?mode=ro", uri=True) as database:
         rows = database.execute(
-            "SELECT tag,COUNT(*),SUM(COALESCE(charged_nanos,0)),"
-            "SUM(CASE WHEN charged_nanos IS NULL THEN reserved_nanos ELSE 0 END) "
-            "FROM attempts WHERE tag LIKE ? GROUP BY tag", (prefix + "%",)
+            "SELECT tag,charged_nanos,reserved_nanos,usage_json FROM attempts WHERE tag LIKE ?",
+            (prefix + "%",),
         ).fetchall()
-    return {tag.removeprefix(prefix): {"paid_attempts": count, "settled_usd": charged / 1e9,
-                                     "unsettled_reserved_usd": reserved / 1e9}
-            for tag, count, charged, reserved in rows}
+    result: dict[str, JSONObject] = {}
+    for tag, charged, reserved, encoded in rows:
+        row = result.setdefault(tag.removeprefix(prefix), {
+            "paid_attempts": 0, "settled_usd": 0.0, "unsettled_reserved_usd": 0.0,
+            "paid_input_tokens": 0, "paid_output_tokens": 0, "paid_usage_unknown_attempts": 0,
+        })
+        row["paid_attempts"] += 1
+        row["settled_usd"] += (charged or 0) / 1e9
+        row["unsettled_reserved_usd"] += reserved / 1e9 if charged is None else 0
+        usage = json.loads(encoded) if encoded else {}
+        if all(isinstance(usage.get(name), int) for name in ("input_tokens", "output_tokens")):
+            row["paid_input_tokens"] += usage["input_tokens"]
+            row["paid_output_tokens"] += usage["output_tokens"]
+        else:
+            row["paid_usage_unknown_attempts"] += 1
+    return result
 
 
 def run_rows(plan: JSONObject, output: Path, charges: dict[str, JSONObject]) -> list[JSONObject]:
@@ -62,17 +74,21 @@ def run_rows(plan: JSONObject, output: Path, charges: dict[str, JSONObject]) -> 
                 "solved": solved, "solution_replay_verified": replay,
                 "all_actions_replay_verified": record.get("all_actions_replay_verified") if record else None,
                 "finish_reason": outcome.get("finish_reason"), "attempted_actions": outcome.get("attempted_actions"),
+                "stop_category": record.get("stop_category") if record else None,
+                "wall_seconds": outcome.get("seconds"),
                 "expansions": outcome.get("expansions"),
                 "solution_length": len(outcome["action_path"]) if solved else None,
                 "accepted": outcome.get("accepted"), "rejected": outcome.get("rejected"),
-                "fallback": outcome.get("primitive_successors", outcome.get("primitive_actions")),
+                "fallback_state_changes": outcome.get("primitive_successors"),
+                "fallback_actions": outcome.get("primitive_actions"),
                 "response_replay_calls_this_invocation": record.get("response_replay_calls_this_invocation") if record else None,
             }
             for field in ("requests", "logical_requests", "cache_hits", "input_tokens", "output_tokens",
                           "logical_input_tokens", "logical_output_tokens"):
                 row[field] = metrics.get(field)
             row.update(charges.get(key, {"paid_attempts": None, "settled_usd": None,
-                                         "unsettled_reserved_usd": None}))
+                                         "unsettled_reserved_usd": None, "paid_input_tokens": None,
+                                         "paid_output_tokens": None, "paid_usage_unknown_attempts": None}))
             rows.append(row)
     if len({row["job_key"] for row in rows}) != len(rows):
         raise ValueError("Duplicate planned jobs")
@@ -189,7 +205,12 @@ def export(output: Path, *, static: bool = False) -> JSONObject:
         "`node_budget` and `expansions` count expanded queue entries; `action_budget` and `attempted_actions` "
         "count actual simulator moves, including no-ops and failed attempts. Solution length counts path moves.\n"
         "Token counts are tokens; requests are calls; cost columns are USD. Logical metrics include local cache "
-        "replay; provider metrics describe physical attempts. Journal replay restores earlier cumulative metrics.\n"
+        "replay. Journal replay restores earlier cumulative client metrics; a recovered in-flight request can "
+        "be absent from those client counters. The authoritative `paid_*` counters come from the shared ledger. "
+        "Known token sums exclude attempts with missing usage; those have their own unknown-attempt count.\n"
+        "`fallback_state_changes` counts explicit primitive successors that changed state, including duplicates; "
+        "`fallback_actions` counts all verbal primitive actions including no-ops. These are different quantities. "
+        "Unavailable counters are NULL. `wall_seconds` is the observed invocation time where recorded.\n"
         "`settled_usd` is confirmed ledger usage; `unsettled_reserved_usd` is held headroom, not a charge. "
         "A missing ledger row is NULL. Calibration was paid earlier and is not billed again here.\n"
         "`solve_rates.csv` denominator is completed boards for one method and seed. Wilson intervals use that "
