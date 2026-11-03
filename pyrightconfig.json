@@ -1,7 +1,8 @@
 {
   // which files/dirs to type-check at all
   "include": [
-    "carl"
+    "carl",
+    "scripts"
   ],
 
   // which files/dirs to completely ignore
