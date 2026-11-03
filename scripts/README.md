@@ -4,7 +4,7 @@ Use `uv run --extra icl python -m ...` from the repository root.
 
 | Task | Entry point |
 | --- | --- |
-| Plan, launch or resume the current 100-board comparison | `scripts.launch100` |
+| Plan, launch or resume the current 100-board comparison with `--budget` | `scripts.launch100` |
 | Export its CSV and HTML/SVG/PDF figures offline | `scripts.launch100.report` |
 | Plan or run the matching local Torch comparison | `scripts.trained_reference.run` |
 | Recover the original native k=8,4,1 historical reference | `scripts.trained_reference.freeze` |

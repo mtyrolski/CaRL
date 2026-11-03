@@ -1,4 +1,4 @@
-# Launch 100 boards with a 500-node budget
+# Launch 100 boards with a low-level node budget
 
 Run commands from the repository root. This is a new experiment with the measured
 goal-placement prompt; it does not resume the historical pilot on changed code.
@@ -12,10 +12,12 @@ goal-placement prompt; it does not resume the historical pilot on changed code.
 All conditions use the same 100 full, distinct **12×12×4** initial boards.
 No 32×32 full solves or holdout1000 runs are included.
 
-The node limit means **500 expanded queue entries**, including entries for
-different scales and primitive fallback. Discovered/proposed nodes are a separate
-quantity. Every simulator action counts against an additional **4,000-action**
-ceiling, including no-ops and unsuccessful rollouts. Seed: 11. CLLP cap: 8;
+Each run has one search budget: **B=500 low-level nodes by default**. One
+executed simulator action consumes one node, including no-ops, failed CLLP
+rollouts and primitive fallback. A reached high-level state is already present
+in that rollout, so it is not charged again. High-level expansions and accepted
+subgoals are reported separately; they have no additional search cap. API
+request, token, time and dollar limits remain operational safeguards. Seed: 11. CLLP cap: 8;
 the fixed baseline uses cap=k. Explicit scales are u=(0.85, 0.5) and d=(8, 4),
 carried forward from validation, not retuned for the new prompt.
 
@@ -30,7 +32,7 @@ uv run --extra icl python -m scripts.launch100 --status
 
 Default invocation is also a plan. The plan lists every board ID, resolved
 methods and limits, remaining ledger balance, and explicit cost assumptions.
-Preparation writes `analysis/luna_icl/launch100_nodes500/manifest.json` and an
+Preparation writes `analysis/luna_icl/launch100_low_level_b500/manifest.json` and an
 all-planned-cells `status.csv`. It does not infer. The manifest binds source
 hashes, model, inputs, exact prompts and examples. Changed source or configuration
 requires a new output directory; a different freeze is never silently resumed.
@@ -48,9 +50,9 @@ initial states and provenance, without witness actions or future test states.
 
 **The existing $40 campaign cap is not enough to promise a complete matrix.**
 Extrapolating the one measured goal-progress full-board probe gives approximately
-$249 for 200 runs at the same cost per expansion, or $561 at the same cost per
-action. These are scenarios from one partial, mixed-cache validation run, not
-quotes or measured costs of this experiment. They assume the same cost for both
+$70 for 200 runs at 500 low-level steps if cost per step stays constant. This is
+a scenario from one partial, mixed-cache validation run, not a quote, upper bound,
+or measured cost of this experiment. It assumes the same cost for both
 explicit methods. The plan includes token/request/time scenarios. Verbal full-run
 cost is not established. No new experiment charges were incurred during setup.
 
@@ -93,8 +95,8 @@ the two core methods again; it reuses matching request-cache entries, not comple
 run records from a different freeze.
 
 ```bash
-uv run --extra icl python -m scripts.launch100 --preset extended --output analysis/luna_icl/launch100_extended --prepare
-env -u OPENAI_API_KEY uv run --extra icl python -m scripts.launch100 --preset extended --output analysis/luna_icl/launch100_extended --execute --usd-cap 40
+uv run --extra icl python -m scripts.launch100 --preset extended --output analysis/luna_icl/launch100_low_level_extended_b500 --prepare
+env -u OPENAI_API_KEY uv run --extra icl python -m scripts.launch100 --preset extended --output analysis/luna_icl/launch100_low_level_extended_b500 --execute --usd-cap 40
 ```
 
 The explicit fixed baseline uses generators at k=8 and 4 plus enumerated primitive
@@ -114,8 +116,9 @@ uv run --extra icl python -m scripts.trained_reference.run run --execute --resum
 uv run --extra icl python -m scripts.trained_reference.run status
 ```
 
-This trained comparison uses the shared search loop with the same expansion and
-action limits, scales 8/4, one proposal and four beams. It is separate from the
+This trained comparison uses the shared search loop with the same low-level
+budget, scales 8/4, one proposal and four beams. Pass `--budget 128` or `--budget
+256` to its `plan`, `run` or `status` commands for separate runs. It is separate from the
 historical native AdaSubS result of 91/100, which used a different cohort and
 native work counter. Trained resume verifies completed cases; an interrupted
 case is retained for inspection rather than silently rerun.
@@ -126,7 +129,7 @@ case is retained for inspection rather than silently rerun.
 uv run --extra icl python -m scripts.launch100.report --static
 ```
 
-`analysis/luna_icl/launch100_nodes500/plot_data/` contains `runs.csv`,
+`analysis/luna_icl/launch100_low_level_b500/plot_data/` contains `runs.csv`,
 `solve_rates.csv`, `paired_delta.csv`, `COLUMNS.md`, and HTML/SVG/PDF figures.
 Pass `--output` to report another prepared preset. Export works before any run:
 missing `solved` values stay NULL, and figures state that no results exist.
@@ -134,11 +137,28 @@ Solve-rate denominators use observed boards; coverage and possible full-cohort
 bounds remain separate. Zero observed successes retain a nonzero Wilson upper
 bound. Ledger charges and unresolved reservations are separate columns.
 
+To plot a curve, prepare and execute **independent** runs at each desired budget,
+for example `--budget 128`, `--budget 256`, and `--budget 500`. No smaller
+budget is inferred by truncating a larger run. For example, the B=128 run uses:
+
+```bash
+uv run --extra icl python -m scripts.launch100 --budget 128 --prepare
+env -u OPENAI_API_KEY uv run --extra icl python -m scripts.launch100 --budget 128 --execute --usd-cap 40
+```
+
+Repeat with 256 and 500, then export all three:
+
+```bash
+uv run --extra icl python -m scripts.launch100.report --static \
+  --additional analysis/luna_icl/launch100_low_level_b128 analysis/luna_icl/launch100_low_level_b256
+```
+
 ```python
 import pandas as pd
 
-runs = pd.read_csv("analysis/luna_icl/launch100_nodes500/plot_data/runs.csv")
+runs = pd.read_csv("analysis/luna_icl/launch100_low_level_b500/plot_data/runs.csv")
 observed = runs.loc[runs["status"].eq("complete")]
+observed = observed.loc[observed["node_budget"].eq(500)]
 paired = observed.pivot(index="board_id", columns="method", values="solved")
 paired = paired.dropna(subset=["relative_u", "absolute_d"])
 delta_pp = 100 * (paired["relative_u"].astype(float) - paired["absolute_d"].astype(float)).mean()

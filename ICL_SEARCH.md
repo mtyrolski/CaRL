@@ -1,7 +1,7 @@
 # All-Luna ICL search
 
 The current supported launch is [LAUNCH_100.md](LAUNCH_100.md): 100 distinct
-12×12×4 boards, 500 expansions, matched relative/absolute conditions, and
+12×12×4 boards, a 500 low-level node budget, matched relative/absolute conditions, and
 optional fixed, verbal and trained-model comparisons. Its portable inputs and
 explicit cost guard replace the earlier default pilot instructions below.
 The remainder documents generic interfaces and historical experiment profiles.

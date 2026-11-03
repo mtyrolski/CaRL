@@ -7,7 +7,7 @@ The evaluation cohort is the existing **100 real 12×12 boards** from `campaign_
 - `data/`: original frozen policy training, value examples and public pilot manifest. Public pilot records contain no witness actions or future states.
 - `checkpoint/`: unchanged 26-example measured generator checkpoint and its adjacent calibration evidence. Labels are measured frozen-policy labels, not recorded trajectory offsets.
 - `demonstrations.json`: six verified training-only task-progress snippets. They have no `u` or `d` labels.
-- `config.json`: resolved explicit configuration, portable asset paths, 500 expansion limit and separate 4000-action limit. Launch conditions and limits are controlled by the launch specification.
+- `config.json`: archived explicit configuration used to export the checkpoint. The current launcher overrides its historical limits with the single low-level node budget in the new launch manifest.
 - `verbal.json`: six measured semantic calibration examples and original controller/judge demonstrations. Only the generator prompt changes to the grounded prompt selected after observed validation failures. This is an experimental carried-forward configuration, not an independently validated improvement.
 - `cohort_checks.json`: source identity checks and explicit train/validation/evaluation layout sets.
 

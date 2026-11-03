@@ -16,9 +16,10 @@ packages where the components have separate responsibilities:
 | `search.py` | Simulator execution, scale/value priority and work limits |
 | `luna.py`, `datasets.py` | Public facades for components and data preparation |
 
-`max_expansions` counts queue entries selected for expansion. It does not count
-all proposed or discovered states. `action_budget` separately counts every
-executed simulator action, including failed rollouts, no-ops and fallback.
+`action_budget` counts every executed low-level simulator action, including
+failed rollouts, no-ops and fallback. `max_expansions` optionally limits queue
+entries separately; set it to `None` for the CaRL-style single-budget comparison.
+High-level states reached by a rollout have already consumed low-level steps.
 
 The generator returns full explicit boards. Static rejection never asks the
 simulator for a move. CLLP executes actions; a subgoal hit requires exact state

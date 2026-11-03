@@ -1,5 +1,29 @@
 # Kampania 100: stan i miejsce wznowienia
 
+## Korekta budżetu — 2026-11-03
+
+Użytkownik wyjaśnił, że węzły high-level są osiąganymi stanami ze ścieżki
+low-level i nie należy ich dodawać drugi raz. Jedyny budżet searcha to liczba
+wykonanych kroków low-level, B=500 domyślnie. Liczone są także no-op, nieudane
+próby i primitive fallback. `max_expansions=null`: liczba ekspansji high-level
+jest osobną statystyką, nie dodatkowym limitem ani składnikiem B. Limit CLLP L=8
+oraz limity API/czasu/kosztu pozostają ograniczeniami wykonania, nie osią wykresu.
+Oryginalny CaRL podobnie raportuje low-level nodes osobno; historyczny solver
+mógł przekroczyć `max_nodes` przy dłuższym rolloutcie, tutaj B jest ścisłe.
+
+Nowe entrypointy: `scripts.launch100 --budget 500 --plan/--prepare` i osobne
+`--budget 128`, `--budget 256`. Każde B to niezależny run; raport łączy jedynie
+zgodne zamrożone konfiguracje, nie wycina niższego B z większego śladu. Torch i
+verbal używają tej samej jednostki B; Torch przyjmuje `--budget`.
+Plan 500 ekspansji + 4000 akcji z poprzedniego wpisu jest nieaktualny i nie był
+wykonywany. Jego manifesty zachowano w lokalnym `analysis/` jako historię.
+
+Jeden wcześniejszy 32-krokowy probe kosztował $0.022443483; liniowa ilustracja
+200 runów × 500 kroków przy stałym koszcie to około $70.14, z mieszanym cache
+na jednej planszy. To nie jest wiarygodna górna granica ani wynik pilota. Limit
+całej kampanii pozostaje $40. Nowych płatnych wywołań w tej korekcie nie było.
+
+
 ## Aktualizacja: launch100 i porządkowanie repo — 2026-11-03
 
 Bieżące polecenie: przygotować uruchomienie 100 pełnych plansz i uporządkować
