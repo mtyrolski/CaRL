@@ -158,6 +158,7 @@ class UniversalGeneratorDataModule(pl.LightningDataModule):
 
             trajectory_length = len(trajectory_states)
             for position in range(trajectory_length - 1):
+                distances: range | list[int]
                 if self.subgoal_distance_interval is None:
                     distances = range(1, trajectory_length - position)
                 else:

@@ -264,7 +264,10 @@ class TrainingLoopHF(Algorithm):
                 assert isinstance(model_storage, dict)
                 k = int(name.split('/')[-1])
                 logger.info(f'Using adaptive generator with k={k}')
-                model = model_storage[k]
+                candidate = cast(dict[int, torch.nn.Module], model_storage)[k]
+                if not isinstance(candidate, PreTrainedModel):
+                    raise TypeError(f'Generator {k} is not a Hugging Face model')
+                model = candidate
                 buffer = cast(OfflineReplayBuffer, self.replay_buffer.get_buffer_for_generator(k))
         if name == 'value':
             model_storage = self.solver.value_function.get_network()

@@ -1,8 +1,7 @@
-def enum(*sequential, **named):
+def enum(*sequential: str, **named: int) -> type:
     enums = dict(zip(sequential, range(len(sequential))), **named)
     reverse = {value: key for key, value in enums.items()}
-    enums['reverse_mapping'] = reverse
-    return type('Enum', (), enums)
+    return type('Enum', (), {**enums, 'reverse_mapping': reverse})
 
 
 Facelet = enum(

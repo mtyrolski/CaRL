@@ -94,7 +94,7 @@ class TrainUniversalGeneratorHF(Algorithm):
             logger.success(f"Loaded universal generator init checkpoint from {path_to_model_weights}")
 
         self.model = cast(PreTrainedModel, self.model)
-        self.model.to(self.device)
+        cast(torch.nn.Module, self.model).to(self.device)
 
     def _neptune_log(self, key: str, step: int, value: float) -> None:
         if self.custom_logger is None:
@@ -110,12 +110,12 @@ class TrainUniversalGeneratorHF(Algorithm):
     def _encode_embeddings(self, token_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         encoder_getter = getattr(self.model, "get_encoder", None)
         if callable(encoder_getter):
-            encoder = encoder_getter()
+            encoder = cast(torch.nn.Module, encoder_getter())
             encoder_outputs = encoder(input_ids=token_ids, attention_mask=attention_mask)
             hidden_states = encoder_outputs.last_hidden_state
             return masked_mean_pool(hidden_states, attention_mask)
 
-        embedding_layer = self.model.get_input_embeddings()
+        embedding_layer = cast(torch.nn.Module, self.model.get_input_embeddings())
         hidden_states = embedding_layer(token_ids)
         return masked_mean_pool(hidden_states, attention_mask)
 

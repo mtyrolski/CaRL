@@ -202,9 +202,9 @@ class Solver:
                     "duplicate": False,
                 }
                 if isinstance(generation_metadata, dict):
-                    for key, value in generation_metadata.items():
+                    for key, metadata_value in generation_metadata.items():
                         if key in {"proposal_rank", "proposal_confidence", "node_depth", "proposal_duplicate_in_decode"}:
-                            event[key] = value
+                            event[key] = metadata_value
                 proposal_event_id += 1
                 if self.planner.is_seen(subgoal):
                     event["duplicate"] = True
