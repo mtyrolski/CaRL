@@ -42,6 +42,14 @@ dependencies = [
     "isort>=6.0.1,<7.0.0",
 ]
 
+[project.optional-dependencies]
+icl = [
+    "openai>=2,<3",
+    "pydantic>=2,<3",
+    "tiktoken>=0.9,<1",
+    "filelock>=3.12,<4",
+]
+
 [tool.poetry]
 name = "carl"
 version = "0.1.0"

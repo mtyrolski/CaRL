@@ -28,3 +28,26 @@ solve_attempts/
 .coverage
 out*
 *out
+
+# Local data/checkpoint links.
+/models_weights
+/validation
+
+# Keep experiment records, request caches, ledgers and weights on disk.
+# Only the artifact index and campaign journal belong in source control.
+/analysis/*
+!/analysis/README.md
+!/analysis/luna_icl/
+/analysis/luna_icl/*
+!/analysis/luna_icl/campaign_100/
+/analysis/luna_icl/campaign_100/*
+!/analysis/luna_icl/campaign_100/campaign.md
+
+# Credentials and generated notebook/tool state.
+.env.*
+!.env.example
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+__pycache__/
