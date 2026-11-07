@@ -17,3 +17,18 @@ python -m scripts.reachability_runner export --config path/to/study.json
 Use a new output directory for each study. Mock runs use simulated responses; replay uses an explicitly selected saved cache and cannot fetch missing responses. Neither constitutes a new live measurement. Resume checks the frozen contract and retains completed outcomes and attempt history.
 
 Live execution requires an explicit model profile, separately authorised limits and a campaign ledger. A request with unknown billing remains reserved and blocks automatic retry until reconciled. Do not commit request or response caches, ledgers, credentials, or private witnesses. Historical campaign-specific recovery scripts and incident records are separate from this runner.
+
+## Local history
+
+One-off campaign scripts, recovery experiments and their tests were moved to
+`analysis/icl_reachability/cleanup_backup/legacy_sources/` in the original
+checkout. The archive is local and is not included in Git. To inspect or restore
+its original paths without overwriting existing files:
+
+```bash
+python scripts/restore_reachability_archive.py --list
+python scripts/restore_reachability_archive.py
+```
+
+Restoration puts historical code back; it does not authorise a live run or make
+old campaign data part of a fresh checkout.
