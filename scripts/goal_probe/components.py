@@ -8,7 +8,7 @@ from typing import TypedDict
 from carl.icl.boards import from_rows
 from carl.icl.config import ExperimentConfig
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.luna_components.formatting import task
 from carl.icl.responses import text_message
 from carl.icl.types import Board, BoardEnvironment, BoardRows, JSONObject, TrainingData
@@ -49,7 +49,7 @@ def with_progress_examples(
     return result
 
 
-class TaskProgressComponents(LunaComponents):
+class TaskProgressComponents(ICLComponents):
     """Keep the production parser, rejection feedback, CLLP and value unchanged."""
 
     def __init__(

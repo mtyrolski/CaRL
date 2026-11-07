@@ -8,7 +8,7 @@ from carl.icl.api import BudgetExceeded, RequestFailed, write_json
 from carl.icl.boards import from_rows, to_rows
 from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import JSONObject, Provider, TrainingData
 from scripts.generator_probe.cases import CapturedAPI, classify, execute_target
 from scripts.goal_probe.components import MechanicsExample, TaskProgressComponents
@@ -31,7 +31,7 @@ def run_case(
     state = from_rows(query["state"])
     api = GoalAPI(config, provider, f"explicit:{variant}:{query['id']}")
     components = (TaskProgressComponents(config, api, environment(state), training, demonstrations)
-                  if variant == "goal_examples" else LunaComponents(config, api, environment(state), training))
+                  if variant == "goal_examples" else ICLComponents(config, api, environment(state), training))
     seed = int(hashlib.sha256(f"11:{query['id']}:0.85".encode()).hexdigest()[:8], 16)
     row: JSONObject = {"query_id": query["id"], "board_id": query["provenance"]["board_id"],
                        "source": query["state"], "provenance": query["provenance"],

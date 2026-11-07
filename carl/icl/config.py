@@ -1,4 +1,4 @@
-"""Validated settings for the all-Luna experiment and optional generator snapshots."""
+"""Validated settings for prompted ICL experiments and generator snapshots."""
 import json
 from pathlib import Path
 from typing import Final, Literal
@@ -133,6 +133,7 @@ class ExperimentConfig(Settings):
     max_expansions: int | None = Field(default=128, ge=1)
     num_subgoals: int = Field(default=1, ge=1, le=8)
     few_shot: int = Field(default=4, ge=0)
+    policy_demo_selection: Literal["legacy", "diverse_training_v2"] = "legacy"
     generator_checkpoint: str | None = Field(default=None, min_length=1)
     generator_example_limit: int | None = Field(default=None, ge=0)
     selection: Literal["direct", "embeddings"] = "direct"

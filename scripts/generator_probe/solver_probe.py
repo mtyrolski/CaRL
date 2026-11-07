@@ -14,7 +14,7 @@ from carl.icl.boards import from_rows, state_hash
 from carl.icl.config import ROOT, load_config
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import components_for_run, credentials
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.search import search
 from carl.icl.search_tree import expansion_figure, tree_figure
 from scripts.experiment_support.trace import DurableEnvironment, DurableTree, verify_actions
@@ -76,7 +76,7 @@ def main() -> None:
         api = CapturedAPI(config, "openai", "full_solver_validation")
         tree = DurableTree(trace)
         env = DurableEnvironment(environment(initial), tree)
-        components = LunaComponents(config, api, env, training)
+        components = ICLComponents(config, api, env, training)
         try:
             result = search(env, components, initial, config, 11, observer=tree)
         finally:

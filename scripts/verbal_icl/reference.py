@@ -5,7 +5,7 @@ from carl.icl.boards import from_rows
 from carl.icl.config import ExperimentConfig, load_config
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import TrainingData
 
 
@@ -18,7 +18,7 @@ def reference_data(spec: dict[str, Any], model: str) -> tuple[ExperimentConfig, 
     return config, training
 
 
-def build_reference(config: ExperimentConfig, training: TrainingData, api: ExperimentAPI) -> LunaComponents:
+def build_reference(config: ExperimentConfig, training: TrainingData, api: ExperimentAPI) -> ICLComponents:
     """Constructor verifies the frozen policy; V retains full solution continuation labels."""
     initial = from_rows(training['contexts'][0]['state'])
-    return LunaComponents(config, api, environment(initial), training)
+    return ICLComponents(config, api, environment(initial), training)

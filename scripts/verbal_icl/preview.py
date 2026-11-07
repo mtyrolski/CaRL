@@ -5,7 +5,7 @@ from typing import Any, cast
 from carl.icl.boards import from_rows
 from carl.icl.config import ExperimentConfig
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from scripts.verbal_icl.components import VerbalComponents
 from scripts.verbal_icl.demonstrations import VerbalDemo
 
@@ -29,7 +29,7 @@ def controller_payloads(config: ExperimentConfig, prompts: dict[str, str],
     """Freeze exact worded train examples and one illustrative source/current query."""
     recorder = RecordingAPI()
     # The demonstration-backed policy/judge paths do not access the legacy reference.
-    component = VerbalComponents(config, cast(ExperimentAPI, recorder), cast(LunaComponents, None),
+    component = VerbalComponents(config, cast(ExperimentAPI, recorder), cast(ICLComponents, None),
                                   [], prompts, demonstrations=demos)
     row = demos[0]
     source, current = from_rows(row['source']), from_rows(row['state'])

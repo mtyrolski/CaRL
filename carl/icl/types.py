@@ -21,6 +21,21 @@ JSONObject: TypeAlias = dict[str, Any]
 MockResponse: TypeAlias = Callable[[], JSONObject]
 
 
+class InferenceClient(Protocol):
+    """Inference boundary required by prompted components and calibration."""
+
+    provider: str
+    metrics: dict[str, int | float]
+
+    def call(self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None) -> JSONObject:
+        """Return a complete decoded response from a provider or cache."""
+        ...
+
+    def call_json_retry(self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None) -> JSONObject:
+        """Retry a request using a distinct cache slot."""
+        ...
+
+
 class Candidate(TypedDict):
     """A verified future board and its trajectory offset/action prefix."""
 

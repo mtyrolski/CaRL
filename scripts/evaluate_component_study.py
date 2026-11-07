@@ -15,7 +15,7 @@ from carl.icl.config import ROOT, ExperimentConfig, Limits, Settings, load_confi
 from carl.icl.datasets import environment, load_data, verify_solution
 from carl.icl.experiment import credentials
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import Instance, Provider, TrainingData
 from scripts.evaluate_trajectory_components import _generator_case, _policy_case, _value_case
 
@@ -23,7 +23,15 @@ COMPONENTS: Final = ("policy", "generator", "value")
 DEFAULT_CONFIG: Final = "configs/icl/component_study/luna_100.json"
 CODE_FILES: Final = (
     "scripts/evaluate_component_study.py", "scripts/evaluate_trajectory_components.py",
-    "carl/icl/luna.py", "carl/icl/api.py", "carl/icl/experiment_api.py",
+    "carl/icl/luna.py", "carl/icl/components.py", "carl/icl/api.py", "carl/icl/experiment_api.py",
+    "carl/icl/prompt_defaults.py", "carl/icl/luna_components/__init__.py",
+    "carl/icl/luna_components/base.py", "carl/icl/luna_components/policy.py",
+    "carl/icl/luna_components/generator.py", "carl/icl/luna_components/value.py",
+    "carl/icl/luna_components/formatting.py",
+    "carl/icl/llm_components/__init__.py", "carl/icl/llm_components/base.py",
+    "carl/icl/llm_components/policy.py", "carl/icl/llm_components/generator.py",
+    "carl/icl/llm_components/value.py", "carl/icl/llm_components/formatting.py",
+    "carl/icl/few_shot_selection.py",
     "carl/icl/search.py", "carl/icl/trace.py", "carl/icl/boards.py", "carl/icl/responses.py",
     "carl/icl/config.py", "carl/icl/datasets.py", "carl/icl/types.py",
     "carl/environment/sokoban/env.py", "carl/environment/sokoban/core.py",
@@ -127,7 +135,7 @@ def case_result(
         raise ValueError(f"Trajectory {item['id']} is shorter than horizon {study.horizon}")
     source = states[position]
     api = ExperimentAPI(config.path("cache_dir"), provider, config.limits, client=client)
-    components = LunaComponents(config, api, environment(source), training)
+    components = ICLComponents(config, api, environment(source), training)
     row: dict[str, Any] = {
         "component": component, "instance": item["id"], "few_shot": config.few_shot,
         "position": position, "horizon": study.horizon,

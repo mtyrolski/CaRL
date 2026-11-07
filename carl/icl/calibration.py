@@ -11,12 +11,12 @@ from filelock import FileLock, Timeout
 from carl.icl.api import BudgetExceeded, RequestFailed, write_json
 from carl.icl.boards import from_rows, state_hash
 from carl.icl.config import ExperimentConfig
-from carl.icl.luna_components.formatting import task
+from carl.icl.llm_components.formatting import task
 from carl.icl.search import rollout
 from carl.icl.types import Board, JSONObject, TrainingContext
 
 if TYPE_CHECKING:
-    from carl.icl.luna import LunaComponents
+    from carl.icl.components import ICLComponents
 
 CALIBRATION_VERSION = 'policy-relative-exact-v2'
 
@@ -56,7 +56,7 @@ def weighted_median(times: list[float], weights: list[float]) -> float:
     return float(values[min(int(np.searchsorted(cumulative, threshold - tolerance, side='left')), len(values) - 1)])
 
 
-def calibration_id(config: ExperimentConfig, components: "LunaComponents") -> str:
+def calibration_id(config: ExperimentConfig, components: "ICLComponents") -> str:
     """Bind model, training content, policy, seeded sampling, window, repetitions and cap."""
     specification = {'version': CALIBRATION_VERSION, 'policy': components.fingerprint(),
                      'training_sha256': hashlib.sha256(json.dumps(components.training, sort_keys=True).encode()).hexdigest(),
@@ -102,7 +102,7 @@ def _action_recorder(actions: list[int]) -> Callable[[Board, int, Board], None]:
     return record
 
 
-def _candidate_trials(config: ExperimentConfig, components: "LunaComponents", context: TrainingContext,
+def _candidate_trials(config: ExperimentConfig, components: "ICLComponents", context: TrainingContext,
                       candidate_index: int, *, context_index: int, directory: Path,
                       on_step: Callable[[], None]) -> JSONObject:
     """Persist each independent action-sampling stream; cache only policy distributions."""
@@ -134,7 +134,7 @@ def _candidate_trials(config: ExperimentConfig, components: "LunaComponents", co
     return data
 
 
-def calibrate(config: ExperimentConfig, components: "LunaComponents", directory: Path) -> JSONObject:
+def calibrate(config: ExperimentConfig, components: "ICLComponents", directory: Path) -> JSONObject:
     """Prevent concurrent runs from counting or overwriting the same trial twice."""
     lock_dir = directory / calibration_id(config, components)
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +145,7 @@ def calibrate(config: ExperimentConfig, components: "LunaComponents", directory:
         raise BudgetExceeded('This calibration is already running in another process') from exc
 
 
-def _calibrate_locked(config: ExperimentConfig, components: "LunaComponents", directory: Path) -> JSONObject:
+def _calibrate_locked(config: ExperimentConfig, components: "ICLComponents", directory: Path) -> JSONObject:
     """Run R seeded rollouts per distinct target; retain exclusions and durable trials."""
     signature = calibration_id(config, components)
     directory = directory / signature

@@ -14,7 +14,7 @@ from carl.icl.boards import from_rows, state_hash, to_rows, validate_subgoal
 from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.search import rollout
 from carl.icl.trace import RecordingEnvironment, RecordingPolicy
 from carl.icl.types import Board, Instance, JSONObject, MockResponse, Provider, TrainingData
@@ -81,7 +81,7 @@ def classify(calls: list[JSONObject], source: Board, layout_schema: bool) -> lis
 
 
 def execute_target(
-    components: LunaComponents, source: Board, target: Board, seed: int,
+    components: ICLComponents, source: Board, target: Board, seed: int,
     on_progress: Callable[[JSONObject], None] | None = None,
 ) -> JSONObject:
     """Use the production controller and independently replay its recorded actions."""
@@ -131,7 +131,7 @@ def run_case(
     source = from_rows(instance["state"])
     identifier = f"{instance['id']}:{scale}:{variant}"
     api = CapturedAPI(config, provider, identifier)
-    components = LunaComponents(config, api, environment(source), training, calibrated=calibration)
+    components = ICLComponents(config, api, environment(source), training, calibrated=calibration)
     seed = int(hashlib.sha256(f"11:{instance['id']}:{scale}".encode()).hexdigest()[:8], 16)
     row: JSONObject = {"board_id": instance["id"], "family": config.family, "split": config.split,
                        "variant": variant, "scale": scale, "sampling_seed": seed, "provider": provider,

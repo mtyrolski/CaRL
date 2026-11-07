@@ -9,7 +9,7 @@ from carl.icl.checkpoints import GeneratorCheckpoint, export_generator_checkpoin
 from carl.icl.config import ROOT, ExperimentConfig
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import JSONObject
 from scripts.generator_probe.calibrate import aggregate, digest
 from scripts.generator_probe.integrity import verify_target
@@ -77,7 +77,7 @@ def prompt_bundle(config: ExperimentConfig, checkpoint: GeneratorCheckpoint) -> 
     for limit in limits:
         condition = config.model_copy(update={"generator_example_limit": limit})
         api = ExperimentAPI(condition.path("cache_dir"), "replay", condition.limits)
-        components = LunaComponents(condition, api, environment(state), training)
+        components = ICLComponents(condition, api, environment(state), training)
         for scale in (0.5, 0.85):
             payloads.append({"source_id": source["id"], "example_count": limit, "u": scale,
                              "payload": components.generator_payload(state, scale, resolve_embeddings=False)})
@@ -87,7 +87,7 @@ def prompt_bundle(config: ExperimentConfig, checkpoint: GeneratorCheckpoint) -> 
     train_state = from_rows(context["state"])
     train_target = from_rows(context["candidates"][0]["subgoal"])
     api = ExperimentAPI(config.path("cache_dir"), "replay", config.limits)
-    components = LunaComponents(config, api, environment(train_state), training)
+    components = ICLComponents(config, api, environment(train_state), training)
     return {"checkpoint_sha256": checkpoint.sha256, "source": source, "generator": payloads,
             "policy": {"query_context": context["id"], "query_kind": "training witness inspection only",
                        "payload": components.policy_payload(train_state, train_target)},

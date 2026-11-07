@@ -14,7 +14,7 @@ from carl.icl.boards import from_rows
 from carl.icl.config import ROOT, ExperimentConfig, Limits, load_config
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import credentials
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import JSONObject, Provider
 from scripts.goal_probe.components import MechanicsExample, TaskProgressComponents
 from scripts.goal_probe.data import OUTPUT, Query
@@ -50,7 +50,7 @@ def prepare_manifest(provider: Provider) -> JSONObject:
             state = from_rows(query["state"])
             api = GoalAPI(config, "replay", "preview")
             component = (TaskProgressComponents(config, api, environment(state), training, demonstrations)
-                         if variant == "goal_examples" else LunaComponents(config, api, environment(state), training))
+                         if variant == "goal_examples" else ICLComponents(config, api, environment(state), training))
             payload = component.generator_payload(state, 0.85, resolve_embeddings=False)
             tokens = len(encoder.encode(json.dumps(payload), disallowed_special=()))
             if tokens > config.limits.max_input_tokens:

@@ -14,7 +14,8 @@ class ExperimentAPI(CachedOpenAI):
     """Charge cache hits and physical requests against the same experimental limits."""
 
     def __init__(
-        self, cache_dir: str | Path, provider: str, limits: Limits, client: Any = None
+        self, cache_dir: str | Path, provider: str, limits: Limits, client: Any = None,
+        *, encoding: Any = None,
     ) -> None:
         super().__init__(
             cache_dir,
@@ -25,7 +26,7 @@ class ExperimentAPI(CachedOpenAI):
             client=client,
         )
         self.limits = limits
-        self.encoding = tiktoken.get_encoding("o200k_base")
+        self.encoding = encoding if encoding is not None else tiktoken.get_encoding("o200k_base")
         self.metrics.update(
             logical_requests=0,
             logical_input_tokens=0,

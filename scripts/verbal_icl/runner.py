@@ -16,7 +16,7 @@ from carl.icl.config import ROOT, ExperimentConfig, load_config
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import credentials
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from scripts.verbal_icl.calibration import calibrate, signature
 from scripts.verbal_icl.components import Example, VerbalComponents
 from scripts.verbal_icl.search import search, verify_trace
@@ -107,7 +107,7 @@ def main() -> None:
     if args.command == 'calibrate':
         api = client(config, args.provider, calibration=True, stage=spec['ledger_stage'])
         api.budget_tag = f'verbal_relative_calibration_{label}'
-        reference = LunaComponents(config, api, environment(initial), training)
+        reference = ICLComponents(config, api, environment(initial), training)
         CALIBRATION_ROOT.mkdir(parents=True, exist_ok=True)
         try:
             with FileLock(str(CALIBRATION_ROOT / f'{label}.lock'), timeout=0):
@@ -148,7 +148,7 @@ def main() -> None:
             api = client(config, args.provider, calibration=False, stage=spec['ledger_stage'])
             api.budget_tag = f'verbal_relative_search_{digest}'
             env = environment(state)
-            reference = LunaComponents(config, api, env, training)
+            reference = ICLComponents(config, api, env, training)
             component = VerbalComponents(config, api, reference, cast(list[Example], calibration['examples']), prompts)
             write_json(started, {'status': 'started', 'contract': contract})
             trace.touch(exist_ok=False)

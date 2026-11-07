@@ -15,7 +15,7 @@ from carl.icl.config import ROOT, ExperimentConfig, load_config
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.experiments.tuning import tune as _tune
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.search import search
 from carl.icl.reporting import report
 from carl.icl.types import Board, JSONObject, TrainingData
@@ -46,15 +46,15 @@ def credentials(provider: str) -> None:
         )
 
 
-def calibration_components(config: ExperimentConfig, provider: str) -> LunaComponents:
+def calibration_components(config: ExperimentConfig, provider: str) -> ICLComponents:
     """Bind calibration to training layouts and its independent request budget."""
     training, _ = load_data(config)
     state = from_rows(training["contexts"][0]["state"])
     api = ExperimentAPI(config.path("cache_dir"), provider, config.calibration.limits)
-    return LunaComponents(config, api, environment(state), training)
+    return ICLComponents(config, api, environment(state), training)
 
 
-def calibration_path(config: ExperimentConfig, components: LunaComponents) -> Path:
+def calibration_path(config: ExperimentConfig, components: ICLComponents) -> Path:
     """Locate labels for this exact frozen policy and provider."""
     return (
         config.path("data_dir")
@@ -93,10 +93,10 @@ def run_calibration(config: ExperimentConfig, provider: str) -> JSONObject:
 
 def components_for_run(
     config: ExperimentConfig, provider: str, training: TrainingData, state: Board
-) -> LunaComponents:
+) -> ICLComponents:
     """Validate few-shot and calibration contracts before spending inference budget."""
     api = ExperimentAPI(config.path("cache_dir"), provider, config.limits)
-    components = LunaComponents(config, api, environment(state), training)
+    components = ICLComponents(config, api, environment(state), training)
     if config.generator_checkpoint is None and config.method in {"relative", "relative_u", "absolute", "absolute_d", "ratio_d_over_ac", "normalized_offset"}:
         path = calibration_path(config, components)
         if not path.exists():
@@ -134,7 +134,7 @@ def preview(config: ExperimentConfig, provider: str = "replay") -> Path:
     """Write inspectable requests without issuing model or embedding calls."""
     training, instances = load_data(config)
     state = from_rows(instances[0]["state"])
-    components = LunaComponents(
+    components = ICLComponents(
         config,
         ExperimentAPI(config.path("cache_dir"), provider, config.limits),
         environment(state),

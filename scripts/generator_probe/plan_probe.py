@@ -14,7 +14,7 @@ from carl.icl.boards import from_rows, to_rows
 from carl.icl.config import ROOT, ExperimentConfig
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import credentials
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import Board, JSONObject, Provider
 from scripts.generator_probe.cases import CapturedAPI, classify, execute_target
 from scripts.generator_probe.report import costs
@@ -22,7 +22,7 @@ from scripts.generator_probe.visible_plan import recorded_plan, visible_plan_pay
 from scripts.luna_generator_probe import OUTPUT
 
 
-class VisiblePlanComponents(LunaComponents):
+class VisiblePlanComponents(ICLComponents):
     """Change only generator payloads; the controller never receives the action plan."""
 
     def generator_payload(self, state: Board, scale: float, resolve_embeddings: bool = True) -> JSONObject:

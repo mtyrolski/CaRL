@@ -5,7 +5,8 @@ packages where the components have separate responsibilities:
 
 | Package or module | Responsibility |
 | --- | --- |
-| `luna_components/` | Generator, goal-conditioned policy, value, message formatting |
+| `llm_components/` | Model-neutral generator, goal-conditioned policy and value |
+| `luna_components/` | Legacy imports and frozen formatting used by existing datasets |
 | `checkpoints/` | Inspectable, fingerprinted generator demonstrations |
 | `data_sources/` | Sokoban trajectory loading and replay validation |
 | `planning/` | Search protocols, result records and queue entries |

@@ -16,7 +16,7 @@ from carl.icl.boards import from_rows
 from carl.icl.config import ROOT, Limits
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import credentials
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import Instance, JSONObject, Provider
 from scripts.generator_probe.cases import CapturedAPI, run_case
 from scripts.generator_probe.report import summarize
@@ -61,7 +61,7 @@ def main() -> None:
         scale = (0.5, 0.85)[(original_ids.index(item["board_id"]) + item["position"]) % 2]
         for name, config in configs.items():
             api = CapturedAPI(config, "replay", "preview")
-            component = LunaComponents(config, api, environment(from_rows(instance["state"])), training)
+            component = ICLComponents(config, api, environment(from_rows(instance["state"])), training)
             payload = component.generator_payload(from_rows(instance["state"]), scale, resolve_embeddings=False)
             tokens = len(encoding.encode(json.dumps(payload), disallowed_special=()))
             if tokens > config.limits.max_input_tokens:

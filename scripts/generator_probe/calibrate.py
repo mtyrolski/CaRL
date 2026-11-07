@@ -17,7 +17,7 @@ from carl.icl.calibration import calibration_result_digest, weighted_median, wei
 from carl.icl.config import ROOT, Limits
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment import credentials
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import JSONObject, Provider, TrainingData
 from scripts.generator_probe.cases import CapturedAPI, execute_target
 from scripts.generator_probe.integrity import trial_seed, verify_target
@@ -49,7 +49,7 @@ def target_run(
                          max_output_tokens=65536, wall_seconds=1200, timeout_seconds=90),
     })
     api = CapturedAPI(config, provider, f"calibration:{context['id']}:{index}")
-    components = LunaComponents(config, api, environment(source), training)
+    components = ICLComponents(config, api, environment(source), training)
     if path.exists():
         saved = json.loads(path.read_text())
         if saved.get("complete"):
@@ -157,7 +157,7 @@ def main() -> None:
     config = configurations()["baseline"]
     training, _ = load_data(config)
     source = from_rows(contexts[0]["state"])
-    reference = LunaComponents(config, CapturedAPI(config, "replay", "plan"), environment(source), training)
+    reference = ICLComponents(config, CapturedAPI(config, "replay", "plan"), environment(source), training)
     paths = [DATASET, Path(__file__).resolve(), *sorted((ROOT / "carl/icl").rglob("*.py")),
              ROOT / "scripts/luna_generator_probe.py", ROOT / "scripts/generator_probe/cases.py",
              ROOT / "scripts/generator_probe/integrity.py"]

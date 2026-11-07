@@ -11,7 +11,8 @@ from carl.icl.api import RequestFailed
 from carl.icl.boards import from_rows, tiles, to_rows
 from carl.icl.config import ExperimentConfig
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents, board_coordinates, task
+from carl.icl.components import ICLComponents
+from carl.icl.luna_components.formatting import board_coordinates, task
 from carl.icl.responses import request_options, text_message
 from carl.icl.types import Board, BoardRows
 from scripts.verbal_icl.types import Judgment
@@ -59,7 +60,7 @@ def describe_transition(source: BoardRows, target: BoardRows) -> str:
 class VerbalComponents:
     """Do not infer a target board or query a simulator to validate a model judgment."""
 
-    def __init__(self, config: ExperimentConfig, api: ExperimentAPI, reference: LunaComponents,
+    def __init__(self, config: ExperimentConfig, api: ExperimentAPI, reference: ICLComponents,
                  examples: list[Example], prompts: dict[str, str], audit_path: Path | None = None,
                  demonstrations: list["VerbalDemo"] | None = None, generator_examples: int | None = None) -> None:
         self.config, self.api, self.reference = config, api, reference

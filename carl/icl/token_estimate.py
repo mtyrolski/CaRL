@@ -13,7 +13,7 @@ from carl.icl.calibration import calibration_id
 from carl.icl.config import ExperimentConfig, Settings
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.types import JSONObject
 
 ENCODING: Final[str] = "o200k_base"
@@ -78,7 +78,7 @@ def _sample(config: ExperimentConfig) -> JSONObject:
     training, instances = load_data(config)
     state = from_rows(instances[0]["state"])
     api = ExperimentAPI(config.path("cache_dir"), "mock", config.limits)
-    components = LunaComponents(config, api, environment(state), training)
+    components = ICLComponents(config, api, environment(state), training)
     if config.method == "relative":
         # Never use mock calibration as live calibration; labels only size the prompt.
         rows = []

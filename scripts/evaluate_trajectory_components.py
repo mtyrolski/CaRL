@@ -20,7 +20,7 @@ from carl.icl.config import ExperimentConfig, Limits, load_config
 from carl.icl.datasets import environment, load_data, verify_solution
 from carl.icl.experiment import credentials
 from carl.icl.experiment_api import ExperimentAPI
-from carl.icl.luna import LunaComponents
+from carl.icl.components import ICLComponents
 from carl.icl.search import rollout
 from carl.icl.trace import RecordingEnvironment, RecordingPolicy
 from carl.icl.types import Board, TrainingData
@@ -53,12 +53,12 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def _components(config: ExperimentConfig, api: ExperimentAPI, training: TrainingData, board: Board) -> LunaComponents:
-    return LunaComponents(config, api, environment(board), training)
+def _components(config: ExperimentConfig, api: ExperimentAPI, training: TrainingData, board: Board) -> ICLComponents:
+    return ICLComponents(config, api, environment(board), training)
 
 
 def _policy_case(
-    components: LunaComponents, source: Board, target: Board, horizon: int, seed: int
+    components: ICLComponents, source: Board, target: Board, horizon: int, seed: int
 ) -> dict[str, Any]:
     policy = RecordingPolicy(components)
     env = RecordingEnvironment(components.env, policy)
@@ -78,7 +78,7 @@ def _policy_case(
     return result
 
 
-def _generator_case(components: LunaComponents, source: Board, target: Board, horizon: int) -> dict[str, Any]:
+def _generator_case(components: ICLComponents, source: Board, target: Board, horizon: int) -> dict[str, Any]:
     result: dict[str, Any] = {"valid_count": 0}
     try:
         proposals = components.propose(source, float(horizon))
@@ -94,7 +94,7 @@ def _generator_case(components: LunaComponents, source: Board, target: Board, ho
     return result
 
 
-def _value_case(components: LunaComponents, state: Board, remaining: int) -> dict[str, Any]:
+def _value_case(components: ICLComponents, state: Board, remaining: int) -> dict[str, Any]:
     result: dict[str, Any] = {"reference_return": components.config.discount ** remaining,
                               "terminal": remaining == 0}
     try:
