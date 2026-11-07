@@ -1,0 +1,21 @@
+{
+  "experiment_config": "configs/icl/experiments/tuned_fixed.json",
+  "output_dir": "analysis/luna_icl/figure1_example_v2",
+  "cache_dir": "analysis/luna_icl/cache",
+  "models": ["gpt-6-luna"],
+  "datasets": [
+    {
+      "name": "real_12x12x4",
+      "data_dir": "data/icl",
+      "family": "real_12x12x4",
+      "split": "validation",
+      "trajectories": 3,
+      "contexts_per_trajectory": 1
+    }
+  ],
+  "window": 8,
+  "targets_per_context": 4,
+  "trials": 3,
+  "action_cap": 8,
+  "seed": 20261103
+}

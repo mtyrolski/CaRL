@@ -19,3 +19,14 @@ Saved-result notebooks require the corresponding local artifacts listed in
 [`analysis/README.md`](../analysis/README.md). A fresh clone contains source and
 launch inputs, not the private cache or all historical results. Missing local
 results must not be replaced with mock observations in a live-data report.
+
+## Reachability experiments
+
+`figure1_reachability.ipynb` walks through the reachability measurement in
+mock mode. `icl_8v32_reachability.ipynb` and
+`icl_proposal_hard_reachability.ipynb` inspect saved live results.
+`torch_cllp32_three_families.ipynb` displays local checkpoint results.
+
+The saved results, trajectory witnesses and model checkpoints are not included
+in Git. These notebooks need their matching local artifacts and report missing
+inputs rather than substituting mock results for measurements.
