@@ -1,0 +1,25 @@
+{
+  "dataset_dir": "data/icl/reachability_exploratory_v2",
+  "output_dir": "analysis/icl_reachability/runner_offline_smoke",
+  "cache_dir": "analysis/icl_reachability/runner_offline_cache",
+  "mode": "mock",
+  "replay_source": null,
+  "experiment_config": "configs/icl/experiments/tuned_fixed.json",
+  "arms": {
+    "luna": {"model_id": "offline-mock-luna", "provider": "mock", "endpoint": "responses", "reasoning": "none", "response_format": "text", "max_output_tokens": 256, "text_temperature": null, "pricing": {"currency": "USD", "input_per_million": "0", "output_per_million": "0", "simulated": true}, "request_options": {"service_tier": "default", "stream": true, "store": false, "tools": [], "include": [], "text": {"verbosity": "low"}, "reasoning": {"effort": "none"}}, "mock_probabilities": [0.0, 0.0, 0.0, 1.0]},
+    "terra_6_1": {"model_id": "offline-mock-terra", "provider": "mock", "endpoint": "responses", "reasoning": "none", "response_format": "text", "max_output_tokens": 256, "text_temperature": null, "pricing": {"currency": "USD", "input_per_million": "0", "output_per_million": "0", "simulated": true}, "request_options": {"service_tier": "default", "stream": true, "store": false, "tools": [], "include": [], "text": {"verbosity": "low"}, "reasoning": {"effort": "none"}}, "mock_probabilities": [0.0, 0.0, 0.0, 1.0]}
+  },
+  "n_main": 1,
+  "n_pilot": 1,
+  "core_offsets": [1, 2],
+  "core_repetitions": 1,
+  "reference_contexts": 1,
+  "reference_targets": 2,
+  "reference_repetitions_per_group": 1,
+  "action_cap": 32,
+  "few_shot": 4,
+  "policy_temperature": 1.0,
+  "format_retries": 1,
+  "transport_retries": 0,
+  "limits": {"logical_calls": 10000, "physical_calls": 10000, "total_usd": "0", "arm_usd": {"luna": "0", "terra_6_1": "0"}, "stage_usd": {"pilot": "0", "main": "0", "calibration_A": "0", "calibration_B": "0"}}
+}
