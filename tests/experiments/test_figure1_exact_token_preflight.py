@@ -1,4 +1,6 @@
 """Offline controls: no counted response or provider cost is fabricated."""
+import json
+
 import pytest
 from pathlib import Path
 
@@ -52,17 +54,15 @@ def test_malformed_count_is_rejected(value):
         quote_from_count(payload, project_count_request(payload), value, price())
 
 
-def test_real_smoke_policy_payload_projects_with_metadata_and_schema():
+def test_policy_payload_projects_with_metadata_and_schema():
     from carl.icl.boards import from_rows
     from scripts.reachability_runner import engine
 
-    study = engine.load_study(Path('configs/icl/reachability_runner/smoke_live_TWO_TRIALS_DISABLED.json'))
-    _dataset, training, core, _references, boards = engine.data_inputs(study)
-    job = engine.contract(study)['jobs'][0]
-    pair = next(row for row in core if row['pair_id'] == job['pair'])
-    query = engine.policy_query(pair, boards)
-    payload = engine._payload(study, study.arms[job['arm']], training,
-                              from_rows(query['state']), from_rows(query['subgoal']))
+    study = engine.load_study(Path('configs/icl/reachability_runner/offline_core_plan.json'))
+    training = json.loads(Path('configs/icl/checkpoints/launch100/assets/data/training.json').read_text())
+    context = training['contexts'][0]
+    payload = engine._payload(study, study.arms['luna'], training,
+                              from_rows(context['state']), from_rows(context['candidates'][0]['subgoal']))
     projected = project_count_request(payload)
     assert 'metadata' in payload and 'metadata' not in projected
     assert len(projected['input']) >= 2

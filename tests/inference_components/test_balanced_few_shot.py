@@ -72,7 +72,7 @@ def test_corrupt_pre_anchor_state_fails_even_if_suffix_is_unchanged(training):
 
 @pytest.mark.parametrize("count", [8, 32, 64])
 def test_frozen_manifest_matches_training_and_selected_examples(training, count):
-    manifest = json.loads(Path(f"configs/icl/figure1/diverse_policy_demonstrations_{count}_v2.json").read_text())
+    manifest = json.loads(Path("configs/icl/figure1/diverse_policy_demonstrations_64_v2.json").read_text())
     assert manifest["training_source_sha256"] == hashlib.sha256(TRAINING.read_bytes()).hexdigest()
     expected = []
     for example in diverse_training_examples(training, count):
@@ -80,7 +80,7 @@ def test_frozen_manifest_matches_training_and_selected_examples(training, count)
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
                                            allow_nan=False).encode()).hexdigest()
         expected.append({"metadata": example["metadata"], "query_answer_sha256": digest})
-    assert manifest["examples"] == expected
+    assert manifest["examples"][:count] == expected
 
 
 @pytest.mark.parametrize("count", [8, 32])
