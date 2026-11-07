@@ -2,10 +2,13 @@
 
 This directory contains local results, complete request/response caches, cost
 ledgers, traces, figures and trained weights. These files are preserved on disk
-and excluded from Git. The campaign journal is the only tracked run record here.
+and excluded from Git. Only this index and the campaign journal are tracked.
 
 | Location | Contents |
 | --- | --- |
+| `icl_reachability/` | ICL reachability runs, replay data and local experiment archive |
+| `torch_reachability/` | Local checkpoint reachability runs and replay records |
+| `overnight_relative_scale_2026-11-07/` | Scale-label diagnostic and report |
 | `luna_icl/campaign_100/campaign.md` | Decisions, measured results and historical commands |
 | `luna_icl/campaign_100/generator_probe_v2/` | Calibrated 26-example generator checkpoint and component measurements |
 | `luna_icl/campaign_100/goal_progress_probe/` | Goal-placement demonstrations, explicit/verbal probes and offline report |
