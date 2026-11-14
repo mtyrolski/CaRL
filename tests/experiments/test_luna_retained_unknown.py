@@ -8,7 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from carl.icl.campaign_budget import CampaignLedger
-from carl.icl.luna_intent_transport import LunaIntentTransport, LunaRequestUncertain, create_luna_budget_config
+from carl.icl.luna_intent_transport import LunaIntentTransport
+from carl.icl.luna_intent_transport import LunaRequestUncertain
+from carl.icl.luna_intent_transport import create_luna_budget_config
 
 
 class FakeResponse:

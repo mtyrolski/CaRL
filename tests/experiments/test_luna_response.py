@@ -3,7 +3,8 @@
 import pytest
 from openai.types.responses import Response
 
-from carl.icl.luna_response import LunaResponseError, final_assistant_text
+from carl.icl.luna_response import LunaResponseError
+from carl.icl.luna_response import final_assistant_text
 
 
 def output_text(text):

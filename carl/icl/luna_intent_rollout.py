@@ -6,11 +6,11 @@ fixed across calibration and evaluation. Predicate checks use the real states
 returned by the environment, not a language-model judge.
 """
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
-from typing import Final
+from typing import Any, Final
 
 import numpy as np
 

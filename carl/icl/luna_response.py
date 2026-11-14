@@ -36,7 +36,7 @@ def final_assistant_text(response: Response) -> str:
 
     if not final.content or any(part.type != "output_text" for part in final.content):
         raise LunaResponseError("Final message has no supported text")
-    text = "".join(part.text for part in final.content)
+    text = "".join(part.text for part in final.content if part.type == "output_text")
     if not text.strip():
         raise LunaResponseError("Final message has no supported text")
     return text

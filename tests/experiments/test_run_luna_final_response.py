@@ -9,7 +9,6 @@ from carl.icl.luna_intent_rollout import RolloutStatus
 from carl.icl.luna_intent_transport import create_luna_budget_config
 from scripts import run_luna_final_response as runner
 
-
 BOARD = ["#####", "#####", "#@$.#", "#####", "#####"]
 INTENT = {"effects": [{"predicate": "box_at", "row": 2, "col": 3}], "preserve": []}
 

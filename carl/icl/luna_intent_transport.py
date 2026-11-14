@@ -14,8 +14,11 @@ import os
 import re
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from decimal import ROUND_CEILING, Decimal, InvalidOperation
+from datetime import datetime
+from datetime import timezone
+from decimal import ROUND_CEILING
+from decimal import Decimal
+from decimal import InvalidOperation
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
@@ -201,7 +204,7 @@ class LunaIntentTransport:
         self.audit_dir = self.run_dir / "luna_requests"
         self.audit_dir.mkdir(parents=True, exist_ok=True)
         if client is None:
-            from openai import OpenAI  # Imported only when the experiment needs the API.
+            from openai import OpenAI    # Imported only when the experiment needs the API.
             client = OpenAI(timeout=timeout_seconds, max_retries=0)
         else:
             client = client.with_options(timeout=timeout_seconds, max_retries=0)

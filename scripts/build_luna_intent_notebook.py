@@ -15,12 +15,13 @@ from textwrap import dedent
 from typing import Any
 
 import matplotlib
-import matplotlib.pyplot as plt
 import nbformat
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.utils.capture import capture_output
 
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt    # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUN = ROOT / "analysis/luna_intent_20261114T060730Z"
 COMPLETED = {"achieved", "preservation_violated", "task_solved", "action_limit", "invalid_response"}
@@ -109,11 +110,16 @@ def concatenation_artifacts(results: dict[str, dict[str, Any]], audits: list[dic
             response = audit.get("response")
             if not isinstance(response, dict):
                 continue
-            parts = [(message.get("phase"), content.get("text"), message.get("status"))
-                     for message in response.get("output", []) if isinstance(message, dict)
-                     and message.get("type") == "message"
-                     for content in message.get("content", []) if isinstance(content, dict)
-                     and content.get("type") == "output_text" and isinstance(content.get("text"), str)]
+            parts: list[tuple[object, str, object]] = []
+            for message in response.get("output", []):
+                if not isinstance(message, dict) or message.get("type") != "message":
+                    continue
+                for content in message.get("content", []):
+                    if not isinstance(content, dict) or content.get("type") != "output_text":
+                        continue
+                    text = content.get("text")
+                    if isinstance(text, str):
+                        parts.append((message.get("phase"), text, message.get("status")))
             if "".join(text for _, text, _ in parts) != raw:
                 continue
             final = [(text, status) for phase, text, status in parts if phase == "final_answer"]
@@ -202,7 +208,7 @@ def load_report(run: Path) -> dict[str, Any]:
     counts = Counter(row.get("record_id") for row in rollouts)
     duplicate_ids = {record_id for record_id, count in counts.items() if count > 1}
     if duplicate_ids:
-        warnings.append(f"Duplicate rollout IDs excluded from analysis: {sorted(duplicate_ids)}")
+        warnings.append(f"Duplicate rollout IDs excluded from analysis: {sorted(duplicate_ids, key=str)}")
     results = {}
     for row in rollouts:
         record_id = row.get("record_id")
@@ -339,7 +345,7 @@ def figures(run: Path, report: dict[str, Any]) -> list[Path]:
               ["context_id", "record_id", "status", "parser_artifact", "context_complete_after_audit", "successes",
                "success_fraction", "mean_success_actions", "u"])
     plt.rcParams.update({"font.family": "serif", "font.size": 10, "pdf.fonttype": 42, "svg.fonttype": "none"})
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.4), sharey=True, constrained_layout=True)
     colors = {FAMILIES[0]: "#2266a3", FAMILIES[1]: "#b34a36"}
     labels = {FAMILIES[0]: "12×12×4, dane realne", FAMILIES[1]: "12×12×10, dane syntetyczne"}
     for ax, phase in zip(axes, PHASES, strict=True):
@@ -353,8 +359,11 @@ def figures(run: Path, report: dict[str, Any]) -> list[Path]:
             x = [row["action_budget"] for row in rows]
             y = [row["fraction"] for row in rows]
             last = rows[-1]
+            planned = next(item["planned"] for item in report["summaries"]
+                           if item["phase"] == phase and item["family"] == family)
             ax.step(x, y, where="post", marker=".", linewidth=1.4, color=colors[family],
-                    label=f"{labels[family]} (n={last['denominator']}; plansze={last['boards']})")
+                    label=f"{labels[family]}\nukończone/zaplanowane: {last['denominator']}/{planned}; "
+                          f"plansze: {last['boards']}")
             intervals = [row for row in rows if row["bootstrap_low"] is not None]
             if intervals:
                 ax.vlines([r["action_budget"] for r in intervals], [r["bootstrap_low"] for r in intervals],
@@ -366,6 +375,7 @@ def figures(run: Path, report: dict[str, Any]) -> list[Path]:
         ax.set(title="Kalibracja" if phase == "calibration" else "Test", xlabel="Budżet ruchów gracza", ylim=(-0.03, 1.03))
         ax.grid(axis="y", alpha=0.2)
     axes[0].set_ylabel("Odsetek spełnionych intencji")
+    fig.supxlabel("Przedziały dotyczą ukończonych prób; awarie i brakujące próby podano w tabeli.", fontsize=8)
     paths = []
     for extension in ("png", "pdf", "svg"):
         path = destination / f"success_by_action_budget.{extension}"
@@ -415,8 +425,11 @@ def figures(run: Path, report: dict[str, Any]) -> list[Path]:
         for family in FAMILIES:
             rows = [row for row in data["curve"] if row["phase"] == "test" and row["family"] == family]
             if rows:
-                overview.append({"variant": variant, **max(rows, key=lambda row: row["action_budget"])})
-    overview_fields = ["variant", *fields]
+                planned = next(item["planned"] for item in data["summaries"]
+                               if item["phase"] == "test" and item["family"] == family)
+                overview.append({"variant": variant, "planned": planned,
+                                 **max(rows, key=lambda row: row["action_budget"])})
+    overview_fields = ["variant", "planned", *fields]
     write_csv(destination / "variant_overview.csv", overview, overview_fields)
     if overview:
         fig, ax = plt.subplots(figsize=(8, 4.2), constrained_layout=True)
@@ -430,8 +443,10 @@ def figures(run: Path, report: dict[str, Any]) -> list[Path]:
                 ax.scatter([row["fraction"]], [y], color=colors[family], s=35)
                 if row["bootstrap_low"] is not None:
                     ax.hlines(y, row["bootstrap_low"], row["bootstrap_high"], color=colors[family], alpha=0.5)
-                ax.annotate(f"{row['successes']}/{row['denominator']}", (row["fraction"], y),
-                            xytext=(5, 2), textcoords="offset points", fontsize=8, color=colors[family])
+                right = row["fraction"] < 0.8
+                ax.annotate(f"{row['successes']}/{row['denominator']} (plan {row['planned']})", (row["fraction"], y),
+                            xytext=(5 if right else -5, 2), ha="left" if right else "right",
+                            textcoords="offset points", fontsize=8, color=colors[family])
         for family in FAMILIES:
             ax.scatter([], [], color=colors[family], label=labels[family])
         ax.set_yticks(range(len(labels_on_plot)), labels_on_plot)
@@ -470,6 +485,11 @@ def notebook(run_relative: str) -> Any:
         Notebook korzysta wyłącznie z zapisanych lokalnie danych i wyników; nie
         wysyła żądań API. Może przedstawiać wyniki częściowe — brak prób oraz
         awarie infrastruktury są podane oddzielnie i nie stają się porażkami modelu.
+        Kod eksperymentu zapisano w commicie `9d5e5e0` i w kopiach `code_v1`…
+        `code_v4` oraz `code_recovery` w katalogu kampanii. Bieżący checkout
+        zawiera późniejsze poprawki typowania i stylu, dlatego hashe plików mogą się
+        różnić od historycznych planów. Nie należy wznawiać starych planów z
+        kodem o innych hashach; odtworzenie samego notebooka działa offline.
         Osobny raport Qwena, LoRA i ICL znajduje się w checkoutcie pod
         `analysis/intent_generator_20261114T032232Z/intent_generator_report.ipynb`.
         """),
@@ -651,9 +671,10 @@ def notebook(run_relative: str) -> Any:
         Awarie API, niepoprawne intencje, próby bez wywołania modelu i
         nieuruchomione przypadki podajemy osobno jako nieocenione. Wykluczenia
         mogą obciążyć wynik: odsetek ukończonych prób nie musi być reprezentatywny.
-        Pionowe przedziały, gdy dostępne, to 95% bootstrap
-        według plansz (2000 losowań); dla mniej niż pięciu plansz pokazujemy tylko
-        opis. Punkty to obserwowane wartości dla kolejnych budżetów, bez interpolacji.
+        Pionowe przedziały dotyczą ukończonych prób i, gdy dostępne, są 95%
+        bootstrapem według plansz (2000 losowań); dla mniej niż pięciu plansz
+        pokazujemy tylko opis. Awarie są wykazane osobno w tabeli. Punkty to
+        obserwowane wartości dla kolejnych budżetów, bez interpolacji.
         """),
         code('''
         table = pd.DataFrame(report["summaries"])
@@ -714,6 +735,9 @@ def notebook(run_relative: str) -> Any:
         wariantów przy innym parserze i wyższym limicie tokenów: nie jest to nowy
         holdout. Tabela nie jest sparowanym testem statystycznym. Różnice mogą
         wynikać ze sposobu odczytu lub generowania odpowiedzi oraz z wyboru plansz.
+        Opis punktu `3/5 (plan 20)` oznacza trzy sukcesy w pięciu ukończonych
+        próbach spośród 20 zaplanowanych. Przedziały dotyczą ukończonych prób;
+        awarie i brakujące próby podano osobno w tabeli.
         """),
         code('''
         campaign = report["audit_run"]
@@ -914,8 +938,9 @@ def main() -> None:
             execution_count += 1
             with capture_output() as captured:
                 result = shell.run_cell(cell.source)
-            if result.error_before_exec or result.error_in_exec:
-                raise result.error_before_exec or result.error_in_exec
+            error = result.error_before_exec or result.error_in_exec
+            if error is not None:
+                raise error
             cell.execution_count = execution_count
             cell.outputs = []
             if captured.stdout:

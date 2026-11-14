@@ -7,8 +7,8 @@ from pathlib import Path
 
 import nbformat
 
-from scripts.build_luna_intent_notebook import board_interval
 from scripts.build_luna_intent_notebook import audited_calibration
+from scripts.build_luna_intent_notebook import board_interval
 from scripts.build_luna_intent_notebook import figures
 from scripts.build_luna_intent_notebook import load_report
 from scripts.build_luna_intent_notebook import read_ledger

@@ -15,8 +15,8 @@ from openai import OpenAI
 
 from carl.icl.luna_intent_rollout import RolloutStatus
 from carl.icl.luna_intent_transport import LunaIntentTransport
-from scripts.run_luna_expanded import FinalMessageTransport
 from scripts.run_luna_expanded import MAX_OUTPUT_TOKENS
+from scripts.run_luna_expanded import FinalMessageTransport
 from scripts.run_luna_expanded import order
 from scripts.run_luna_intent_experiment import ACTION_CAP
 from scripts.run_luna_intent_experiment import REQUEST_TIMEOUT_SECONDS

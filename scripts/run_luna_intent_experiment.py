@@ -10,7 +10,7 @@ import time
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from dotenv import dotenv_values
 from openai import OpenAI
@@ -18,13 +18,22 @@ from openai import OpenAI
 from carl.icl.boards import from_rows
 from carl.icl.calibration import weighted_percentiles
 from carl.icl.data_sources.sokoban import environment
-from carl.icl.luna_intent_rollout import POLICY_PROMPT, RolloutStatus, rollout
-from carl.icl.luna_intent_transport import LunaIntentTransport, create_luna_budget_config
+from carl.icl.luna_intent_rollout import POLICY_PROMPT
+from carl.icl.luna_intent_rollout import RolloutStatus
+from carl.icl.luna_intent_rollout import rollout
+from carl.icl.luna_intent_transport import LunaIntentTransport
+from carl.icl.luna_intent_transport import create_luna_budget_config
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTION_CAP = 16
 MAX_OUTPUT_TOKENS = 64
 REQUEST_TIMEOUT_SECONDS = 45
+
+
+class IntentTransport(Protocol):
+    """The transport interface required by the intent controller."""
+
+    def create(self, prompt: str, *, tag: str) -> Any: ...
 
 
 def digest(path: Path) -> str:
@@ -126,7 +135,7 @@ def make_transport(run_dir: Path) -> LunaIntentTransport:
                                max_output_tokens=MAX_OUTPUT_TOKENS, client=client)
 
 
-def run_one(record: dict[str, Any], transport: LunaIntentTransport, run_dir: Path, cap: int) -> dict[str, Any]:
+def run_one(record: dict[str, Any], transport: IntentTransport, run_dir: Path, cap: int) -> dict[str, Any]:
     """Run and durably journal one policy attempt without exposing demonstration data."""
     identifier = record["record_id"]
     started = time.monotonic()
@@ -157,13 +166,13 @@ def save_calibration(records: list[dict[str, Any]], results: list[dict[str, Any]
         # Infrastructure failures are missing measurements, not failed policy attempts.
         measured = (outcome is not None and outcome["result"]["status"] != RolloutStatus.API_ERROR
                     and outcome["result"]["model_calls"] > 0)
-        success = bool(measured and outcome["result"]["achieved"])
+        success = bool(measured and outcome is not None and outcome["result"]["achieved"])
         candidate = {
             "record_id": record["record_id"],
             "attempts": int(measured),
             "successes": int(success),
             "success_fraction": float(success) if measured else None,
-            "mean_success_actions": len(outcome["result"]["actions"]) if success else None,
+            "mean_success_actions": len(outcome["result"]["actions"]) if success and outcome is not None else None,
             "u": None,
         }
         contexts[record["context_id"]].append(candidate)
@@ -181,7 +190,7 @@ def save_calibration(records: list[dict[str, Any]], results: list[dict[str, Any]
                        "warning": "One attempt per candidate. u is descriptive, conditional on observed success."})
 
 
-def pilot(run_dir: Path, transport: LunaIntentTransport) -> int:
+def pilot(run_dir: Path, transport: IntentTransport) -> int:
     path = run_dir / "results/pilot.jsonl"
     if path.exists() and read_jsonl(path):
         raise ValueError("The pilot has already run; inspect its result instead of retrying")
@@ -201,7 +210,7 @@ def pilot(run_dir: Path, transport: LunaIntentTransport) -> int:
     return int(result["result"]["status"] in {RolloutStatus.API_ERROR, RolloutStatus.INVALID_RESPONSE})
 
 
-def experiment(run_dir: Path, transport: LunaIntentTransport) -> int:
+def experiment(run_dir: Path, transport: IntentTransport) -> int:
     records = frozen_order(read_jsonl(run_dir / "data/records.jsonl"))
     pilot_results = read_jsonl(run_dir / "results/pilot.jsonl")
     if (len(pilot_results) != 1

@@ -8,7 +8,6 @@ import pytest
 from carl.icl.luna_intent_rollout import RolloutStatus
 from scripts import run_luna_intent_experiment as runner
 
-
 BOARD = ["#####", "#####", "#@$.#", "#####", "#####"]
 INTENT = {"effects": [{"predicate": "box_at", "row": 2, "col": 3}], "preserve": []}
 
