@@ -25,6 +25,7 @@ from carl.icl.intent_generator_experiment import file_sha256
 from carl.icl.intent_generator_experiment import read_records
 from carl.icl.intent_representation_experiment import SupportSet
 from carl.icl.intent_representation_experiment import load_supports
+from carl.icl.intent_representation_experiment import messages_for
 from carl.icl.intent_representation_experiment import parse_representation
 
 
@@ -41,7 +42,7 @@ def canonical(intent: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 def parse_one(prediction: dict[str, Any], context: dict[str, Any], mode: Mode,
-              support_signatures: list[str]) -> dict[str, Any]:
+              support_signatures: list[str], shown_support_signatures: list[str] | None = None) -> dict[str, Any]:
     """Reparse original output and separately evaluate its normalized form."""
     raw, representation = prediction["raw_output"], prediction["representation"]
     if not isinstance(raw, str):
@@ -64,6 +65,7 @@ def parse_one(prediction: dict[str, Any], context: dict[str, Any], mode: Mode,
         "mode": mode, "fence_removed": removed, "parseable": intent is not None,
         "semantic_valid": None, "validation_errors": None, "canonical_signature": None,
         "canonical_intent": None, "matches_balanced0_support": [],
+        "matches_shown_support": [], "matches_shown_support_any": False if shown_support_signatures else None,
     }
     if intent is not None:
         key, value = canonical(intent)
@@ -72,6 +74,9 @@ def parse_one(prediction: dict[str, Any], context: dict[str, Any], mode: Mode,
                       canonical_intent=value,
                       matches_balanced0_support=[index for index, signature in enumerate(support_signatures)
                                                  if signature == key])
+        if shown_support_signatures:
+            matches = [index for index, signature in enumerate(shown_support_signatures) if signature == key]
+            result.update(matches_shown_support=matches, matches_shown_support_any=bool(matches))
     return result
 
 
@@ -94,6 +99,7 @@ def summaries(variant: str, support_set: str, rows: list[dict[str, Any]], suppor
                           "occurrences": len(members), "independent_boards": len({r["layout_id"] for r in members}),
                           "valid_on_board": len(valid_members), "invalid_on_board": len(members) - len(valid_members),
                           "matches_balanced0_support": members[0]["matches_balanced0_support"],
+                          "matches_shown_support": members[0]["matches_shown_support"],
                           "family_counts": dict(family_counts), "valid_by_family": dict(family_valid),
                           "validation_error_counts": dict(reasons)})
     matches = []
@@ -123,6 +129,57 @@ def summaries(variant: str, support_set: str, rows: list[dict[str, Any]], suppor
     for index in range(support_count):
         summary[f"match_support_{index}"] = sum(index in row["matches_balanced0_support"] for row in parsed)
     return summary, frequency, matches
+
+
+def shown_summaries(variant: str, support_set: str, rows: list[dict[str, Any]],
+                    shown: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Count exact matches with the demonstrations actually supplied to this method."""
+    if not shown:
+        return {"shown_support_count": 0, "shown_support_match_any": None,
+                "shown_support_match_any_valid": None}, []
+    matched = [row for row in rows if row["matches_shown_support_any"] is True]
+    summary = {"shown_support_count": len(shown), "shown_support_match_any": len(matched),
+               "shown_support_match_any_valid": sum(row["semantic_valid"] is True for row in matched)}
+    output = []
+    for index, example in enumerate(shown):
+        for family in ("all", *sorted({str(row["family"]) for row in rows})):
+            family_rows = [row for row in rows if family == "all" or row["family"] == family]
+            hits = [row for row in family_rows if index in row["matches_shown_support"]]
+            valid = sum(row["semantic_valid"] is True for row in hits)
+            output.append({"variant": variant, "mode": rows[0]["mode"], "actual_support_set": support_set,
+                           "support_index": index, "support_record_id": example["record_id"],
+                           "support_canonical_signature": example["canonical_signature"], "family": family,
+                           "outputs": len(family_rows), "parseable": sum(row["parseable"] for row in family_rows),
+                           "matches": len(hits), "valid_on_board": valid, "invalid_on_board": len(hits) - valid})
+    return summary, output
+
+
+def add_balanced0_visibility(matches: list[dict[str, Any]], balanced0: list[dict[str, Any]],
+                             shown: list[dict[str, Any]]) -> None:
+    """Separate the full-set label from whether an individual example or intent was shown."""
+    identifiers = {item["record_id"] for item in shown}
+    signatures = {item["canonical_signature"] for item in shown}
+    for match in matches:
+        example = balanced0[match["support_index"]]
+        match.update(balanced0_support_record_id=example["record_id"],
+                     balanced0_support_example_was_shown=example["record_id"] in identifiers,
+                     balanced0_support_intent_was_shown=example["canonical_signature"] in signatures)
+
+
+def verify_prompts(path: Path, expected_sha256: str, ids: list[str], contexts: dict[str, dict[str, Any]],
+                   support: list[dict[str, Any]], representation: str) -> None:
+    """Check the actual saved messages, not only the declared support-set name."""
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != expected_sha256 or not content.endswith(b"\n"):
+        raise ValueError("Saved prompts differ from generation metadata or have an incomplete line")
+    prompts = [json.loads(line) for line in content.splitlines() if line.strip()]
+    if [row.get("record_id") for row in prompts] != ids:
+        raise ValueError("Saved prompts differ from the frozen context order")
+    for row in prompts:
+        record = contexts[row["record_id"]]
+        if (row.get("layout_id") != record["layout_id"]
+                or row.get("messages") != messages_for(record, support, representation)):
+            raise ValueError("Saved prompt messages differ from the specified support examples or board")
 
 
 def verify_run(plan: dict[str, Any], job: dict[str, Any], meta: dict[str, Any], prompt_path: Path) -> None:
@@ -194,8 +251,10 @@ def audit(run: Path) -> dict[str, Any]:
             or any(identifier not in by_id for identifier in ids)
             or len({by_id[identifier]["layout_id"] for identifier in ids}) != len(ids)):
         raise ValueError("Expected 128 distinct frozen test boards")
-    support = load_supports(Path(plan["inputs"]["support_data"]["path"]),
-                            Path(plan["inputs"]["support_manifest"]["path"]), SupportSet.BALANCED0)
+    support_data = Path(plan["inputs"]["support_data"]["path"])
+    support_manifest = Path(plan["inputs"]["support_manifest"]["path"])
+    banks = {name: load_supports(support_data, support_manifest, name) for name in SupportSet}
+    support = banks[SupportSet.BALANCED0]
     if len(support) != 2:
         raise ValueError("Expected exactly two balanced0 support examples")
     support_signatures = [canonical(row["intent"])[0] for row in support]
@@ -204,7 +263,10 @@ def audit(run: Path) -> dict[str, Any]:
     support_info = [{"index": index, "record_id": row["record_id"], "layout_id": row["layout_id"],
                      "intent": row["intent"], "canonical_signature": support_signatures[index]}
                     for index, row in enumerate(support)]
-    summaries_out, frequencies_out, matches_out, cases_out, excluded, sources = [], [], [], [], [], {}
+    support_sets = {name.value: [{"index": index, "record_id": row["record_id"], "layout_id": row["layout_id"],
+                                  "intent": row["intent"], "canonical_signature": canonical(row["intent"])[0]}
+                                 for index, row in enumerate(bank)] for name, bank in banks.items()}
+    summaries_out, frequencies_out, matches_out, shown_matches_out, cases_out, excluded, sources = [], [], [], [], [], [], {}
     for job in plan["methods"]:
         name = job["name"]
         path = Path(job["output"])
@@ -223,7 +285,13 @@ def audit(run: Path) -> dict[str, Any]:
             if [row.get("record_id") for row in predictions] != ids:
                 raise ValueError("Completed predictions have a different frozen order")
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            verify_run(plan, job, metadata, path.with_suffix(".prompts.jsonl"))
+            prompt_path = path.with_suffix(".prompts.jsonl")
+            verify_run(plan, job, metadata, prompt_path)
+            selected_support = banks[SupportSet(job["support_set"])]
+            shown_info = support_sets[job["support_set"]]
+            shown_signatures = [example["canonical_signature"] for example in shown_info]
+            verify_prompts(prompt_path, metadata["prompts_sha256"], ids, by_id,
+                           selected_support, job["representation"])
             method_cases = []
             for prediction in predictions:
                 record = by_id[prediction["record_id"]]
@@ -231,18 +299,28 @@ def audit(run: Path) -> dict[str, Any]:
                         or prediction.get("split") != "test" or prediction.get("representation") != job["representation"]
                         or prediction.get("support_set") != job["support_set"]):
                     raise ValueError("Prediction row differs from the frozen method")
-                method_cases.extend({"variant": name, **parse_one(prediction, record, mode, support_signatures)}
+                method_cases.extend({"variant": name, **parse_one(prediction, record, mode, support_signatures,
+                                                                  shown_signatures)}
                                     for mode in Mode)
+            method_summaries, method_frequencies, method_matches, method_shown_matches = [], [], [], []
             for mode in Mode:
                 selected = [row for row in method_cases if row["mode"] == mode]
                 summary, frequencies, matches = summaries(name, job["support_set"], selected, len(support))
-                summaries_out.append(summary)
-                frequencies_out.extend(frequencies)
-                matches_out.extend(matches)
+                shown_summary, shown_matches = shown_summaries(name, job["support_set"], selected, shown_info)
+                add_balanced0_visibility(matches, support_info, shown_info)
+                method_summaries.append({**summary, **shown_summary})
+                method_frequencies.extend(frequencies)
+                method_matches.extend(matches)
+                method_shown_matches.extend(shown_matches)
+            source = {"predictions_sha256": hashlib.sha256(content).hexdigest(),
+                      "run_sha256": file_sha256(metadata_path), "summary_sha256": file_sha256(summary_path),
+                      "prompts_sha256": file_sha256(prompt_path)}
+            summaries_out.extend(method_summaries)
+            frequencies_out.extend(method_frequencies)
+            matches_out.extend(method_matches)
+            shown_matches_out.extend(method_shown_matches)
             cases_out.extend(method_cases)
-            sources[name] = {"predictions_sha256": hashlib.sha256(content).hexdigest(),
-                             "run_sha256": file_sha256(metadata_path), "summary_sha256": file_sha256(summary_path),
-                             "prompts_sha256": file_sha256(path.with_suffix(".prompts.jsonl"))}
+            sources[name] = source
         except (OSError, ValueError, KeyError, TypeError) as error:
             excluded.append({"variant": name, "reason": f"{type(error).__name__}: {error}"})
     return {
@@ -257,13 +335,16 @@ def audit(run: Path) -> dict[str, Any]:
         "fence_normalisation_sha256": file_sha256(Path(remove_one_outer_fence.__code__.co_filename)),
         "support_manifest_sha256": plan["inputs"]["support_manifest"]["sha256"],
         "support_data_sha256": plan["inputs"]["support_data"]["sha256"],
-        "support_examples": support_info, "sources": sources, "excluded_methods": excluded,
+        "support_examples": support_info, "shown_support_sets": support_sets, "sources": sources, "excluded_methods": excluded,
         "summaries": summaries_out, "frequencies": frequencies_out, "support_matches": matches_out,
+        "shown_support_matches": shown_matches_out,
         "records": cases_out,
         "interpretation": ["Strict and one-fence-removal results are distinct protocols; the latter is post-hoc.",
                            "Canonical matching compares all effect and preservation predicates, ignoring array order.",
                            "Matches to balanced0 are observed identity, not proof of causal copying; methods with another "
                            "support set did not necessarily see these demonstrations.",
+                           "balanced0_was_shown identifies the complete support set; per-example fields identify shared examples. "
+                           "Shown-support matches refer to the individually verified prompt messages; zero-shot has no such rate.",
                            "For each parsed intent, validity is checked independently against the current board only; "
                            "it does not establish controller achievement or bounded feasibility.",
                            "All counted units are independent canonical layouts; unavailable or partial methods are excluded, "
@@ -296,6 +377,7 @@ def write_report(destination: Path, result: dict[str, Any]) -> None:
         write_csv(temporary / "summary.csv", result["summaries"])
         write_csv(temporary / "frequencies.csv", result["frequencies"])
         write_csv(temporary / "support_matches.csv", result["support_matches"])
+        write_csv(temporary / "shown_support_matches.csv", result["shown_support_matches"])
         os.replace(temporary, destination)
     except BaseException:
         shutil.rmtree(temporary)

@@ -1,13 +1,18 @@
 """The diversity audit counts matches without treating them as achievements."""
 
+import hashlib
 import json
 
 import pytest
 
+from carl.icl.intent_representation_experiment import messages_for
 from scripts.audit_intent_diversity import Mode
+from scripts.audit_intent_diversity import add_balanced0_visibility
 from scripts.audit_intent_diversity import canonical
 from scripts.audit_intent_diversity import parse_one
+from scripts.audit_intent_diversity import shown_summaries
 from scripts.audit_intent_diversity import summaries
+from scripts.audit_intent_diversity import verify_prompts
 from scripts.audit_intent_diversity import write_report
 
 
@@ -75,10 +80,70 @@ def test_recorded_strict_parse_must_match_raw():
         parse_one(_prediction(json.dumps(intent), None), context, Mode.STRICT, [])
 
 
+def test_shown_support_matches_count_each_board_and_keep_zero_shot_undefined():
+    intent = _intent()
+    signature = canonical(intent)[0]
+    prediction = _prediction(json.dumps(intent), intent)
+    boards = [_context("a", ["#######", "#@$-.-#", "#-----#", "#######"]),
+              _context("b", ["#######", "#@-$.-#", "#-----#", "#######"])]
+    rows = [parse_one(prediction, board, Mode.STRICT, [signature], [signature]) for board in boards]
+    own = [{"record_id": "support-a", "canonical_signature": signature}]
+    summary, matches = shown_summaries("method", "balanced0", rows, own)
+    previous, _, _ = summaries("method", "balanced0", rows, 1)
+    assert summary["shown_support_count"] == 1
+    assert summary["shown_support_match_any"] == previous["match_support_any"] == 2
+    assert summary["shown_support_match_any_valid"] == previous["match_support_any_valid"] == 1
+    assert matches[0]["outputs"] == matches[0]["matches"] == 2
+    assert matches[0]["valid_on_board"] == matches[0]["invalid_on_board"] == 1
+    malformed = parse_one(_prediction("not JSON", None), boards[0], Mode.STRICT, [signature], [signature])
+    assert malformed["matches_shown_support_any"] is False
+    with_malformed, _ = shown_summaries("method", "balanced0", [rows[0], malformed], own)
+    assert with_malformed["shown_support_match_any"] == 1
+    zero = parse_one(prediction, boards[0], Mode.STRICT, [signature], [])
+    zero_summary, zero_matches = shown_summaries("method", "zero", [zero], [])
+    assert zero["matches_shown_support"] == [] and zero["matches_shown_support_any"] is None
+    assert zero_summary["shown_support_count"] == 0 and zero_summary["shown_support_match_any"] is None
+    assert zero_matches == []
+
+
+def test_balanced0_visibility_is_per_example_and_distinguishes_identical_intents():
+    balanced0 = [{"record_id": "shared", "canonical_signature": "first"},
+                 {"record_id": "other", "canonical_signature": "second"}]
+    shown = [{"record_id": "shared", "canonical_signature": "first"},
+             {"record_id": "different-example", "canonical_signature": "second"}]
+    matches = [{"support_index": 0}, {"support_index": 1}]
+    add_balanced0_visibility(matches, balanced0, shown)
+    assert matches[0]["balanced0_support_example_was_shown"]
+    assert matches[0]["balanced0_support_intent_was_shown"]
+    assert not matches[1]["balanced0_support_example_was_shown"]
+    assert matches[1]["balanced0_support_intent_was_shown"]
+
+
+def test_prompt_verification_checks_shown_examples_even_if_hash_is_updated(tmp_path):
+    record = {**_context("test", ["#######", "#@$-.-#", "#-----#", "#######"]), "task_goal": "put boxes on goals"}
+    example = {**_context("train", ["#######", "#@$-.-#", "#-----#", "#######"]),
+               "split": "train", "validation": {"accepted": True}, "task_goal": "put boxes on goals",
+               "intent": _intent()}
+    prompts = tmp_path / "prompts.jsonl"
+    row = {"record_id": "test", "layout_id": "test", "messages": messages_for(record, [example], "json")}
+
+    def write(value):
+        content = (json.dumps(value) + "\n").encode()
+        prompts.write_bytes(content)
+        return hashlib.sha256(content).hexdigest()
+
+    digest = write(row)
+    verify_prompts(prompts, digest, ["test"], {"test": record}, [example], "json")
+    row["messages"][2]["content"] = json.dumps({**_intent(), "effects": []})
+    with pytest.raises(ValueError, match="prompt messages differ"):
+        verify_prompts(prompts, write(row), ["test"], {"test": record}, [example], "json")
+
+
 def test_report_is_immutable_and_keeps_per_board_records(tmp_path):
     destination = tmp_path / "snapshot"
     result = {"schema_version": 1, "summaries": [{"variant": "m", "outputs": 1}],
               "frequencies": [{"variant": "m", "canonical_intent": _intent()}], "support_matches": [],
+              "shown_support_matches": [],
               "records": [{"record_id": "a", "semantic_valid": None}]}
     write_report(destination, result)
     assert json.loads((destination / "summary.json").read_text())["schema_version"] == 1

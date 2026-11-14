@@ -22,6 +22,7 @@ from typing import Any, Callable
 import carl.icl.intent_assessment as intent_assessment_module
 import carl.icl.intent_data as intent_data_module
 import carl.icl.intent_generator_experiment as intent_generator_module
+import scripts.assess_intent_representations as representation_assessment_module
 import scripts.assess_lora_matrix as lora_assessment_module
 from carl.icl.intent_assessment import board_means
 from carl.icl.intent_assessment import bootstrap
@@ -29,6 +30,7 @@ from carl.icl.intent_assessment import test_contexts
 from carl.icl.intent_data import validate_prediction
 from carl.icl.intent_generator_experiment import file_sha256
 from carl.icl.intent_generator_experiment import parse_json
+from scripts.assess_intent_representations import validate_matrix_run
 from scripts.assess_lora_matrix import parse_partial
 from scripts.assess_lora_matrix import whole_goal
 
@@ -68,6 +70,199 @@ def load_parser(config: Record) -> Parser:
 def verify_config(config: Record, data: Path, identifiers: Path) -> None:
     if config.get("data_sha256") != file_sha256(data) or config.get("test_ids_sha256") != file_sha256(identifiers):
         raise ValueError("Assessment does not belong to the frozen data and IDs")
+
+
+def inspect_snapshot(directory: Path, config: Record, matrix: Record) -> tuple[dict[str, Record], list[Path]]:
+    """Verify every listed byte, including the absence of missing snapshot files."""
+    manifest_path = directory / "manifest.json"
+    if file_sha256(manifest_path) != config.get("input_snapshot_manifest_sha256"):
+        raise ValueError("Snapshot manifest hash differs from the generator assessment")
+    manifest = read_json(manifest_path)
+    methods = [method["name"] for method in matrix["methods"]]
+    entries = manifest.get("variants")
+    if (manifest.get("schema_version") != 1 or not isinstance(entries, list)
+            or manifest.get("matrix_plan_sha256") != config.get("matrix_plan_sha256")
+            or [entry.get("variant") for entry in entries] != methods
+            or len(set(methods)) != len(methods) or set(config["variants"]) != set(methods)):
+        raise ValueError("Snapshot manifest differs from the frozen matrix")
+    sources = [manifest_path]
+    by_variant = {}
+    listed = {"manifest.json"}
+    for entry in entries:
+        name = entry["variant"]
+        if not isinstance(name, str) or Path(name).name != name or name in {"", ".", ".."}:
+            raise ValueError("Unsafe snapshot variant name")
+        files = entry.get("files")
+        expected_files = {f"{name}.jsonl", f"{name}.run.json", f"{name}.prompts.jsonl"}
+        if not isinstance(files, dict) or set(files) != expected_files:
+            raise ValueError(f"Incomplete snapshot file listing: {name}")
+        for filename, info in files.items():
+            path = directory / filename
+            digest, size = info.get("sha256"), info.get("bytes")
+            if digest is None:
+                if size is not None or os.path.lexists(path):
+                    raise ValueError(f"Unexpected snapshot file: {filename}")
+                continue
+            if not path.is_file() or not isinstance(size, int) or isinstance(size, bool):
+                raise ValueError(f"Missing or malformed snapshot file: {filename}")
+            data = path.read_bytes()
+            if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+                raise ValueError(f"Snapshot file hash or size mismatch: {filename}")
+            sources.append(path)
+            listed.add(filename)
+        if config["variants"][name].get("sha256") != files[f"{name}.jsonl"].get("sha256"):
+            raise ValueError(f"Assessment prediction hash disagrees with snapshot: {name}")
+        by_variant[name] = entry
+    if {path.name for path in directory.iterdir()} != listed:
+        raise ValueError("Snapshot contains unlisted files")
+    return by_variant, sources
+
+
+def index_predictions(rows: list[Record], expected: dict[str, Record], *, method: Record,
+                      local_rule: bool, parser: Parser | None = None) -> dict[str, Record]:
+    """Check frozen identifiers and the format assigned to each raw prediction."""
+    if not local_rule and parser is None:
+        raise ValueError("Generator prediction checking requires its recorded parser")
+    indexed = {}
+    for row in rows:
+        identifier = row.get("record_id")
+        if (not isinstance(identifier, str) or identifier not in expected or identifier in indexed
+                or row.get("layout_id") != expected[identifier]["layout_id"] or row.get("split") != "test"):
+            raise ValueError("Prediction has a foreign, duplicate or mismatched context")
+        if local_rule:
+            if row.get("method") != "local_rule":
+                raise ValueError("Rule prediction has the wrong method")
+        elif (row.get("variant") != method["name"] or row.get("representation") != method["representation"]
+              or row.get("support_set") != method["support_set"]):
+            raise ValueError("Prediction has the wrong method, representation or support set")
+        prediction_status = row.get("status")
+        if prediction_status not in (None, "infrastructure_error", "generation_error"):
+            raise ValueError("Unknown prediction status")
+        if prediction_status is None:
+            raw = row.get("raw_output")
+            if not isinstance(raw, str):
+                raise ValueError("Prediction lacks raw output")
+            try:
+                if local_rule:
+                    intent = parse_json(raw)
+                else:
+                    assert parser is not None
+                    intent = parser(method["representation"], raw)
+                syntax = intent is not None
+            except ValueError:
+                intent, syntax = None, False
+            syntax_key, intent_key = ("json_valid", "parsed") if local_rule else ("syntax_valid", "parsed_intent")
+            if row.get(syntax_key) is not syntax or row.get(intent_key) != intent:
+                raise ValueError("Prediction parse differs from its raw output")
+        indexed[identifier] = row
+    return indexed
+
+
+def verify_links(assessment: dict[str, Record], predictions: dict[str, Record], *, local_rule: bool,
+                 rejected_reason: str | None = None) -> None:
+    """Link each assessed row to its prediction without converting absences to failures."""
+    for identifier, row in assessment.items():
+        source = predictions.get(identifier)
+        if rejected_reason is not None:
+            if row.get("status") != "rejected_infrastructure" or row.get("error") != rejected_reason:
+                raise ValueError("Rejected method has a contradictory assessment status")
+            continue
+        if source is None:
+            if row.get("status") != "missing":
+                raise ValueError("Assessment claims a result for an absent prediction")
+            continue
+        source_status = source.get("status")
+        if source_status in ("infrastructure_error", "generation_error"):
+            if row.get("status") != "infrastructure_error" or row.get("error") != source.get("error"):
+                raise ValueError("Infrastructure status differs from the prediction")
+            continue
+        if row.get("status") != "evaluated":
+            raise ValueError("Assessment marks an existing prediction as missing or rejected")
+        fields = ("record_id", "layout_id", "raw_output", "generation_seconds", "generated_tokens")
+        if not local_rule:
+            fields += ("variant", "representation", "support_set", "syntax_valid")
+        if any(row.get(key) != source.get(key) for key in fields):
+            raise ValueError("Assessment differs from its source prediction")
+        source_intent = source.get("parsed") if local_rule else source.get("parsed_intent")
+        assessment_intent = row.get("strict_intent") if local_rule else row.get("intent")
+        if source_intent != assessment_intent:
+            raise ValueError("Assessment intent differs from its source prediction")
+
+
+def verify_prompts(path: Path, expected: dict[str, Record]) -> None:
+    prompts, info = snapshot_jsonl(path)
+    if info["partial_final_line"]:
+        raise ValueError("Prompt snapshot has an incomplete final line")
+    seen = set()
+    for row in prompts:
+        identifier = row.get("record_id")
+        if (not isinstance(identifier, str) or identifier not in expected or identifier in seen
+                or row.get("layout_id") != expected[identifier]["layout_id"]):
+            raise ValueError("Prompt snapshot contains a foreign, duplicate or mismatched context")
+        seen.add(identifier)
+    if seen != set(expected):
+        raise ValueError("Prompt snapshot does not cover the frozen contexts")
+
+
+def rejected_methods(path: Path, config: Record) -> dict[str, str]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("Expected a list of rejected variants")
+    result = {}
+    for entry in data:
+        name, reason = entry.get("variant"), entry.get("reason")
+        if not isinstance(name, str) or not isinstance(reason, str) or name in result:
+            raise ValueError("Invalid rejected-variant entry")
+        result[name] = reason
+    configured = {name: info["rejected_reason"] for name, info in config["variants"].items()
+                  if info.get("rejected_reason")}
+    if result != configured:
+        raise ValueError("Rejected variants differ from assessment configuration")
+    return result
+
+
+def verify_generator_sources(directory: Path, matrix: Record, config: Record, rejected: dict[str, str],
+                             assessments: dict[str, dict[str, Record]], expected: dict[str, Record],
+                             parser: Parser) -> tuple[Record, list[Path]]:
+    """Audit metadata and pair all extant assessment rows with frozen predictions."""
+    counts: Counter[str] = Counter()
+    extra_sources = []
+    for method in matrix["methods"]:
+        name = method["name"]
+        assessment = assessments.get(name, {})
+        reason = rejected.get(name)
+        counts["assessment_rows"] += len(assessment)
+        if reason is not None:
+            verify_links(assessment, {}, local_rule=False, rejected_reason=reason)
+            counts["rejected_variants"] += 1
+            counts["rejected_assessment_rows"] += len(assessment)
+            continue
+        path = directory / f"{name}.jsonl"
+        run_path = directory / f"{name}.run.json"
+        if path.is_file():
+            rows, info = snapshot_jsonl(path)
+            partial = info["partial_final_line"]
+        else:
+            rows, partial = [], False
+        config_info = config["variants"][name]
+        if partial is not config_info.get("partial_final_line"):
+            raise ValueError(f"Partial JSONL status differs from assessment: {name}")
+        if run_path.is_file():
+            metadata = read_json(run_path)
+            if metadata != config_info.get("metadata"):
+                raise ValueError(f"Run metadata differs from assessment: {name}")
+            validate_matrix_run(matrix, method, metadata, path)
+            verify_prompts(path.with_suffix(".prompts.jsonl"), expected)
+            if method.get("adapter_pending") and method.get("adapter") is not None:
+                extra_sources.append(Path(matrix["run"]) / "matrix_adapter_hashes" / f"{name}.json")
+        elif rows or config_info.get("metadata") is not None:
+            raise ValueError(f"Predictions or assessment metadata lack a run manifest: {name}")
+        predictions = index_predictions(rows, expected, method=method, local_rule=False, parser=parser)
+        verify_links(assessment, predictions, local_rule=False)
+        counts["prediction_rows"] += len(predictions)
+        counts["predictions_without_assessment"] += len(set(predictions) - set(assessment))
+        counts["partial_prediction_files"] += int(partial)
+    return dict(counts), extra_sources
 
 
 def index_rows(rows: list[Record], expected: dict[str, Record], *, local_rule: bool,
@@ -195,7 +390,8 @@ def atomic_text(path: Path, value: str) -> None:
     os.replace(temporary, path)
 
 
-def input_paths(args: argparse.Namespace, local_config: Record, generator_config: Record) -> list[Path]:
+def input_paths(args: argparse.Namespace, local_config: Record, generator_config: Record,
+                additional_sources: list[Path] | None = None) -> list[Path]:
     """Identify data, code and recorded plans needed to reproduce this analysis."""
     paths = [
         Path(__file__).resolve(),
@@ -204,6 +400,7 @@ def input_paths(args: argparse.Namespace, local_config: Record, generator_config
         Path(intent_assessment_module.__file__).resolve(),
         Path(intent_data_module.__file__).resolve(),
         Path(intent_generator_module.__file__).resolve(),
+        Path(representation_assessment_module.__file__).resolve(),
         Path(lora_assessment_module.__file__).resolve(),
         args.data,
         args.test_ids,
@@ -217,6 +414,8 @@ def input_paths(args: argparse.Namespace, local_config: Record, generator_config
     ]
     if generator_config.get("matrix_plan_path"):
         paths.append(Path(generator_config["matrix_plan_path"]))
+    if additional_sources:
+        paths.extend(additional_sources)
     return paths
 
 
@@ -330,7 +529,19 @@ def main() -> None:
                                       read_json(args.generator_assessment / "config.json"))
     verify_config(local_config, args.data, args.test_ids)
     verify_config(generator_config, args.data, args.test_ids)
-    sources = input_paths(args, local_config, generator_config)
+    matrix_path = generator_config.get("matrix_plan_path")
+    if not matrix_path or file_sha256(matrix_path) != generator_config.get("matrix_plan_sha256"):
+        raise ValueError("Generator matrix plan is missing or changed after the source assessment")
+    matrix = read_json(Path(matrix_path))
+    snapshot_dir = args.generator_assessment / "input_snapshot"
+    _, snapshot_sources = inspect_snapshot(snapshot_dir, generator_config, matrix)
+    rejected_path = args.generator_assessment / "rejected_variants.json"
+    rejected = rejected_methods(rejected_path, generator_config)
+    adapter_sources = [Path(matrix["run"]) / "matrix_adapter_hashes" / f"{method['name']}.json"
+                       for method in matrix["methods"] if method.get("adapter_pending")
+                       and method.get("adapter") is not None and method["name"] not in rejected
+                       and (snapshot_dir / f"{method['name']}.run.json").is_file()]
+    sources = input_paths(args, local_config, generator_config, [*snapshot_sources, rejected_path, *adapter_sources])
     hashes = hash_inputs(sources)
     rule_record = local_config["variants"]["local_rule"]
     if hashes[str(Path(rule_record["path"]))] != rule_record["sha256"]:
@@ -345,18 +556,21 @@ def main() -> None:
         raise ValueError("An input changed while it was being read")
     local = index_rows(local_rows, expected, local_rule=True).get("local_rule", {})
     generators = index_rows(generator_rows, expected, local_rule=False, parser=parser_fn)
+    rule_rows, rule_info = snapshot_jsonl(Path(rule_record["path"]))
+    if (rule_info["sha256"] != hashes[str(Path(rule_record["path"]))]
+            or rule_info["partial_final_line"] is not rule_record.get("partial_final_line")):
+        raise ValueError("Rule predictions changed or their partial-line status differs from the assessment")
+    rule_predictions = index_predictions(rule_rows, expected, method={"name": "local_rule"}, local_rule=True)
+    verify_links(local, rule_predictions, local_rule=True)
+    generator_audit, verified_adapters = verify_generator_sources(snapshot_dir, matrix, generator_config, rejected,
+                                                                   generators, expected, parser_fn)
+    if set(verified_adapters) != set(adapter_sources):
+        raise ValueError("Frozen adapter metadata changed while validating snapshot")
     generator_summary = read_json(args.generator_assessment / "summary.json")
     observed_variants = [row["variant"] for row in generator_summary.get("results", [])]
-    matrix_path = generator_config.get("matrix_plan_path")
-    if matrix_path:
-        matrix = Path(matrix_path)
-        if file_sha256(matrix) != generator_config.get("matrix_plan_sha256"):
-            raise ValueError("Generator matrix plan changed after the source assessment")
-        variants = [row["name"] for row in read_json(matrix)["methods"]]
-        if set(observed_variants) - set(variants):
-            raise ValueError("Assessment summary contains a foreign matrix variant")
-    else:
-        variants = observed_variants
+    variants = [row["name"] for row in matrix["methods"]]
+    if set(observed_variants) - set(variants):
+        raise ValueError("Assessment summary contains a foreign matrix variant")
     if not variants or len(set(variants)) != len(variants) or set(generators) - set(variants):
         raise ValueError("Generator assessment summary lacks unique, complete variant labels")
     families = sorted({str(row.get("evaluation_family") or row.get("family")) for row in contexts})
@@ -389,6 +603,8 @@ def main() -> None:
                                  "evaluations need not be representative of the planned test set."},
         "exposure": "Not in the earlier LoRA matrix is not proof of no prior model exposure; family and "
                     "exposure are confounded in this cohort.",
+        "source_verification": {"rule_prediction_rows": len(rule_predictions),
+                                "rule_assessment_rows": len(local), **generator_audit},
         "inputs": {"data": data_info, "test_ids_sha256": file_sha256(args.test_ids),
                    "local_assessment": local_info, "generator_assessment": generator_info,
                    "local_config_sha256": file_sha256(args.local_assessment / "config.json"),
@@ -402,6 +618,9 @@ def main() -> None:
     write_csv(args.output / "paired_summary.csv", results)
     atomic_text(args.output / "paired_summary.json", json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     plot(args.output, results)
+    _, final_snapshot_sources = inspect_snapshot(snapshot_dir, generator_config, matrix)
+    if final_snapshot_sources != snapshot_sources:
+        raise ValueError("Snapshot file set changed during the analysis")
     if hashes != hash_inputs(sources):
         raise ValueError("An input changed during the analysis; output provenance is incomplete")
     write_provenance(args.output, hashes, supervisor)
