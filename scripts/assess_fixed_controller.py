@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+"""Assess a frozen intent controller at each primitive-action budget.
+
+Invalid generator outputs count as failures of the generator-plus-controller
+pipeline. Missing generation, missing rollouts, and local infrastructure
+errors are excluded from observed denominators and reported separately. The
+controller-only fraction is conditional on valid intents actually evaluated.
+Every saved action and prompt is independently replayed in the real environment.
+"""
+
+import argparse
+import hashlib
+import json
+import random
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+import matplotlib
+
+from carl.icl.intent_assessment import board_means
+from carl.icl.intent_assessment import bootstrap
+from carl.icl.intent_assessment import file_hash
+from carl.icl.intent_assessment import read_jsonl
+from carl.icl.intent_assessment import test_contexts
+from carl.icl.intent_data import validate_prediction
+from carl.icl.intent_fence_audit import remove_one_outer_fence
+from carl.icl.intent_representation_experiment import SupportSet
+from carl.icl.intent_representation_experiment import load_supports
+from carl.icl.intent_representation_experiment import messages_for
+from carl.icl.intent_representation_experiment import parse_representation
+from carl.icl.local_intent_policy import sha256_file
+from carl.icl.luna_intent_rollout import POLICY_PROMPT
+from scripts.assess_intent_representations import atomic_json
+from scripts.assess_intent_representations import atomic_text
+from scripts.assess_intent_representations import board_family
+from scripts.assess_intent_representations import validate_matrix_run
+from scripts.assess_intent_representations import write_csv
+from scripts.assess_lora_matrix import parse_partial
+from scripts.audit_luna_rollouts import audit_rollout
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt    # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+Record = dict[str, Any]
+SEED = 20261114
+ELIGIBILITY = {"missing_generation", "invalid_representation", "invalid_intent", "ready"}
+CONTROLLER_STATUSES = {"achieved", "action_limit", "preservation_violated", "task_solved", "invalid_response",
+                       "api_error", "invalid_intent"}
+
+
+def resolve(path: str | Path) -> Path:
+    result = Path(path)
+    return result if result.is_absolute() else ROOT / result
+
+
+def read_snapshot(path: Path) -> tuple[list[Record], Record]:
+    data = path.read_bytes() if path.exists() else None
+    rows, partial = parse_partial(data) if data is not None else ([], False)
+    return rows, {"path": str(path), "sha256": hashlib.sha256(data).hexdigest() if data is not None else None,
+                  "partial_final_line": partial}
+
+
+def check_test_subset(full_ids: list[str], contexts: list[Record]) -> None:
+    selected = [row["record_id"] for row in contexts]
+    if (len(set(full_ids)) != len(full_ids) or len(set(selected)) != len(selected)
+            or not set(selected) <= set(full_ids)):
+        raise ValueError("Controller IDs are not a unique subset of the full frozen matrix IDs")
+
+
+def verify_generator_link(path: Path, variant: str, metadata: Record, all_test: list[Record],
+                          contexts: list[Record], data: Path, matrix: Record, matrix_path: Path) -> tuple[dict[str, str], dict[str, Record]]:
+    """Reconstruct eligibility and intents from the frozen raw model answers."""
+    if not path.exists() or metadata.get("predictions_sha256") != file_hash(path):
+        raise ValueError(f"Generator predictions differ from the frozen controller inputs: {variant}")
+    run_path = path.with_suffix(".run.json")
+    if not run_path.exists():
+        raise ValueError(f"Generator metadata is missing: {variant}")
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    protocol = ROOT / "carl/icl/intent_representation_experiment.py"
+    if (run.get("variant") != variant or run.get("data_sha256") != file_hash(data)
+            or run.get("protocol_sha256") != file_hash(protocol)):
+        raise ValueError(f"Generator metadata or parser protocol differs from frozen inputs: {variant}")
+    prompts_path = path.with_suffix(".prompts.jsonl")
+    if (metadata.get("matrix_plan_sha256") != file_hash(matrix_path)
+            or metadata.get("prediction_run_sha256") != file_hash(run_path)
+            or not prompts_path.exists() or metadata.get("prompts_sha256") != file_hash(prompts_path)):
+        raise ValueError(f"Controller input provenance does not bind the matrix, run and prompts: {variant}")
+    methods = [job for job in matrix["methods"] if job["name"] == variant]
+    if len(methods) != 1:
+        raise ValueError(f"Variant does not occur exactly once in the matrix plan: {variant}")
+    method = methods[0]
+    if Path(method["output"]).resolve() != path.resolve():
+        raise ValueError(f"Generator path differs from the matrix plan: {variant}")
+    validate_matrix_run(matrix, method, run, path)
+    full_ids_path = Path(matrix["inputs"]["test_ids"]["path"])
+    if (matrix["inputs"]["data"]["sha256"] != file_hash(data)
+            or matrix["inputs"]["test_ids"]["sha256"] != file_hash(full_ids_path)):
+        raise ValueError("Frozen full matrix data or IDs changed")
+    full_manifest = json.loads(full_ids_path.read_text(encoding="utf-8"))
+    if full_manifest.get("dataset_sha256") != file_hash(data):
+        raise ValueError("Full matrix IDs refer to a different dataset")
+    full_ids = full_manifest["record_ids"]
+    check_test_subset(full_ids, contexts)
+    source = {row["record_id"]: row for row in all_test}
+    if len(source) != len(all_test):
+        raise ValueError("Duplicate test IDs in the source dataset")
+    if any(identifier not in source for identifier in full_ids):
+        raise ValueError("A frozen matrix context is absent from the test dataset")
+    prompts = read_jsonl(prompts_path)
+    if [row.get("record_id") for row in prompts] != full_ids:
+        raise ValueError(f"Prompt contexts differ from the full frozen matrix order: {variant}")
+    for key in ("support_data", "support_manifest"):
+        entry = matrix["inputs"][key]
+        if file_hash(Path(entry["path"])) != entry["sha256"]:
+            raise ValueError(f"Frozen matrix input changed: {key}")
+    support = ([] if method["support_set"] == "zero" else
+               load_supports(Path(matrix["inputs"]["support_data"]["path"]),
+                             Path(matrix["inputs"]["support_manifest"]["path"]), SupportSet(method["support_set"])))
+    for prompt in prompts:
+        record = source[prompt["record_id"]]
+        if (prompt.get("layout_id") != record["layout_id"]
+                or prompt.get("messages") != messages_for(record, support, method["representation"])):
+            raise ValueError(f"Saved generator prompt differs from the frozen protocol: {variant}/{record['record_id']}")
+    predictions, snapshot = read_snapshot(path)
+    if snapshot["partial_final_line"]:
+        raise ValueError(f"Generator predictions end in a partial line: {variant}")
+    by_id: dict[str, Record] = {}
+    for row in predictions:
+        identifier = row.get("record_id")
+        if (not isinstance(identifier, str) or identifier not in source or identifier in by_id or row.get("variant") != variant
+                or row.get("layout_id") != source[identifier]["layout_id"] or row.get("split") != "test"
+                or row.get("representation") != method["representation"]
+                or row.get("support_set") != method["support_set"]):
+            raise ValueError(f"Generator prediction has foreign or duplicate provenance: {variant}/{identifier}")
+        by_id[identifier] = row
+    statuses: dict[str, str] = {}
+    intents: dict[str, Record] = {}
+    for record in contexts:
+        identifier = record["record_id"]
+        prediction = by_id.get(identifier)
+        if prediction is None:
+            statuses[identifier] = "missing_generation"
+            continue
+        try:
+            intent = parse_representation(prediction["representation"], prediction["raw_output"])
+        except (KeyError, ValueError):
+            if prediction.get("syntax_valid") is not False or prediction.get("parsed_intent") is not None:
+                raise ValueError(f"Stored invalid prediction differs from raw text: {variant}/{identifier}") from None
+            statuses[identifier] = "invalid_representation"
+            continue
+        if prediction.get("syntax_valid") is not True or prediction.get("parsed_intent") != intent:
+            raise ValueError(f"Stored intent differs from raw text: {variant}/{identifier}")
+        if validate_prediction(intent, record["start_observation"]):
+            statuses[identifier] = "invalid_intent"
+        else:
+            statuses[identifier] = "ready"
+            intents[identifier] = intent
+    return statuses, intents
+
+
+def eligibility_rows(path: Path, predictions_path: Path, variant: str, contexts: list[Record], all_test: list[Record],
+                     ids_path: Path, data: Path, matrix: Record, matrix_path: Path) -> tuple[dict[str, Record], Record]:
+    """Accept only complete, hashed, frozen eligibility records or none at all."""
+    manifest_path = path / "manifest.json"
+    if not manifest_path.exists():
+        return {}, {"status": "missing_eligibility", "path": str(path), "manifest": None}
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    eligibility_path = path / "eligibility.jsonl"
+    records_path = path / "records.jsonl"
+    if (metadata.get("variant") != variant or metadata.get("test_ids_sha256") != file_hash(ids_path)
+            or metadata.get("data_sha256") != file_hash(data) or metadata.get("eligibility_sha256") != file_hash(eligibility_path)
+            or metadata.get("records_sha256") != file_hash(records_path)):
+        raise ValueError(f"Controller input manifest differs from frozen sources: {variant}")
+    expected_statuses, expected_intents = verify_generator_link(predictions_path, variant, metadata, all_test, contexts,
+                                                                 data, matrix, matrix_path)
+    expected = {r["record_id"]: r for r in contexts}
+    rows = read_jsonl(eligibility_path)
+    if [r.get("record_id") for r in rows] != [r["record_id"] for r in contexts]:
+        raise ValueError(f"Eligibility records differ from the frozen order: {variant}")
+    for row in rows:
+        source = expected[row["record_id"]]
+        if (row.get("variant") != variant or row.get("layout_id") != source["layout_id"]
+                or row.get("family") != board_family(source) or row.get("status") not in ELIGIBILITY
+                or row.get("status") != expected_statuses[row["record_id"]]):
+            raise ValueError(f"Eligibility provenance differs for {variant}/{row['record_id']}")
+    policy_records = read_jsonl(records_path)
+    ready_ids = [row["record_id"] for row in rows if row["status"] == "ready"]
+    if [row.get("record_id") for row in policy_records] != ready_ids:
+        raise ValueError(f"Controller records differ from eligible IDs: {variant}")
+    for row in policy_records:
+        source = expected[row["record_id"]]
+        if (row.get("layout_id") != source["layout_id"] or row.get("variant") != variant
+                or row.get("start_observation") != source["start_observation"]
+                or row.get("task_goal") != source["task_goal"] or row.get("intent") != expected_intents[row["record_id"]]
+                or validate_prediction(row.get("intent"), source["start_observation"])):
+            raise ValueError(f"Controller input violates the board/intent contract: {variant}/{row['record_id']}")
+        if set(row) - {"record_id", "layout_id", "family", "variant", "split", "start_observation", "task_goal", "intent"}:
+            raise ValueError(f"Controller input contains extra fields: {variant}/{row['record_id']}")
+    return {r["record_id"]: r for r in rows}, {"status": "ready", "path": str(path), "manifest": metadata,
+                                                "generator_link_audit": "Raw predictions independently re-parsed; eligibility and controller intents match.",
+                                                "records": {r["record_id"]: r for r in policy_records}}
+
+
+def controller_rows(path: Path, variant: str, selection: Record, inputs: Record,
+                    action_cap: int) -> tuple[dict[str, Record], Record]:
+    rows, snapshot = read_snapshot(path)
+    manifest_path = path.with_suffix(".manifest.json")
+    if not manifest_path.exists():
+        if rows:
+            raise ValueError(f"Controller results lack a manifest: {variant}")
+        return {}, {**snapshot, "manifest": None, "audit": {"rollouts": 0, "actions": 0, "model_calls": 0}}
+    metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    prepared = inputs.get("manifest")
+    if prepared is None:
+        raise ValueError(f"Controller results exist without frozen inputs: {variant}")
+    if (metadata.get("config") != selection or metadata.get("records_sha256") != prepared.get("records_sha256")
+            or metadata.get("action_parser") != "Remove at most one complete outer plain or json Markdown fence, then require strict action JSON."):
+        raise ValueError(f"Controller settings differ from the frozen selection: {variant}")
+    cases = inputs["records"]
+    if metadata.get("record_ids") != list(cases):
+        raise ValueError(f"Controller manifest IDs differ from frozen eligible records: {variant}")
+    if [row.get("record_id") for row in rows] != list(cases)[:len(rows)]:
+        raise ValueError(f"Saved controller results are not a prefix of the frozen order: {variant}")
+    result: dict[str, Record] = {}
+    audited: Counter[str] = Counter()
+    for row in rows:
+        identifier = row.get("record_id")
+        if not isinstance(identifier, str) or identifier not in cases or identifier in result:
+            raise ValueError(f"Duplicate or foreign controller result: {variant}/{identifier}")
+        case = cases[identifier]
+        result_data = row.get("result")
+        if not isinstance(result_data, dict) or result_data.get("status") not in CONTROLLER_STATUSES:
+            raise ValueError(f"Unknown controller result status: {variant}/{identifier}")
+        if result_data["status"] == "invalid_intent":
+            raise ValueError(f"The controller rejected an independently validated intent: {variant}/{identifier}")
+        responses = row.get("raw_policy_responses")
+        answered = [step for step in result_data.get("steps", []) if step.get("raw_response") is not None]
+        if not isinstance(responses, list) or len(responses) != len(answered):
+            raise ValueError(f"Missing raw controller responses: {variant}/{identifier}")
+        for original, step in zip(responses, answered, strict=True):
+            normalised, removed = remove_one_outer_fence(original["raw"])
+            if (original.get("normalised") != normalised or original.get("fence_removed") != removed
+                    or step["raw_response"] != normalised):
+                raise ValueError(f"Controller response normalisation differs from frozen protocol: {variant}/{identifier}")
+        audit_row = {**{key: case.get(key) for key in ("record_id", "phase", "family", "layout_id", "context_id")},
+                     **row, "cap": action_cap}
+        counts = audit_rollout(case, audit_row, POLICY_PROMPT)
+        audited.update(counts)
+        audited["rollouts"] += 1
+        result[identifier] = row
+    return result, {**snapshot, "manifest": metadata, "audit": dict(audited)}
+
+
+def classify(record: Record, decision: Record | None, rollout: Record | None) -> Record:
+    """Return a disjoint status, preserving actual controller attempt counts."""
+    result: Record = {"record_id": record["record_id"], "layout_id": record["layout_id"],
+                      "family": board_family(record), "first_success_action": None,
+                      "actions": None, "no_ops": None, "model_calls": None, "task_solved": None}
+    if decision is None:
+        return {**result, "status": "missing_eligibility", "pipeline_evaluated": False, "controller_evaluated": False}
+    status = decision["status"]
+    if status == "missing_generation":
+        return {**result, "status": status, "pipeline_evaluated": False, "controller_evaluated": False}
+    if status in ("invalid_representation", "invalid_intent"):
+        return {**result, "status": status, "pipeline_evaluated": True, "controller_evaluated": False}
+    if status != "ready":
+        raise ValueError("Unknown eligibility status")
+    if rollout is None:
+        return {**result, "status": "missing_controller", "pipeline_evaluated": False, "controller_evaluated": False}
+    measured = rollout["result"]
+    result.update({"actions": len(measured["actions"]),
+                   "no_ops": sum(step.get("no_op") is True for step in measured["steps"]),
+                   "model_calls": measured["model_calls"], "task_solved": measured["task_solved"]})
+    if measured["status"] == "api_error":
+        return {**result, "status": "controller_infrastructure_error", "pipeline_evaluated": False,
+                "controller_evaluated": False}
+    success = measured["status"] == "achieved" and measured["achieved"] is True
+    if success:
+        result["first_success_action"] = len(measured["actions"])
+    return {**result, "status": measured["status"], "pipeline_evaluated": True, "controller_evaluated": True}
+
+
+def success(row: Record, budget: int) -> bool:
+    first = row.get("first_success_action")
+    return isinstance(first, int) and not isinstance(first, bool) and first <= budget
+
+
+def curve(variant: str, rows: list[Record], budget: int, metric: str, family: str | None = None) -> Record:
+    selected = [row for row in rows if family is None or row["family"] == family]
+    if metric == "pipeline":
+        assessed = [row for row in selected if row["pipeline_evaluated"]]
+    elif metric == "conditional":
+        assessed = [row for row in selected if row["controller_evaluated"]]
+    else:
+        raise ValueError("Unknown controller metric")
+    means = board_means(assessed, lambda row: int(success(row, budget)))
+    interval = bootstrap(means, random.Random(SEED))
+    infrastructure = {"missing_eligibility", "missing_generation", "missing_controller", "controller_infrastructure_error",
+                      "rejected_infrastructure"}
+    invalid_generation = {"invalid_representation", "invalid_intent"}
+    return {"family": family or "all", "variant": variant, "metric": metric, "budget": budget,
+            "planned": len(selected), "assessed": len(assessed),
+            "missing_infrastructure": sum(row["status"] in infrastructure for row in selected),
+            "invalid_generation": sum(row["status"] in invalid_generation for row in selected),
+            "excluded_from_denominator": len(selected) - len(assessed),
+            "boards": len(means), "successes": sum(success(row, budget) for row in assessed),
+            "board_mean": sum(means) / len(means) if means else None,
+            "bootstrap_low": interval[0] if interval else None, "bootstrap_high": interval[1] if interval else None}
+
+
+def compare(rows: list[Record], before: str, after: str, budget: int, metric: str, family: str | None = None) -> Record:
+    chosen = [row for row in rows if family is None or row["family"] == family]
+    index: dict[str, dict[str, Record]] = {before: {}, after: {}}
+    for row in chosen:
+        if row["variant"] in index:
+            target = index[row["variant"]]
+            if row["record_id"] in target:
+                raise ValueError("Duplicate record in controller comparison")
+            target[row["record_id"]] = row
+    left, right = index[before], index[after]
+    common = sorted(left.keys() & right.keys())
+    for key in common:
+        if left[key]["layout_id"] != right[key]["layout_id"] or left[key]["family"] != right[key]["family"]:
+            raise ValueError("Paired controller records have conflicting layouts")
+    eligible_key = "pipeline_evaluated" if metric == "pipeline" else "controller_evaluated"
+    paired = [key for key in common if left[key][eligible_key] and right[key][eligible_key]]
+    changes = [{"layout_id": left[key]["layout_id"],
+                "delta": int(success(right[key], budget)) - int(success(left[key], budget))} for key in paired]
+    means = board_means(changes, lambda row: row["delta"])
+    bounds = bootstrap(means, random.Random(SEED))
+    return {"family": family or "all", "metric": metric, "budget": budget, "reference": before, "candidate": after,
+            "planned_pairs": len(common), "paired_contexts": len(paired), "unpaired_contexts": len(common) - len(paired),
+            "paired_boards": len(means), "reference_success": sum(success(left[key], budget) for key in paired),
+            "candidate_success": sum(success(right[key], budget) for key in paired),
+            "board_mean_delta": sum(means) / len(means) if means else None,
+            "bootstrap_low": bounds[0] if bounds else None, "bootstrap_high": bounds[1] if bounds else None}
+
+
+def plot_curves(output: Path, curves: list[Record], family: str, variants: list[str]) -> None:
+    plt.rcParams.update({"font.family": "serif", "pdf.fonttype": 42, "svg.fonttype": "none"})
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, constrained_layout=True)
+    colours = plt.get_cmap("tab10")
+    max_budget = max(row["budget"] for row in curves)
+    for axis, metric, title in zip(axes, ("pipeline", "conditional"),
+                                    ("Generator i kontroler", "Kontroler na poprawnych intencjach")):
+        for index, variant in enumerate(variants):
+            rows = sorted((row for row in curves if row["family"] == family and row["variant"] == variant
+                           and row["metric"] == metric), key=lambda row: row["budget"])
+            actual = [row for row in rows if row["board_mean"] is not None]
+            if not actual:
+                continue
+            axis.plot([row["budget"] for row in actual], [row["board_mean"] for row in actual],
+                      color=colours(index), marker="o", markersize=2, linewidth=1, drawstyle="steps-post",
+                      label=f"{variant} ({actual[-1]['assessed']}/{actual[-1]['planned']})")
+            for row in actual:
+                if (row["budget"] in {0, 4, 8, 12, 16} or row["budget"] == actual[-1]["budget"]) and row["bootstrap_low"] is not None:
+                    axis.vlines(row["budget"], row["bootstrap_low"], row["bootstrap_high"],
+                                color=colours(index), linewidth=.6, alpha=.65)
+        axis.set(title=title, xlabel="Budżet ruchów prymitywnych", xlim=(-.5, max_budget + .5), ylim=(-.03, 1.05))
+        axis.grid(alpha=.2)
+        if axis.lines:
+            axis.legend(fontsize=6, loc="best")
+        else:
+            axis.text(.5, .5, "Brak ocenionych prób", transform=axis.transAxes, ha="center", fontsize=9)
+    axes[0].set_ylabel("Średni odsetek zrealizowanych intencji na planszę")
+    fig.suptitle(f"Zamrożony lokalny kontroler — {family}")
+    fig.supxlabel("W nawiasie: ocenione / zaplanowane; przedziały 95% bootstrap po planszach dla zaznaczonych budżetów.",
+                  fontsize=8)
+    safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in family)
+    for extension in ("png", "pdf", "svg"):
+        fig.savefig(output / f"controller_budget_{safe}.{extension}", dpi=180)
+    plt.close(fig)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--plan", type=Path, required=True)
+    parser.add_argument("--data", type=Path)
+    parser.add_argument("--inputs", type=Path)
+    parser.add_argument("--results", type=Path)
+    parser.add_argument("--predictions", type=Path)
+    parser.add_argument("--matrix-plan", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    run = args.plan.resolve().parent
+    data = args.data or run / "data/dataset.jsonl"
+    ids = resolve(plan["frozen_ids"])
+    inputs_root = args.inputs or run / "controller_inputs"
+    results_root = args.results or run / "controller_results"
+    predictions_root = args.predictions or run / "predictions"
+    matrix_path = args.matrix_plan or run / "matrix_plan.json"
+    matrix_checksum = matrix_path.with_suffix(".sha256")
+    if not matrix_checksum.is_file() or matrix_checksum.read_text(encoding="utf-8").strip() != file_hash(matrix_path):
+        raise ValueError("Frozen matrix plan checksum is missing or differs")
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    if file_hash(ids) != plan["frozen_ids_sha256"]:
+        raise ValueError("Controller test-ID manifest has changed")
+    frozen = json.loads(ids.read_text(encoding="utf-8"))
+    if frozen.get("dataset_sha256") != file_hash(data):
+        raise ValueError("Controller test IDs belong to a different dataset")
+    source_records = read_jsonl(data)
+    all_test = [row for row in source_records if row.get("split") == "test"]
+    contexts = test_contexts(source_records, ids)
+    variants, cap, selection = plan["variants"], plan["primitive_action_budget"], plan["selected_controller"]
+    if not contexts or not variants or len(set(variants)) != len(variants) or not isinstance(cap, int) or cap < 1:
+        raise ValueError("Invalid planned test contexts, variants or action cap")
+    if selection.get("action_cap") != cap:
+        raise ValueError("Selected controller action cap differs from plan")
+    selection_path = run / "controller_selection.json"
+    selected_calibration = None
+    if plan.get("controller_selection_sha256") is not None:
+        if not selection_path.exists() or file_hash(selection_path) != plan["controller_selection_sha256"]:
+            raise ValueError("Controller selection is missing or changed after the plan was frozen")
+        selection_record = json.loads(selection_path.read_text(encoding="utf-8"))
+        if selection_record.get("selected_config") != selection:
+            raise ValueError("Plan controller config differs from the selected calibration config")
+        calibration_path = run / f"policy_calibration_{selection_record['selected']}.manifest.json"
+        selected_calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+        if selected_calibration.get("configuration_sha256") != selection_record.get("selected_configuration_sha256"):
+            raise ValueError("Selected calibration manifest does not match the selection")
+    loaded = []
+    rejected = []
+    for variant in variants:
+        try:
+            decisions, input_info = eligibility_rows(inputs_root / variant, predictions_root / f"{variant}.jsonl",
+                                                      variant, contexts, all_test, ids, data, matrix, matrix_path)
+            results, output_info = controller_rows(results_root / f"{variant}.jsonl", variant, selection, input_info, cap)
+            if selected_calibration is not None and output_info.get("manifest") is not None:
+                for field in ("policy_config_sha256", "weights_sha256", "tokenizer_sha256", "source_sha256", "action_parser"):
+                    if output_info["manifest"].get(field) != selected_calibration.get(field):
+                        raise ValueError(f"Test controller {field} differs from the selected calibration")
+        except (ValueError, KeyError, TypeError, OSError) as error:
+            reason = f"{type(error).__name__}: {error}"
+            decisions, results = {}, {}
+            input_info = {"status": "rejected_infrastructure", "path": str(inputs_root / variant),
+                          "manifest": None, "rejected_reason": reason}
+            output_info = {"path": str(results_root / f"{variant}.jsonl"), "sha256": None, "manifest": None,
+                           "rejected_reason": reason, "audit": {"rollouts": 0, "actions": 0, "model_calls": 0}}
+            rejected.append({"variant": variant, "reason": reason})
+        loaded.append((variant, decisions, input_info, results, output_info))
+    comparable = [info["manifest"] for _, _, _, _, info in loaded if info.get("manifest") is not None]
+    for field in ("policy_config_sha256", "weights_sha256", "tokenizer_sha256", "source_sha256", "action_parser"):
+        known = {json.dumps(item.get(field), sort_keys=True) for item in comparable}
+        if len(known) > 1 or (known and "null" in known):
+            raise ValueError(f"Controller variants do not use the same frozen {field}")
+        if selected_calibration is not None and any(item.get(field) != selected_calibration.get(field) for item in comparable):
+            raise ValueError(f"Test controller {field} differs from the selected calibration")
+    if comparable:
+        for name, digest in comparable[0]["source_sha256"].items():
+            source = ROOT / name
+            if not source.is_file() or file_hash(source) != digest:
+                raise ValueError(f"Local controller source differs from recorded execution: {name}")
+    assets_path = run / "controller_assets_snapshot.json"
+    assets = None
+    if comparable and selected_calibration is not None:
+        if not assets_path.exists():
+            raise ValueError("Controller asset snapshot was not recorded before evaluation")
+        assets = json.loads(assets_path.read_text(encoding="utf-8"))
+        if (assets.get("model") != selection.get("model")
+                or assets.get("selection_sha256") != plan["controller_selection_sha256"]):
+            raise ValueError("Controller asset snapshot differs from the frozen selection")
+        expected_assets = {"model.safetensors", "tokenizer.json", "config.json", "tokenizer_config.json", "generation_config.json"}
+        if set(assets.get("files", {})) != expected_assets:
+            raise ValueError("Controller asset snapshot is incomplete")
+        for name, metadata in assets["files"].items():
+            source = Path(selection["model"]) / name
+            if not source.is_file() or sha256_file(source) != metadata.get("sha256"):
+                raise ValueError(f"Controller asset changed since test freeze: {name}")
+        if (any(item["weights_sha256"] != assets["files"]["model.safetensors"]["sha256"] for item in comparable)
+                or any(item["tokenizer_sha256"] != assets["files"]["tokenizer.json"]["sha256"] for item in comparable)):
+            raise ValueError("Controller run uses different model weights or tokenizer than frozen assets")
+    args.output.mkdir(parents=True, exist_ok=True)
+    if (args.output / "config.json").exists() or (args.output / "assessment.jsonl").exists():
+        raise FileExistsError("Controller assessment exists; choose a fresh output directory")
+    config = {"plan_sha256": file_hash(args.plan), "data_sha256": file_hash(data), "test_ids_sha256": file_hash(ids),
+              "matrix_plan_sha256": file_hash(matrix_path),
+              "assessment_source_sha256": {
+                  str(path.relative_to(ROOT)): file_hash(path) for path in (
+                      Path(__file__).resolve(), ROOT / "scripts/assess_intent_representations.py",
+                      ROOT / "scripts/audit_luna_rollouts.py", ROOT / "carl/icl/intent_assessment.py",
+                      ROOT / "carl/icl/intent_data.py")},
+              "controller_selection": selection, "action_cap": cap, "seed": SEED, "bootstrap_resamples": 2000,
+              "selected_calibration_configuration_sha256": (selected_calibration or {}).get("configuration_sha256"),
+              "controller_assets_sha256": file_hash(assets_path) if assets is not None else None,
+              "variants": {name: {"input": {k: v for k, v in inputs.items() if k != "records"}, "output": output}
+                           for name, _, inputs, _, output in loaded},
+              "denominators": {"pipeline": "completed model outputs with invalid intents counted as failures; missing controller and local errors excluded",
+                               "conditional": "valid proposed intents actually evaluated by the controller"},
+              "audit": "Every saved rollout replayed against the real environment and fixed prompt."}
+    atomic_json(args.output / "config.json", config)
+    atomic_json(args.output / "rejected_variants.json", rejected)
+    assessed: list[Record] = []
+    for variant, decisions, input_info, results, _ in loaded:
+        for context in contexts:
+            identifier = context["record_id"]
+            classified = classify(context, decisions.get(identifier), results.get(identifier))
+            if input_info.get("rejected_reason"):
+                classified.update(status="rejected_infrastructure", error=input_info["rejected_reason"])
+            assessed.append({"variant": variant, **classified})
+    atomic_text(args.output / "assessment.jsonl", "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in assessed))
+    families = sorted({board_family(row) for row in contexts})
+    curves = [curve(name, [row for row in assessed if row["variant"] == name], budget, metric, family)
+              for name in variants for metric in ("pipeline", "conditional") for family in (None, *families)
+              for budget in range(cap + 1)]
+    summaries = []
+    for variant in variants:
+        rows = [row for row in assessed if row["variant"] == variant]
+        for family in (None, *families):
+            selected = [row for row in rows if family is None or row["family"] == family]
+            observed = [row for row in selected if row["controller_evaluated"]]
+            saved_attempts = [row for row in selected if row["actions"] is not None]
+            summaries.append({"variant": variant, "family": family or "all", "planned": len(selected),
+                              "statuses": dict(Counter(row["status"] for row in selected)),
+                              "pipeline_evaluated": sum(row["pipeline_evaluated"] for row in selected),
+                              "controller_evaluated": len(observed), "controller_success": sum(success(row, cap) for row in observed),
+                              "task_solved": sum(row["task_solved"] is True for row in observed),
+                              "saved_rollouts": len(saved_attempts),
+                              "attempted_actions": sum(row["actions"] for row in saved_attempts),
+                              "no_ops": sum(row["no_ops"] for row in saved_attempts),
+                              "model_calls": sum(row["model_calls"] for row in saved_attempts)})
+    contrasts = [compare(assessed, variants[0], variant, cap, metric, family)
+                 for variant in variants[1:] for metric in ("pipeline", "conditional") for family in (None, *families)]
+    atomic_json(args.output / "summary.json", {"config": config, "results": summaries, "curves": curves,
+                                                 "paired": contrasts, "rejected_variants": rejected})
+    write_csv(args.output / "curves.csv", curves, list(curves[0]))
+    if contrasts:
+        write_csv(args.output / "paired.csv", contrasts, list(contrasts[0]))
+    write_csv(args.output / "summary.csv", [{**row, "statuses": json.dumps(row["statuses"], sort_keys=True)}
+                                            for row in summaries], list(summaries[0]))
+    for family in ("all", *families):
+        plot_curves(args.output, curves, family, variants)
+    print(json.dumps({"variants": len(variants), "planned_per_variant": len(contexts),
+                      "saved_rollouts": sum(info["audit"].get("rollouts", 0) for _, _, _, _, info in loaded)}))
+
+
+if __name__ == "__main__":
+    main()
