@@ -34,6 +34,13 @@ def notebook(run: Path):
         Notebook korzysta ze źródeł zapisanych lokalnie: jego ponowne
         wykonanie nie uruchamia treningu, GPU ani API. Przypadki brakujące
         lub przerwane są pokazane osobno od błędnych odpowiedzi modelu.
+
+        Sześć wcześniejszych etapów CPU zapisało PID z przestrzeni
+        piaskownicy: lokalny wrapper miał timeout, ale watchdog hosta nie
+        mógł niezależnie i pewnie nadzorować tych grup procesów. Etapy te
+        zakończyły się, a istotne wyniki odtworzono na hoście. Etapy GPU i
+        treningu uruchamiano na hoście; nie zapisano jednak identyfikatora
+        przestrzeni PID dla każdego wcześniejszego etapu.
         """),
         code(f'''
         from pathlib import Path
@@ -84,7 +91,7 @@ def notebook(run: Path):
         finish_request = read_json(RUN / "finish_request.json")
         campaign = read_json(RUN / "campaign_state.json")
         print("Katalog:", RUN)
-        print("Stan nadzoru:", state.get("status", "brak"))
+        print("Stan watchdog kampanii (nie jest dowodem nadzoru każdego etapu):", state.get("status", "brak"))
         if state.get("status") == "active" and finish_request:
             print("Zakończenie zgłoszone; watchdog oczekuje na wyjście zarejestrowanych procesów.")
             print("Żądanie:", json.dumps(finish_request, ensure_ascii=False))
@@ -92,6 +99,12 @@ def notebook(run: Path):
             print("Stan etapów eksperymentu:", json.dumps(campaign, ensure_ascii=False))
         print("Początek i termin UTC:", state.get("clock", {{}}).get("start_utc"),
               state.get("clock", {{}}).get("deadline_utc"))
+        namespace_audit = RUN / "pid_namespace_supervision_audit.json"
+        if namespace_audit.exists():
+            print("Audyt nadzoru i odtworzeń na hoście:")
+            show_json(namespace_audit)
+        else:
+            print("Brak audytu przestrzeni PID; nie zakładamy niezależnego nadzoru dla wszystkich etapów.")
         show_json(RUN / "study_plan.json")
         '''),
         markdown("""
@@ -321,8 +334,10 @@ def notebook(run: Path):
             print("Brak zapisanej oceny reguły lokalnej.")
         rule_pairs_root = RUN / "local_rule_paired"
         rule_pairs_final = rule_pairs_root / "final"
-        rule_pairs = (rule_pairs_final if (rule_pairs_final / "paired_summary.json").is_file()
-                      else rule_pairs_root)
+        rule_pairs_host = RUN / "local_rule_paired_host"
+        rule_pairs_v3 = RUN / "local_rule_paired_v3"
+        rule_pairs = next((path for path in (rule_pairs_final, rule_pairs_host, rule_pairs_v3, rule_pairs_root)
+                           if (path / "paired_summary.json").is_file()), rule_pairs_root)
         print("Wybrany snapshot sparowania reguły:", rule_pairs)
         if (rule_pairs / "paired_summary.json").is_file():
             display(Markdown("### Sparowane wyniki reguły — POST-HOC"))
@@ -378,15 +393,27 @@ def notebook(run: Path):
         a nie dowodem mechanizmu kopiowania ani samodzielnym pomiarem
         wykonania przez kontroler. Nieukończone metody pozostają wykluczone
         i są wymienione w zapisanym audycie.
+        `shown_support_matches.csv` odnosi się do przykładów w rzeczywistym
+        prompcie każdej metody. Dla `zero` nie ma pokazanego przykładu ani
+        odsetka zgodności. W tabeli `balanced0_was_shown` dotyczy całego
+        zestawu; osobne flagi wskazują pokazanie konkretnego przykładu lub
+        tej samej intencji, co ma znaczenie dla współdzielonego przykładu
+        `legacy` i `balanced0`.
         """),
         code('''
         diversity_root = RUN / "diversity_audit"
         final_diversity = diversity_root / "final"
-        diversity = final_diversity if (final_diversity / "summary.json").is_file() else diversity_root
+        shown_diversity = diversity_root / "shown_support_v1"
+        if (final_diversity / "summary.json").is_file() and (final_diversity / "shown_support_matches.csv").is_file():
+            diversity = final_diversity
+        elif (shown_diversity / "summary.json").is_file():
+            diversity = shown_diversity
+        else:
+            diversity = final_diversity if (final_diversity / "summary.json").is_file() else diversity_root
         print("Wybrany snapshot audytu różnorodności:", diversity)
         if (diversity / "summary.json").exists():
             show_json(diversity / "summary.json")
-            for name in ("summary.csv", "frequencies.csv", "support_matches.csv"):
+            for name in ("summary.csv", "frequencies.csv", "support_matches.csv", "shown_support_matches.csv"):
                 path = diversity / name
                 if path.exists():
                     display(Markdown("### " + name))
@@ -496,18 +523,76 @@ def notebook(run: Path):
         otoczek, więc nie jest wynikiem prerejestrowanym. Używa tej samej
         polityki, plansz i budżetu; nie łączymy jej mianowników z protokołem
         ścisłym.
+
+        **exploratory_addendum** porównuje trzy pary tego samego generatora
+        przed i po LoRA, osobno dla każdego formatu. Wybrano je po wynikach
+        ICL, lecz przed predykcjami tych adapterów. Używają tych samych 40
+        plansz i kontrolera z limitem 16 ruchów; odpowiedź generatora jest
+        sprawdzana ścisłym parserem, bez usuwania otoczek. Wynik nie jest
+        prerejestrowanym porównaniem sprzed obserwacji ICL.
+
+        Kod assessora użyty wcześniej do ocen ścisłej i po usunięciu
+        otoczki zachowano osobno przed rozszerzeniem o dodatek LoRA. Jego
+        hash oraz powiązania z zapisanymi podsumowaniami są pokazane niżej;
+        bieżący plik assessora zawiera późniejsze rozszerzenie. Zachowano
+        także poprzedni skrypt uruchamiający macierz kontrolera. Dziennik
+        etapu podaje ścieżkę skryptu, lecz nie zapisał jego hashu w chwili
+        startu, więc sam snapshot nie jest kryptograficznym dowodem bajtów
+        wykonanych wtedy przez proces.
         """),
         code('''
+        assessor_provenance_path = RUN / "code_snapshot/assess_fixed_controller_pre_addendum.provenance.json"
+        assessor_provenance = read_json(assessor_provenance_path, {}) or {}
+        if assessor_provenance:
+            print("Zachowane źródło wcześniejszych ocen kontrolera:")
+            show_json(assessor_provenance_path)
+            snapshot = ROOT / assessor_provenance["snapshot_path"]
+            print("Snapshot:", snapshot, "SHA-256:", sha(snapshot),
+                  "zgodny:", sha(snapshot) == assessor_provenance.get("source_sha256"))
+            bindings = []
+            for binding in assessor_provenance.get("assessments", []):
+                path = ROOT / binding["summary_path"]
+                bindings.append({"ocena": str(path), "rodzaj": binding.get("analysis_kind"),
+                                 "oczekiwany SHA-256": binding.get("summary_sha256"),
+                                 "bieżący SHA-256": sha(path), "zgodne": sha(path) == binding.get("summary_sha256")})
+            display(pd.DataFrame(bindings))
+        runner_provenance_path = RUN / "code_snapshot/run_controller_matrix_pre_addendum.provenance.json"
+        runner_provenance = read_json(runner_provenance_path, {}) or {}
+        if runner_provenance:
+            print("Zachowane źródło wcześniejszego uruchomienia macierzy kontrolera:")
+            show_json(runner_provenance_path)
+            snapshot = ROOT / runner_provenance["snapshot_path"]
+            print("Snapshot:", snapshot, "SHA-256:", sha(snapshot),
+                  "zgodny:", sha(snapshot) == runner_provenance.get("source_sha256"))
+            outputs = []
+            for item in runner_provenance.get("outputs_at_snapshot", []):
+                path = ROOT / item["path"]
+                outputs.append({"plik": str(path), "oczekiwany SHA-256": item.get("sha256"),
+                                "bieżący SHA-256": sha(path), "zgodne": sha(path) == item.get("sha256")})
+            display(pd.DataFrame(outputs))
         policy_files = sorted(set(RUN.glob("policy*.json")) | set(RUN.glob("policy*/manifest.json"))
                               | set(RUN.glob("controller*.json")) | set(RUN.glob("controller*/manifest.json"))
                               | set(RUN.glob("controller_results/*.manifest.json"))
-                              | set(RUN.glob("controller_fence_results/*.manifest.json")))
+                              | set(RUN.glob("controller_fence_results/*.manifest.json"))
+                              | set(RUN.glob("controller_lora_addendum_inputs/*/manifest.json"))
+                              | set(RUN.glob("controller_lora_addendum_results/*.manifest.json")))
         for path in policy_files:
-            show_json(path)
+            policy_info = show_json(path)
+            if path.name == "controller_lora_addendum_status.json" and isinstance(policy_info, dict):
+                print("To status z chwili zapisu komórki. Jeśli notebook powstaje w końcowym etapie addendum, "
+                      "status może pozostać 'running' do wyjścia tego etapu; aktualny stan znajduje się w tym pliku JSON.")
+                if (policy_info.get("rollout_stage_status") == "completed"
+                        and policy_info.get("assessment_stage_status") == "completed"
+                        and policy_info.get("assessment_data_complete") is True
+                        and policy_info.get("master_stage_status") == "completed"
+                        and policy_info.get("master_fallback") is False):
+                    print("W tej migawce rollout i ocena zakończyły się, dane oceny są kompletne, "
+                          "a etap główny zakończył się poprawnie. Zapis notebooka nie jest jeszcze tym potwierdzony.")
         policy_results = sorted(RUN.glob("policy*.jsonl")) + sorted(RUN.glob("policy*/results.jsonl"))
         policy_results += sorted(RUN.glob("controller*.jsonl")) + sorted(RUN.glob("controller*/results.jsonl"))
         policy_results += sorted(RUN.glob("controller_results/*.jsonl"))
         policy_results += sorted(RUN.glob("controller_fence_results/*.jsonl"))
+        policy_results += sorted(RUN.glob("controller_lora_addendum_results/*.jsonl"))
         for path in policy_results:
             rows = read_jsonl(path)
             print("Plik prób:", path, "SHA-256:", sha(path), "wiersze:", len(rows))
@@ -519,20 +604,26 @@ def notebook(run: Path):
                                       for row in rows]))
                 for row in rows:
                     result = row.get("result") or {}
+                    raw_responses = iter(row.get("raw_policy_responses") or [])
                     for step in result.get("steps", []):
+                        original = next(raw_responses, None) if step.get("raw_response") is not None else None
                         print("\\nPróba", row.get("record_id"), "krok", step.get("index"))
                         print("Pełny prompt polityki:\\n", step.get("prompt"))
+                        print("Odpowiedź przed normalizacją:", original)
                         print("Odpowiedź:", step.get("raw_response"), "akcja:", step.get("action"),
                               "no-op:", step.get("no_op"))
                         print("Stan po ruchu:\\n" + "\\n".join(step.get("after") or []))
         if not policy_results:
             print("Brak zapisanych prób kontrolera.")
         controller_assessments = sorted(set(RUN.glob("controller_assessment*/summary.json"))
-                                        | set(RUN.glob("controller_fence_assessment*/summary.json")))
+                                        | set(RUN.glob("controller_fence_assessment*/summary.json"))
+                                        | set(RUN.glob("controller_lora_addendum_assessment*/summary.json")))
         for path in controller_assessments:
             outcome = read_json(path, {}) or {}
             info = outcome.get("config") or {}
-            label = "POST-HOC — " if info.get("analysis_kind") == "posthoc_exploratory" else "ŚCISŁY — "
+            label = {"posthoc_exploratory": "POST-HOC — ",
+                     "strict_preregistered": "ŚCISŁY prerejestrowany — ",
+                     "exploratory_addendum": "EKSPLORACYJNY DODATEK — "}.get(info.get("analysis_kind"), "NIEUSTALONY — ")
             display(Markdown("### " + label + path.parent.name))
             print("Podsumowanie:", path, "SHA-256:", sha(path))
             print("Normalizacja odpowiedzi generatora:", info.get("generator_output_normalisation", "none"))

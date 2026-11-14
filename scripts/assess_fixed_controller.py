@@ -60,6 +60,16 @@ class GeneratorNormalisation(StrEnum):
     REMOVE_ONE_OUTER_FENCE = "remove_one_outer_fence"
 
 
+class AnalysisKind(StrEnum):
+    STRICT = "strict_preregistered"
+    FENCE = "posthoc_exploratory"
+    ADDENDUM = "exploratory_addendum"
+
+
+ADDENDUM_STATUS = "posthoc_icl_prior_to_matched_lora_predictions"
+ADDENDUM_PAIRS = [(f"base_{name}_zero", f"rep_lora_{name}_zero") for name in ("json", "formal", "natural")]
+
+
 class AssessmentDeadline(Exception):
     """A bounded in-process fallback reached its own deadline."""
 
@@ -397,7 +407,8 @@ def compare(rows: list[Record], before: str, after: str, budget: int, metric: st
             "bootstrap_low": bounds[0] if bounds else None, "bootstrap_high": bounds[1] if bounds else None}
 
 
-def plot_curves(output: Path, curves: list[Record], family: str, variants: list[str], *, posthoc: bool = False) -> None:
+def plot_curves(output: Path, curves: list[Record], family: str, variants: list[str], *, posthoc: bool = False,
+                addendum: bool = False) -> None:
     plt.rcParams.update({"font.family": "serif", "pdf.fonttype": 42, "svg.fonttype": "none"})
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, constrained_layout=True)
     colours = plt.get_cmap("tab10")
@@ -424,7 +435,10 @@ def plot_curves(output: Path, curves: list[Record], family: str, variants: list[
         else:
             axis.text(.5, .5, "Brak ocenionych prób", transform=axis.transAxes, ha="center", fontsize=9)
     axes[0].set_ylabel("Średni odsetek zrealizowanych intencji na planszę")
-    prefix = "POST-HOC: po usunięciu jednej otoczki — " if posthoc else "Ścisły format — "
+    if addendum:
+        prefix = "Eksploracyjne porównanie LoRA — ścisły format — "
+    else:
+        prefix = "POST-HOC: po usunięciu jednej otoczki — " if posthoc else "Ścisły format — "
     fig.suptitle(f"{prefix}zamrożony lokalny kontroler — {family}")
     fig.supxlabel("W nawiasie: ocenione / zaplanowane; przedziały 95% bootstrap po planszach dla zaznaczonych budżetów.",
                   fontsize=8)
@@ -459,6 +473,81 @@ def normalisation_from_plan(plan: Record, plan_path: Path, run: Path) -> Generat
     return mode
 
 
+def validate_addendum_plan(plan: Record, plan_path: Path, run: Path, matrix: Record,
+                          matrix_path: Path, contexts: list[Record]) -> None:
+    """Bind the exploratory addendum to its original policy, data and three fixed pairs."""
+    checksum = plan_path.with_suffix(".sha256")
+    if (plan.get("status") != ADDENDUM_STATUS or not checksum.is_file()
+            or checksum.read_text(encoding="utf-8").strip() != file_hash(plan_path)):
+        raise ValueError("Exploratory addendum plan or checksum is invalid")
+    strict_path = run / "policy_evaluation_plan.json"
+    if not strict_path.is_file() or file_hash(strict_path) != plan.get("original_policy_plan_sha256"):
+        raise ValueError("Exploratory addendum differs from the original policy plan")
+    strict = json.loads(strict_path.read_text(encoding="utf-8"))
+    shared = ("frozen_ids", "frozen_ids_sha256", "controller_selection_sha256", "selected_controller",
+              "decoding", "action_parser", "model_training", "primitive_action_budget", "api_calls")
+    if any(plan.get(key) != strict.get(key) for key in shared):
+        raise ValueError("Exploratory addendum changed the frozen policy, inputs or budget")
+    if (plan.get("generator_output_normalisation") != GeneratorNormalisation.NONE
+            or plan.get("primitive_action_budget") != 16 or plan.get("model_training") is not False
+            or plan.get("decoding") != "greedy" or plan.get("api_calls") != 0):
+        raise ValueError("Exploratory addendum must use the strict generator and fixed controller")
+    pairs = [list(pair) for pair in ADDENDUM_PAIRS]
+    if (plan.get("contrasts") != pairs or plan.get("variants") != [name for pair in pairs for name in pair]
+            or plan.get("prediction_presence_at_freeze") != {pair[1]: False for pair in pairs}):
+        raise ValueError("Exploratory addendum does not contain the three frozen matched pairs")
+    if (len(contexts) != 40 or len({row["layout_id"] for row in contexts}) != 40
+            or Counter(board_family(row) for row in contexts) != {"real_12x12x4": 20, "proposal_gamma2_12x12x10": 20}):
+        raise ValueError("Exploratory addendum requires the 40 frozen independent x4/x10 boards")
+    for row in contexts:
+        board = row["start_observation"]
+        boxes = 4 if board_family(row) == "real_12x12x4" else 10
+        if (not isinstance(board, list) or len(board) != 12
+                or any(not isinstance(line, str) or len(line) != 12 for line in board)
+                or sum(line.count("$") + line.count("*") for line in board) != boxes):
+            raise ValueError("Exploratory addendum board dimensions or box count differ from the recorded family")
+    if plan.get("matrix_plan_sha256") != file_hash(matrix_path):
+        raise ValueError("Exploratory addendum matrix plan differs from the frozen plan")
+    matrix_data, matrix_ids = (matrix["inputs"][name] for name in ("data", "test_ids"))
+    if (file_hash(Path(matrix_data["path"])) != matrix_data["sha256"]
+            or file_hash(Path(matrix_ids["path"])) != matrix_ids["sha256"]):
+        raise ValueError("Exploratory addendum full-matrix data or IDs changed")
+    full_ids = json.loads(Path(matrix_ids["path"]).read_text(encoding="utf-8"))
+    controller_ids = json.loads(resolve(plan["frozen_ids"]).read_text(encoding="utf-8"))
+    if (full_ids.get("dataset_sha256") != matrix_data["sha256"]
+            or controller_ids.get("dataset_sha256") != matrix_data["sha256"]):
+        raise ValueError("Exploratory addendum full-matrix IDs refer to another dataset")
+    check_test_subset(full_ids["record_ids"], contexts)
+    jobs = {job["name"]: job for job in matrix["methods"]}
+    if len(jobs) != len(matrix["methods"]):
+        raise ValueError("Matrix plan contains duplicate methods")
+    for representation, (base, adapted) in zip(("json", "formal", "natural"), ADDENDUM_PAIRS, strict=True):
+        for name, expect_adapter in ((base, False), (adapted, True)):
+            job = jobs.get(name)
+            if (job is None or job.get("representation") != representation or job.get("support_set") != "zero"
+                    or bool(job.get("adapter")) is not expect_adapter):
+                raise ValueError(f"Exploratory addendum method differs from the matrix: {name}")
+    selection_path = run / "controller_selection.json"
+    if not selection_path.is_file() or file_hash(selection_path) != plan.get("controller_selection_sha256"):
+        raise ValueError("Exploratory addendum controller selection is missing or changed")
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    calibration = run / f"policy_calibration_{selection['selected']}.manifest.json"
+    assets = run / "controller_assets_snapshot.json"
+    for path, key in ((calibration, "controller_calibration_manifest_sha256"),
+                      (assets, "controller_assets_snapshot_sha256")):
+        if not path.is_file() or file_hash(path) != plan.get(key):
+            raise ValueError(f"Exploratory addendum frozen input changed: {path.name}")
+    source_hashes = plan.get("controller_source_sha256")
+    expected_sources = {"scripts/run_fixed_local_controller.py", "carl/icl/local_intent_policy.py",
+                        "carl/icl/luna_intent_rollout.py", "carl/icl/intent_fence_audit.py"}
+    if not isinstance(source_hashes, dict) or set(source_hashes) != expected_sources:
+        raise ValueError("Exploratory addendum controller-source hashes are incomplete")
+    for name, digest in source_hashes.items():
+        source = ROOT / name
+        if not source.is_file() or file_hash(source) != digest:
+            raise ValueError(f"Exploratory addendum controller source changed: {name}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
@@ -490,10 +579,18 @@ def assess(args: argparse.Namespace) -> GeneratorNormalisation:
     run = args.plan.resolve().parent
     mode = normalisation_from_plan(plan, args.plan, run)
     posthoc = mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE
+    addendum = plan.get("status") == ADDENDUM_STATUS or args.plan.name == "policy_lora_addendum_plan.json"
     data = args.data or run / "data/dataset.jsonl"
     ids = resolve(plan["frozen_ids"])
-    inputs_root = args.inputs or run / ("controller_fence_inputs" if posthoc else "controller_inputs")
-    results_root = args.results or run / ("controller_fence_results" if posthoc else "controller_results")
+    inputs_name = "controller_lora_addendum_inputs" if addendum else "controller_fence_inputs" if posthoc else "controller_inputs"
+    results_name = "controller_lora_addendum_results" if addendum else "controller_fence_results" if posthoc else "controller_results"
+    inputs_root, results_root = args.inputs or run / inputs_name, args.results or run / results_name
+    if addendum:
+        protected = [run / name for name in ("controller_inputs", "controller_results", "controller_fence_inputs",
+                                             "controller_fence_results", "controller_assessment", "controller_assessment_fence")]
+        if any(path.resolve().is_relative_to(root.resolve()) for path in (inputs_root, results_root, args.output)
+               for root in protected):
+            raise ValueError("Exploratory addendum must use directories separate from existing policy analyses")
     if posthoc and (inputs_root.resolve() == (run / "controller_inputs").resolve()
                     or results_root.resolve() == (run / "controller_results").resolve()):
         raise ValueError("Post-hoc inputs and results must be separate from the strict protocol")
@@ -516,6 +613,9 @@ def assess(args: argparse.Namespace) -> GeneratorNormalisation:
         raise ValueError("Invalid planned test contexts, variants or action cap")
     if selection.get("action_cap") != cap:
         raise ValueError("Selected controller action cap differs from plan")
+    if addendum:
+        validate_addendum_plan(plan, args.plan, run, matrix, matrix_path, contexts)
+    analysis_kind = AnalysisKind.ADDENDUM if addendum else AnalysisKind.FENCE if posthoc else AnalysisKind.STRICT
     selection_path = run / "controller_selection.json"
     selected_calibration = None
     if plan.get("controller_selection_sha256") is not None:
@@ -587,11 +687,13 @@ def assess(args: argparse.Namespace) -> GeneratorNormalisation:
     if (args.output / "config.json").exists() or (args.output / "assessment.jsonl").exists():
         raise FileExistsError("Controller assessment exists; choose a fresh output directory")
     config = {"plan_sha256": file_hash(args.plan), "data_sha256": file_hash(data), "test_ids_sha256": file_hash(ids),
-              "analysis_kind": "posthoc_exploratory" if posthoc else "strict_preregistered",
+              "analysis_kind": analysis_kind,
               "generator_output_normalisation": mode,
               "primary_policy_plan_sha256": plan.get("primary_policy_plan_sha256") if posthoc else None,
               "motivation_summary_sha256": plan.get("motivation_summary_sha256") if posthoc else None,
-              "interpretation": ("Post-hoc after observed strict and fence results; not a preregistered comparison."
+              "interpretation": ("Exploratory addendum chosen after ICL results, before matched LoRA predictions; "
+                                 "strict generator parsing and the same frozen controller."
+                                 if addendum else "Post-hoc after observed strict and fence results; not a preregistered comparison."
                                  if posthoc else "Original strict controller protocol; no generator formatting repairs."),
               "matrix_plan_sha256": file_hash(matrix_path),
               "assessment_source_sha256": {
@@ -642,8 +744,13 @@ def assess(args: argparse.Namespace) -> GeneratorNormalisation:
                               "attempted_actions": sum(row["actions"] for row in saved_attempts),
                               "no_ops": sum(row["no_ops"] for row in saved_attempts),
                               "model_calls": sum(row["model_calls"] for row in saved_attempts)})
-    contrasts = [compare(assessed, variants[0], variant, cap, metric, family)
-                 for variant in variants[1:] for metric in ("pipeline", "conditional") for family in (None, *families)]
+    if addendum:
+        contrasts = [compare(assessed, before, after, budget, metric, family)
+                     for before, after in ADDENDUM_PAIRS for metric in ("pipeline", "conditional")
+                     for family in (None, *families) for budget in range(cap + 1)]
+    else:
+        contrasts = [compare(assessed, variants[0], variant, cap, metric, family)
+                     for variant in variants[1:] for metric in ("pipeline", "conditional") for family in (None, *families)]
     for row in contrasts:
         row.update(analysis_kind=config["analysis_kind"], generator_output_normalisation=mode)
     atomic_json(args.output / "summary.json", {"config": config, "results": summaries, "curves": curves,
@@ -655,7 +762,7 @@ def assess(args: argparse.Namespace) -> GeneratorNormalisation:
                                             for row in summaries], list(summaries[0]))
     for family in ("all", *families):
         check_deadline(args)
-        plot_curves(args.output, curves, family, variants, posthoc=posthoc)
+        plot_curves(args.output, curves, family, variants, posthoc=posthoc, addendum=addendum)
     atomic_json(args.output / "complete.json", {"status": "complete", "plan_sha256": file_hash(args.plan),
                                                 "summary_sha256": file_hash(args.output / "summary.json"),
                                                 "analysis_kind": config["analysis_kind"]})
@@ -749,7 +856,9 @@ def run_posthoc_fallback(args: argparse.Namespace) -> None:
 def main() -> None:
     args = parse_args()
     mode = assess(args)
-    if mode == GeneratorNormalisation.NONE and not args.no_posthoc_fallback:
+    if (mode == GeneratorNormalisation.NONE and not args.no_posthoc_fallback
+            and args.plan.name != "policy_lora_addendum_plan.json"
+            and json.loads(args.plan.read_text(encoding="utf-8")).get("status") != ADDENDUM_STATUS):
         run_posthoc_fallback(args)
 
 

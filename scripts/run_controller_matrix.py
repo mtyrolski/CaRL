@@ -41,13 +41,14 @@ def append_event(path: Path, event: dict[str, Any]) -> None:
         os.fsync(output.fileno())
 
 
-def run_child(command: list[str], log_path: Path, timeout: float) -> tuple[JobStatus, int | None]:
+def run_child(command: list[str], log_path: Path, timeout: float,
+              pass_fds: tuple[int, ...] = ()) -> tuple[JobStatus, int | None]:
     """Inherit the watchdog process group and stop only this child's tree."""
     environment = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
     with log_path.open("a", encoding="utf-8") as log:
         log.write(f"\n--- child started at {time.time():.3f}, timeout={timeout:.3f}s ---\n")
         log.flush()
-        child = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=environment)
+        child = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=environment, pass_fds=pass_fds)
         try:
             code = child.wait(timeout=timeout)
             return (JobStatus.COMPLETE if code == 0 else JobStatus.FAILED), code
