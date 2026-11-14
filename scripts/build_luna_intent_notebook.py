@@ -597,15 +597,24 @@ def notebook(run_relative: str) -> Any:
         plansze, checker i raport są przetwarzane lokalnie. Poniżej jest zapis
         etapów supervisora oraz suma czasów zapisanych prób — suma nie jest
         całkowitym czasem zegarowym, bo nie obejmuje przygotowania ani raportu.
+        Podajemy czas według znaczników UTC oraz osobno czas monotoniczny;
+        pod WSL mogą się różnić. Nadzorca stosował wcześniejszy z dwóch terminów końcowych.
         """),
         code('''
         import platform
         import psutil
+        from datetime import datetime
         from scripts.build_luna_intent_notebook import read_json
         print("System:", platform.platform(), "Python:", platform.python_version(),
               "pamięć dostępna systemowi [GiB]:", round(psutil.virtual_memory().total / 2**30, 1))
         supervisor = read_json(report["audit_run"] / "run_manifest.json", {})
         print("Początek i deadline wspólnego eksperymentu:", supervisor.get("clock", {}))
+        started = supervisor.get("clock", {}).get("start_utc")
+        finished = supervisor.get("finished_utc")
+        if started and finished:
+            wall = (datetime.fromisoformat(finished) - datetime.fromisoformat(started)).total_seconds()
+            print("Od rozpoczęcia do zakończenia wg UTC [s]:", round(wall, 2))
+            print("Czas monotoniczny [s]:", supervisor.get("elapsed_seconds"))
         stages = [{key: stage.get(key) for key in ("name", "started_utc", "finished_utc", "status", "exit_code")}
                   for stage in supervisor.get("stages", [])]
         display(pd.DataFrame(stages) if stages else "Brak wpisów etapów supervisora")
