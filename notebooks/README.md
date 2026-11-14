@@ -30,3 +30,20 @@ mock mode. `icl_8v32_reachability.ipynb` and
 The saved results, trajectory witnesses and model checkpoints are not included
 in Git. These notebooks need their matching local artifacts and report missing
 inputs rather than substituting mock results for measurements.
+
+## Sokoban intent generator
+
+The local report `analysis/intent_generator_20261114T032232Z/intent_generator_report.ipynb`
+compares the base Qwen, LoRA, in-context examples and a deterministic local
+rule. It includes the recorded prompts, training curve, held-out comparisons
+and examples of action sequences found by bounded search. Rebuild and execute
+it from the CaRL checkout with:
+
+```bash
+uv run --no-sync python scripts/build_intent_generator_notebook.py \
+  --run-dir analysis/intent_generator_20261114T032232Z --execute
+```
+
+The executed notebook and the experiment's data, model weights and results
+remain local. Rebuilding the report reads those artifacts; it does not invoke
+an LLM, train a model or download files.
