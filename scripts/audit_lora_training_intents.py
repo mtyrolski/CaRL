@@ -36,6 +36,30 @@ def repository_path(value: str) -> Path:
     return (path if path.is_absolute() else ROOT / path).resolve()
 
 
+def checkpoint_inputs(directory: Path, job: Record, binding_path: Path,
+                      training: Record, prediction: Record) -> list[Path]:
+    """Bind saved adapter bytes to both the training audit and generator run."""
+    checkpoint = (directory / "checkpoint-last-100").resolve()
+    if (not isinstance(job.get("adapter"), str) or repository_path(job["adapter"]) != checkpoint
+            or not isinstance(training.get("last_checkpoint"), str)
+            or repository_path(training["last_checkpoint"]) != checkpoint):
+        raise ValueError("Generator and training audit do not name the same last checkpoint")
+    binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    if (not isinstance(binding.get("adapter"), str) or repository_path(binding["adapter"]) != checkpoint
+            or not isinstance(binding.get("sha256"), dict) or not isinstance(training.get("last"), dict)):
+        raise ValueError("Frozen adapter binding names a different checkpoint")
+    files = []
+    for filename, training_key, prediction_key in (("adapter_model.safetensors", "weights_sha256", "adapter_weights_sha256"),
+                                                    ("adapter_config.json", "config_sha256", "adapter_config_sha256")):
+        path = checkpoint / filename
+        digest = file_sha256(path)
+        if (digest != training.get("last", {}).get(training_key) or digest != prediction.get(prediction_key)
+                or digest != binding.get("sha256", {}).get(filename)):
+            raise ValueError(f"Checkpoint hash differs from training or generation: {filename}")
+        files.append(path)
+    return [binding_path, *files]
+
+
 def label_index(records: list[Record]) -> dict[str, list[Record]]:
     """Index the complete conjunction, retaining every distinct training record."""
     result: dict[str, list[Record]] = defaultdict(list)
@@ -134,11 +158,16 @@ def audit(run: Path) -> tuple[Record, list[Record], list[Record], list[Path]]:
     expected_sequence = matched["primary"]["reconstructed_first_400_train_ids"]
     training = None
     sample_ids = None
+    checkpoints = {}
     for name in REPRESENTATIONS:
         directory = run / f"adapter_repr_{name}_seed1729"
         config_path, status_path = directory / "configuration.json", directory / "status.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
         status = json.loads(status_path.read_text(encoding="utf-8"))
+        training_audit = matched["primary"]["variants"][name]
+        if (training_audit.get("configuration_sha256") != file_sha256(config_path)
+                or training_audit.get("status_sha256") != file_sha256(status_path)):
+            raise ValueError(f"Training configuration or status differs from its independent audit: {name}")
         train, _ = training_inputs(config, source, list(contexts.values()))
         if (config.get("representation") != name or config.get("data_sha256") != file_sha256(training_path)
                 or config.get("seed") != 1729 or config.get("max_steps") != 100
@@ -165,6 +194,14 @@ def audit(run: Path) -> tuple[Record, list[Record], list[Record], list[Path]]:
         prediction = Path(jobs[0]["output"])
         paths.extend((prediction, prediction.with_suffix(".run.json"), prediction.with_suffix(".summary.json"),
                       prediction.with_suffix(".prompts.jsonl")))
+        run_metadata = json.loads(prediction.with_suffix(".run.json").read_text(encoding="utf-8"))
+        binding_path = run / "matrix_adapter_hashes" / f"rep_lora_{name}_zero.json"
+        verified_paths = checkpoint_inputs(directory, jobs[0], binding_path, training_audit, run_metadata)
+        paths.extend(verified_paths)
+        checkpoints[name] = {"path": str((directory / "checkpoint-last-100").resolve()),
+                             "weights_sha256": file_sha256(verified_paths[1]),
+                             "config_sha256": file_sha256(verified_paths[2]),
+                             "matrix_binding_sha256": file_sha256(binding_path)}
         source_hashes = prior["sources"][jobs[0]["name"]]
         for field, path in (("predictions_sha256", prediction), ("run_sha256", prediction.with_suffix(".run.json")),
                             ("summary_sha256", prediction.with_suffix(".summary.json")),
@@ -206,6 +243,7 @@ def audit(run: Path) -> tuple[Record, list[Record], list[Record], list[Path]]:
                                    "Validity uses the current board and does not establish controller achievement or feasibility.",
                                    "x10 combines two separately reported source families; family and box count are confounded.",
                                    "Strict and one-fence-removal results are separate; no future test state enters these counts."],
+                "verified_training_checkpoints": checkpoints,
                 "verified_generator_sources": {name: prior["sources"][name] for name in sorted(required)},
                 "input_sha256": hashes}
     return metadata, frequencies, records, paths

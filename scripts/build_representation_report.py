@@ -440,7 +440,9 @@ def notebook(run: Path):
         obejmuje dwie rodziny z różnych źródeł, pokazane także osobno.
         """),
         code('''
-        lora_audit = RUN / "lora_training_intent_audit"
+        lora_audit = next((path for path in (RUN / "lora_training_intent_audit_v2", RUN / "lora_training_intent_audit")
+                           if (path / "summary.json").is_file() and (path / "provenance.json").is_file()),
+                          RUN / "lora_training_intent_audit")
         lora_provenance = read_json(lora_audit / "provenance.json", {}) or {}
         lora_summary = read_json(lora_audit / "summary.json", {}) or {}
         lora_frequencies = lora_audit / "frequencies.csv"
@@ -461,6 +463,8 @@ def notebook(run: Path):
                                 and lora_summary.get("analysis_kind") == "posthoc_descriptive")
             if valid_provenance and lora_frequencies.is_file():
                 print("Pula treningowa i ograniczenia:", json.dumps(lora_summary.get("training_pool"), ensure_ascii=False))
+                print("Zweryfikowane checkpointy treningu i generowania:")
+                display(pd.DataFrame.from_dict(lora_summary.get("verified_training_checkpoints", {}), orient="index"))
                 for caveat in lora_summary.get("interpretation", []):
                     print("-", caveat)
                 display(Markdown("### Podsumowanie: format, rodzina i liczba skrzyń"))

@@ -4,6 +4,8 @@ import json
 
 import pytest
 
+from carl.icl.intent_generator_experiment import file_sha256
+from scripts.audit_lora_training_intents import checkpoint_inputs
 from scripts.audit_lora_training_intents import describe
 from scripts.audit_lora_training_intents import enrich
 from scripts.audit_lora_training_intents import label_index
@@ -64,10 +66,30 @@ def test_reconstructed_sample_and_training_pool_are_not_conflated():
         enrich(proposal("one", "different", valid=True, signature=signature), context("one", "board"), pool, {})
 
 
+def test_checkpoint_bytes_match_training_binding_and_generation(tmp_path):
+    directory = tmp_path / "adapter"
+    checkpoint = directory / "checkpoint-last-100"
+    checkpoint.mkdir(parents=True)
+    weights = checkpoint / "adapter_model.safetensors"
+    config = checkpoint / "adapter_config.json"
+    weights.write_bytes(b"weights")
+    config.write_text("config")
+    binding = tmp_path / "binding.json"
+    binding.write_text(json.dumps({"adapter": str(checkpoint), "sha256": {
+        weights.name: file_sha256(weights), config.name: file_sha256(config)}}))
+    training = {"last_checkpoint": str(checkpoint), "last": {"weights_sha256": file_sha256(weights),
+                                                               "config_sha256": file_sha256(config)}}
+    prediction = {"adapter_weights_sha256": file_sha256(weights), "adapter_config_sha256": file_sha256(config)}
+    job = {"adapter": str(checkpoint)}
+    assert checkpoint_inputs(directory, job, binding, training, prediction) == [binding, weights, config]
+    weights.write_bytes(b"different")
+    with pytest.raises(ValueError, match="Checkpoint hash differs"):
+        checkpoint_inputs(directory, job, binding, training, prediction)
+
+
 def test_output_is_new_and_rejects_changed_inputs(tmp_path):
     source = tmp_path / "input"
     source.write_text("original")
-    from carl.icl.intent_generator_experiment import file_sha256
     summary = {"input_sha256": {str(source.resolve()): file_sha256(source)}, "summaries": [{"outputs": 1}]}
     destination = tmp_path / "result"
     write_output(destination, summary, [{"occurrences": 1}], [{"record_id": "one"}], [source])
