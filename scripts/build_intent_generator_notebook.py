@@ -403,20 +403,15 @@ def notebook(run_relative: str, original_report: str):
         icl_path = RUN / "icl_followup/assessment/summary.json"
         icl = read_json(icl_path) if icl_path.exists() else None
 
-        def comparison(summary, icl_summary=None, include_icl=False):
+        def comparison(summary, include_icl=False):
             rows = list(summary["results"])
-            if icl_summary:
-                candidates = icl_summary.get("results", [])
-                candidate = next((r for r in candidates if r.get("method") in ("in_context", "icl", "few_shot")), None)
-                if candidate:
-                    rows.append({**candidate, "method": "in_context"})
             if include_icl and not any(row.get("method") == "in_context" for row in rows):
                 rows.append({"method": "in_context", "outputs": None, "valid_json": None,
                              "valid_nontrivial": None, "witness_found": None})
             return rows
 
-        def display_comparison(summary, title, icl_summary=None, include_icl=False):
-            rows = comparison(summary, icl_summary, include_icl)
+        def display_comparison(summary, title, include_icl=False):
+            rows = comparison(summary, include_icl)
             names = {"base": "Qwen bazowy", "adapted": "Qwen + LoRA", "local_rule": "Local rule", "in_context": "Qwen + ICL"}
             colors = {"base": "#8297a8", "adapted": "#4e8a71", "local_rule": "#c18b53", "in_context": "#76539a"}
             def ratio(value, count):
@@ -446,9 +441,8 @@ def notebook(run_relative: str, original_report: str):
                                 "Łączny czas BFS [s]": r.get("solver_seconds")})
             print("Struktura intencji i koszty wyszukiwania (typy warunków mogą wystąpić razem):")
             display(pd.DataFrame(details).set_index("Metoda"))
-            pair_source = icl_summary if icl_summary is not None else summary
-            pairs = {key: pair_source[key] for key in ("paired_adapted_minus_base", "paired_in_context_minus_base",
-                                                       "paired_in_context_minus_adapted") if key in pair_source}
+            pairs = {key: summary[key] for key in ("paired_adapted_minus_base", "paired_in_context_minus_base",
+                                                   "paired_in_context_minus_adapted") if key in summary}
             if pairs:
                 print("Sparowane różnice metod; przedziały liczone przez bootstrap plansz:")
                 pair_labels = {"paired_adapted_minus_base": "LoRA − base", "paired_in_context_minus_base": "ICL − base",
@@ -488,7 +482,7 @@ def notebook(run_relative: str, original_report: str):
             display(fig)
             plt.close(fig)
 
-        display_comparison(strict, "Ścisły JSON — wynik główny", icl, include_icl=True)
+        display_comparison(icl if icl is not None else strict, "Ścisły JSON — wynik główny", include_icl=True)
         '''),
         markdown("""
         Przedstawiony przez `local_rule` odsetek dotyczy prostych intencji
@@ -501,8 +495,8 @@ def notebook(run_relative: str, original_report: str):
         code('''
         icl_posthoc_path = RUN / "icl_followup/fence_feasibility/summary.json"
         icl_posthoc = read_json(icl_posthoc_path) if icl_posthoc_path.exists() else None
-        display_comparison(posthoc, "Analiza pomocnicza: usunięto zewnętrzną ramkę Markdown", icl_posthoc,
-                           include_icl=True)
+        display_comparison(icl_posthoc if icl_posthoc is not None else posthoc,
+                           "Analiza pomocnicza: usunięto zewnętrzną ramkę Markdown", include_icl=True)
         print("Przy ścisłym parsowaniu bazowy Qwen zwrócił 0/100 poprawnych JSON-ów;",
               "wszystkie 100 odpowiedzi miały ramkę Markdown.")
         '''),
