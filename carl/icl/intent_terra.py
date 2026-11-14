@@ -22,8 +22,25 @@ from carl.icl.intent_data import EffectType
 from carl.icl.intent_data import SokobanPredicate
 from carl.icl.intent_data import validate_intent
 
-MODEL = "gpt-6.1-terra"
 PROMPT_VERSION = "sokoban-pair-effects-v1"
+
+
+class AnnotatorModel(StrEnum):
+    TERRA = "gpt-6.1-terra"
+    LUNA = "gpt-6-luna"
+
+
+class ReasoningEffort(StrEnum):
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
+# Preserve the original public default while allowing an explicit alternative.
+MODEL = AnnotatorModel.TERRA
 
 
 class AnnotationStatus(StrEnum):
@@ -35,6 +52,15 @@ class WorkerPhase(StrEnum):
     STARTED = "started"
     FINISHED = "finished"
 
+
+class UsageStatus(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    NOT_REPORTED = "not_reported"
+    AMBIGUOUS = "ambiguous"
+
+
+USAGE_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens")
 
 INSTRUCTIONS = """You annotate desired effects from pairs of Sokoban observations.
 Use only the boards and the following exact vocabulary. Do not use tools, read
@@ -176,6 +202,41 @@ def inspect_events(path: Path) -> tuple[list[str], int]:
     return errors, count
 
 
+def extract_usage(path: Path) -> tuple[dict[str, int | None], UsageStatus]:
+    """Read reported turn usage without inventing counts for missing fields."""
+    empty: dict[str, int | None] = dict.fromkeys(USAGE_FIELDS)
+    completed = []
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("type") == "turn.completed":
+            completed.append(event)
+    if not completed:
+        return empty, UsageStatus.NOT_REPORTED
+    if len(completed) != 1:
+        return empty, UsageStatus.AMBIGUOUS
+    usage = completed[0].get("usage")
+    if not isinstance(usage, dict):
+        return empty, UsageStatus.NOT_REPORTED
+    counts: dict[str, int | None] = {}
+    for field in USAGE_FIELDS:
+        value = usage.get(field)
+        counts[field] = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+    return counts, UsageStatus.COMPLETE if all(count is not None for count in counts.values()) else UsageStatus.PARTIAL
+
+
+def total_usage(results: list[dict[str, Any]]) -> dict[str, int | None]:
+    """Sum attempts only when each attempt reported that token count."""
+    totals: dict[str, int | None] = {}
+    for field in USAGE_FIELDS:
+        counts = [result.get("usage", {}).get(field) for result in results]
+        totals[field] = sum(counts) if counts and all(
+            isinstance(count, int) and not isinstance(count, bool) and count >= 0 for count in counts) else None
+    return totals
+
+
 def validate_answer(records: list[dict[str, Any]], answer: Any) -> tuple[list[dict[str, Any]], list[str]]:
     """Check syntax and every effect; preservation is required to be empty."""
     errors: list[str] = []
@@ -270,7 +331,7 @@ def _register(registry: Path | None, event: dict[str, Any]) -> None:
 
 
 def freeze_selection(source: Path, destination: Path, count: int, seed: int) -> dict[str, Any]:
-    """Preselect by layout in round-robin order, before any Terra response."""
+    """Preselect by layout in round-robin order, before any model response."""
     if count < 1 or destination.exists():
         raise ValueError("selection size must be positive and destination must not yet exist")
     source_bytes = source.read_bytes()
@@ -322,7 +383,7 @@ def freeze_selection(source: Path, destination: Path, count: int, seed: int) -> 
 
 
 def merge_accepted(source: Path, summaries_dir: Path, destination: Path) -> dict[str, Any]:
-    """Overlay independently checked Terra labels on train records only.
+    """Overlay independently checked model labels on train records only.
 
     The raw answer is retained.  Unchecked free-form instructions are excluded
     from the training target because the predicate checker cannot prove their
@@ -347,6 +408,28 @@ def merge_accepted(source: Path, summaries_dir: Path, destination: Path) -> dict
         result = json.loads((attempt_dir / "result.json").read_text())
         if result["errors"] or result["accepted"] != summary["accepted"]:
             raise ValueError(f"inconsistent accepted summary: {path}")
+        model = result.get("model")
+        command = result.get("command")
+        if not isinstance(model,
+                          str) or model not in set(AnnotatorModel) or summary["provenance"].get("model") != model:
+            raise ValueError(f"annotation model provenance does not match: {path}")
+        if not isinstance(command, list) or command.count("-m") != 1:
+            raise ValueError(f"annotation command lacks an unambiguous model: {path}")
+        model_index = command.index("-m") + 1
+        if model_index >= len(command) or command[model_index] != model:
+            raise ValueError(f"annotation command model does not match: {path}")
+        effort = result.get("reasoning_effort")
+        if ((effort is not None and (not isinstance(effort, str) or effort not in set(ReasoningEffort)))
+                or effort != summary["provenance"].get("reasoning_effort")):
+            raise ValueError(f"annotation reasoning effort provenance does not match: {path}")
+        effort_flags = [
+            command[i + 1]
+            for i, part in enumerate(command[:-1])
+            if part == "-c" and isinstance(command[i + 1], str) and command[i + 1].startswith("model_reasoning_effort=")
+        ]
+        expected_effort_flags = [] if effort is None else [f'model_reasoning_effort="{effort}"']
+        if effort_flags != expected_effort_flags:
+            raise ValueError(f"annotation command reasoning effort does not match: {path}")
         for name in ("answer.json", "events.jsonl", "request.txt", "schema.json"):
             if not (attempt_dir / name).is_file():
                 raise ValueError(f"missing raw provenance file {attempt_dir / name}")
@@ -354,6 +437,10 @@ def merge_accepted(source: Path, summaries_dir: Path, destination: Path) -> dict
             (attempt_dir / "schema.json").read_text()) != result["schema_sha256"]):
             raise ValueError(f"prompt or schema hash does not match: {path}")
         event_errors, _ = inspect_events(attempt_dir / "events.jsonl")
+        usage, usage_status = extract_usage(attempt_dir / "events.jsonl")
+        if (("usage" in result or "usage_status" in result)
+                and (result.get("usage") != usage or result.get("usage_status") != usage_status)):
+            raise ValueError(f"annotation usage does not match raw event stream: {path}")
         batch_ids = summary["selected_record_ids"]
         if any(record_id not in lookup for record_id in batch_ids):
             raise ValueError(f"summary contains unknown record ID: {path}")
@@ -386,7 +473,12 @@ def merge_accepted(source: Path, summaries_dir: Path, destination: Path) -> dict
             row["effect_type"] = effect_type
             row["annotation_provenance"] = {
                 "kind": "fresh_isolated_codex_annotation",
-                "model": MODEL,
+                "model": model,
+                "reasoning_effort": effort,
+                "credential_source": result.get("credential_source", "unknown"),
+                "usage": usage,
+                "usage_status": usage_status,
+                "usage_scope": "entire batch; do not sum across individual records",
                 "auth_type": result.get("auth_type", "unknown"),
                 "prompt_version": PROMPT_VERSION,
                 "zero_shot": True,
@@ -430,8 +522,17 @@ def attempt(records: list[dict[str, Any]],
             timeout: float,
             deadline_monotonic: float,
             registry: Path | None = None,
-            api_key_env: str | None = None) -> dict[str, Any]:
+            api_key_env: str | None = None,
+            model: str = MODEL,
+            reasoning_effort: str | None = None,
+            api_key_dotenv: Path | None = None) -> dict[str, Any]:
     """Make one isolated call; save request, schema, trace, stderr, raw answer."""
+    if model not in set(AnnotatorModel):
+        raise ValueError(f"Unsupported annotation model: {model}")
+    if reasoning_effort is not None and reasoning_effort not in set(ReasoningEffort):
+        raise ValueError(f"Unsupported reasoning effort: {reasoning_effort}")
+    if api_key_env is not None and api_key_dotenv is not None:
+        raise ValueError("Select at most one API credential source")
     directory.mkdir(parents=True, exist_ok=False)
     prompt = build_prompt(records)
     schema_text = json.dumps(output_schema(len(records)), sort_keys=True, indent=2) + "\n"
@@ -441,22 +542,35 @@ def attempt(records: list[dict[str, Any]],
     trace_path = directory / "events.jsonl"
     command = [
         "codex", "exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", "-c",
-        'shell_environment_policy.inherit="none"', "-m", MODEL, "--output-schema",
+        'shell_environment_policy.inherit="none"', "-m", model, "--output-schema",
         str((directory / "schema.json").resolve()), "-o",
         str(answer_path.resolve()), "--json", "-"
     ]
+    if reasoning_effort is not None:
+        command[2:2] = ["-c", f'model_reasoning_effort="{reasoning_effort}"']
     worker_env = os.environ.copy()
-    if api_key_env is not None:
+    credential_source = "inherited_codex_api_key" if worker_env.get("CODEX_API_KEY") else "saved_codex_auth"
+    if api_key_dotenv is not None:
+        from dotenv import dotenv_values
+
+        key = dotenv_values(api_key_dotenv).get("OPENAI_API_KEY")
+        if key is None or not key.strip():
+            raise ValueError("Configured dotenv file contains no OPENAI_API_KEY")
+        worker_env["CODEX_API_KEY"] = key.strip()
+        credential_source = "dotenv"
+    elif api_key_env is not None:
         key = worker_env.get(api_key_env)
         if not key:
             raise ValueError(f"API credential environment variable is missing: {api_key_env}")
         worker_env["CODEX_API_KEY"] = key
+        credential_source = "environment"
         if api_key_env != "CODEX_API_KEY":
             worker_env.pop(api_key_env, None)
     worker_env.pop("OPENAI_API_KEY", None)
     auth_type = "api_key" if worker_env.get("CODEX_API_KEY") else "saved_codex_auth"
     result: dict[str, Any] = {
-        "model": MODEL,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
         "prompt_version": PROMPT_VERSION,
         "batch_size": len(records),
         "batch_coupling_possible": len(records) > 1,
@@ -465,11 +579,14 @@ def attempt(records: list[dict[str, Any]],
         "command": command,
         "timeout_seconds": timeout,
         "auth_type": auth_type,
+        "credential_source": credential_source,
         "start_monotonic": time.monotonic(),
         "return_code": None,
         "timed_out": False,
         "errors": [],
         "accepted": [],
+        "usage": dict.fromkeys(USAGE_FIELDS),
+        "usage_status": UsageStatus.NOT_REPORTED,
     }
     stop_monotonic = min(result["start_monotonic"] + timeout, deadline_monotonic)
     available = stop_monotonic - time.monotonic()
@@ -478,7 +595,7 @@ def attempt(records: list[dict[str, Any]],
         _atomic_json(directory / "result.json", result)
         return result
     try:
-        with tempfile.TemporaryDirectory(prefix="carl-terra-", dir="/tmp") as cwd, \
+        with tempfile.TemporaryDirectory(prefix="carl-intent-annotation-", dir="/tmp") as cwd, \
                 trace_path.open("w") as trace, (directory / "stderr.txt").open("w") as stderr:
             # Gate exec until the process group has been registered.  If this
             # wrapper disappears before registration, EOF closes the gate and
@@ -553,6 +670,7 @@ def attempt(records: list[dict[str, Any]],
         trace_errors, count = inspect_events(trace_path)
         result["errors"].extend(trace_errors)
         result["event_count"] = count
+        result["usage"], result["usage_status"] = extract_usage(trace_path)
     else:
         result["errors"].append("missing_event_stream")
     if answer_path.exists():
@@ -586,12 +704,20 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=1, choices=range(1, 5))
+    parser.add_argument("--model", choices=list(AnnotatorModel), default=MODEL)
+    parser.add_argument("--reasoning-effort",
+                        choices=list(ReasoningEffort),
+                        help="Override reasoning effort for this worker; omit to inherit the Codex configuration")
     parser.add_argument("--timeout", type=float, default=90)
     parser.add_argument("--retry", type=int, default=0, choices=[0, 1])
     parser.add_argument("--clock", type=Path)
     parser.add_argument("--registry", type=Path)
-    parser.add_argument("--api-key-env",
-                        help="Map this existing environment variable to CODEX_API_KEY for the worker only")
+    credentials = parser.add_mutually_exclusive_group()
+    credentials.add_argument("--api-key-env",
+                             help="Map this existing environment variable to CODEX_API_KEY for the worker only")
+    credentials.add_argument("--api-key-dotenv",
+                             type=Path,
+                             help="Read OPENAI_API_KEY from this dotenv file for the worker only")
     args = parser.parse_args()
     if args.freeze_from is not None:
         if args.selection is None or args.merge_from is not None:
@@ -607,7 +733,7 @@ def main() -> None:
         parser.error("--selection, --output and --clock are required for a model call")
     records = [json.loads(line) for line in args.selection.read_text().splitlines() if line.strip()]
     if any(record.get("split") != "train" for record in records):
-        raise ValueError("Terra annotation selection must use train split only")
+        raise ValueError("Annotation selection must use train split only")
     if args.offset < 0 or args.offset + args.batch_size > len(records):
         raise ValueError("selected batch lies outside frozen selection")
     batch = records[args.offset:args.offset + args.batch_size]
@@ -622,16 +748,18 @@ def main() -> None:
     results = []
     for number in range(args.retry + 1):
         result = attempt(batch, args.output / f"batch_{args.offset:04d}_attempt_{number + 1}", args.timeout, deadline,
-                         args.registry, args.api_key_env)
+                         args.registry, args.api_key_env, args.model, args.reasoning_effort, args.api_key_dotenv)
         results.append(result)
         if not result["errors"] or "central_deadline_elapsed" in result["errors"]:
             break
     final = results[-1]
     provenance = {
         "source": "isolated_codex",
-        "model": MODEL,
+        "model": args.model,
+        "reasoning_effort": args.reasoning_effort,
         "prompt_version": PROMPT_VERSION,
         "auth_type": final["auth_type"],
+        "credential_source": final["credential_source"],
         "attempts": len(results),
         "batched_pairs": len(batch),
         "batch_coupling_possible": len(batch) > 1
@@ -641,6 +769,11 @@ def main() -> None:
             "selected_record_ids": [record["record_id"] for record in batch],
             "provenance": provenance,
             "results": [result["errors"] for result in results],
+            "usage": total_usage(results),
+            "usage_by_attempt": [{
+                "usage": result["usage"],
+                "usage_status": result["usage_status"]
+            } for result in results],
             "accepted": final["accepted"],
             "status": AnnotationStatus.ACCEPTED if not final["errors"] else AnnotationStatus.LOCAL_FALLBACK_REQUIRED,
         })

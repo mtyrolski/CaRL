@@ -8,14 +8,21 @@ import subprocess
 import sys
 import time
 
+import pytest
+
+from carl.icl.intent_terra import AnnotatorModel
+from carl.icl.intent_terra import ReasoningEffort
 from carl.icl.intent_terra import _kill_group
 from carl.icl.intent_terra import _proc_start
 from carl.icl.intent_terra import attempt
 from carl.icl.intent_terra import build_prompt
+from carl.icl.intent_terra import extract_usage
 from carl.icl.intent_terra import freeze_selection
 from carl.icl.intent_terra import inspect_events
+from carl.icl.intent_terra import main
 from carl.icl.intent_terra import merge_accepted
 from carl.icl.intent_terra import output_schema
+from carl.icl.intent_terra import total_usage
 from carl.icl.intent_terra import validate_answer
 
 START = ["#####", "#@$.#", "#####"]
@@ -57,6 +64,71 @@ def test_rejects_worker_tool_events(tmp_path):
     errors, count = inspect_events(path)
     assert count == 2
     assert "disallowed_item_type:command_execution" in errors
+
+
+def test_usage_counts_are_reported_without_guessing_missing_or_ambiguous_values(tmp_path):
+    path = tmp_path / "events.jsonl"
+    path.write_text(json.dumps({"type": "turn.started"}) + "\n")
+    unknown = {"input_tokens": None, "cached_input_tokens": None, "output_tokens": None}
+    assert extract_usage(path) == (unknown, "not_reported")
+    complete = {"input_tokens": 120, "cached_input_tokens": 30, "output_tokens": 15}
+    path.write_text(json.dumps({"type": "turn.completed", "usage": complete}) + "\n")
+    assert extract_usage(path) == (complete, "complete")
+    partial = {"input_tokens": 120, "output_tokens": 15}
+    path.write_text(json.dumps({"type": "turn.completed", "usage": partial}) + "\n")
+    assert extract_usage(path) == ({**partial, "cached_input_tokens": None}, "partial")
+    path.write_text((json.dumps({"type": "turn.completed", "usage": complete}) + "\n") * 2)
+    assert extract_usage(path) == (unknown, "ambiguous")
+    assert total_usage([{
+        "usage": complete
+    }, {
+        "usage": partial
+    }]) == {
+        "input_tokens": 240,
+        "cached_input_tokens": None,
+        "output_tokens": 30
+    }
+    assert total_usage([]) == unknown
+
+
+def test_summary_preserves_model_and_unknown_cost_across_retries(tmp_path, monkeypatch):
+    selection = tmp_path / "selection.jsonl"
+    record = {"record_id": "example", "split": "train", "start_observation": START, "later_observation": LATER}
+    selection.write_text(json.dumps(record) + "\n")
+    clock = tmp_path / "clock.json"
+    now = time.monotonic()
+    clock.write_text(json.dumps({"start_monotonic": now, "deadline_monotonic": now + 120}))
+    unknown = {"input_tokens": None, "cached_input_tokens": None, "output_tokens": None}
+    actual = {"input_tokens": 120, "cached_input_tokens": 30, "output_tokens": 15}
+    attempts = []
+
+    def fake_attempt(*args):
+        attempts.append(args)
+        assert args[6] == AnnotatorModel.LUNA and args[7] == ReasoningEffort.LOW
+        return {
+            "errors": ["timeout"] if len(attempts) == 1 else [],
+            "accepted": [],
+            "usage": unknown if len(attempts) == 1 else actual,
+            "usage_status": "not_reported" if len(attempts) == 1 else "complete",
+            "auth_type": "saved_codex_auth",
+            "credential_source": "saved_codex_auth"
+        }
+
+    monkeypatch.setattr("carl.icl.intent_terra.attempt", fake_attempt)
+    monkeypatch.setattr(sys, "argv", [
+        "intent_terra", "--selection",
+        str(selection), "--output",
+        str(tmp_path / "out"), "--clock",
+        str(clock), "--model",
+        str(AnnotatorModel.LUNA), "--reasoning-effort",
+        str(ReasoningEffort.LOW), "--retry", "1"
+    ])
+    main()
+    summary = json.loads((tmp_path / "out/batch_0000_summary.json").read_text())
+    assert summary["provenance"]["model"] == AnnotatorModel.LUNA
+    assert summary["provenance"]["reasoning_effort"] == ReasoningEffort.LOW
+    assert summary["usage"] == unknown
+    assert [row["usage_status"] for row in summary["usage_by_attempt"]] == ["not_reported", "complete"]
 
 
 def test_timeout_registers_and_stops_the_owned_process_group(tmp_path, monkeypatch):
@@ -128,8 +200,74 @@ def test_api_key_is_mapped_only_in_worker_environment_without_logging(tmp_path, 
     assert observed["mapped"] and not observed["openai_key_present"]
     assert 'shell_environment_policy.inherit="none"' in observed["args"]
     assert result["auth_type"] == "api_key"
+    assert result["credential_source"] == "environment"
     assert fake_key not in json.dumps(result)
     assert fake_key not in (tmp_path / "attempt" / "result.json").read_text()
+
+
+def test_dotenv_key_is_selected_for_worker_without_leaking_or_mutating_environment(tmp_path, monkeypatch):
+    fake_codex = tmp_path / "codex"
+    audit = tmp_path / "audit.json"
+    dotenv = tmp_path / "credentials.env"
+    fake_key = "test-dotenv-key-for-worker-only"
+    dotenv.write_text(f"OPENAI_API_KEY={fake_key}\n")
+    fake_codex.write_text("#!/usr/bin/python3\nimport json, os, pathlib, sys\n"
+                          f"pathlib.Path({str(audit)!r}).write_text(json.dumps({{"
+                          f"'mapped': os.environ.get('CODEX_API_KEY') == {fake_key!r}, "
+                          "'openai_key_present': 'OPENAI_API_KEY' in os.environ, 'args': sys.argv[1:]}))\n"
+                          "print(json.dumps({'type':'turn.started'}))\nsys.exit(1)\n")
+    fake_codex.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("OPENAI_API_KEY", "other-environment-key")
+    monkeypatch.setenv("CODEX_API_KEY", "other-codex-key")
+    record = {"record_id": "example", "start_observation": START, "later_observation": LATER}
+    result = attempt([record], tmp_path / "attempt", 2, time.monotonic() + 4, api_key_dotenv=dotenv)
+    observed = json.loads(audit.read_text())
+    assert observed["mapped"] and not observed["openai_key_present"]
+    assert result["auth_type"] == "api_key" and result["credential_source"] == "dotenv"
+    assert os.environ["OPENAI_API_KEY"] == "other-environment-key"
+    assert os.environ["CODEX_API_KEY"] == "other-codex-key"
+    assert fake_key not in json.dumps(result)
+    assert fake_key not in (tmp_path / "attempt" / "result.json").read_text()
+
+
+@pytest.mark.parametrize("model,effort", [(AnnotatorModel.TERRA, None), (AnnotatorModel.LUNA, ReasoningEffort.LOW)])
+def test_requested_model_and_effort_are_sent_and_recorded_without_model_calls(tmp_path, monkeypatch, model, effort):
+    fake_codex = tmp_path / "codex"
+    answer = {
+        "annotations": [{
+            "pair_index": 0,
+            "intent": {
+                "effects": [{
+                    "predicate": "box_at",
+                    "row": 1,
+                    "col": 3
+                }],
+                "preserve": [],
+                "instruction": None
+            }
+        }]
+    }
+    fake_codex.write_text("#!/usr/bin/python3\nimport json,pathlib,sys\n"
+                          "args=sys.argv[1:]\n"
+                          f"pathlib.Path(args[args.index('-o')+1]).write_text(json.dumps({answer!r}))\n"
+                          "sys.stdin.read()\n"
+                          "print(json.dumps({'type':'turn.started'}))\n"
+                          "print(json.dumps({'type':'item.completed','item':{'type':'agent_message'}}))\n"
+                          "print(json.dumps({'type':'turn.completed','usage':{'input_tokens':120,"
+                          "'cached_input_tokens':30,'output_tokens':15}}))\n")
+    fake_codex.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    record = {"record_id": "example", "start_observation": START, "later_observation": LATER}
+    result = attempt([record], tmp_path / "attempt", 2, time.monotonic() + 4, model=model, reasoning_effort=effort)
+    assert not result["errors"]
+    command = result["command"]
+    assert command[command.index("-m") + 1] == model
+    assert result["model"] == model and result["reasoning_effort"] == effort
+    assert result["usage"] == {"input_tokens": 120, "cached_input_tokens": 30, "output_tokens": 15}
+    assert result["usage_status"] == "complete"
+    flags = [item for item in command if item.startswith("model_reasoning_effort=")]
+    assert flags == ([] if effort is None else [f'model_reasoning_effort="{effort}"'])
 
 
 def test_selection_is_train_only_and_balances_layouts_before_answers(tmp_path):
@@ -158,7 +296,8 @@ def test_selection_is_train_only_and_balances_layouts_before_answers(tmp_path):
     assert len({row["layout_id"] for row in selected[:2]}) == 2
 
 
-def test_merge_keeps_raw_provenance_and_excludes_unchecked_text(tmp_path):
+@pytest.mark.parametrize("model,effort", [(AnnotatorModel.TERRA, None), (AnnotatorModel.LUNA, ReasoningEffort.LOW)])
+def test_merge_keeps_raw_provenance_and_excludes_unchecked_text(tmp_path, model, effort):
     record = {
         "record_id": "train-1",
         "split": "train",
@@ -185,9 +324,21 @@ def test_merge_keeps_raw_provenance_and_excludes_unchecked_text(tmp_path):
     accepted = [{"record_id": "train-1", "intent": intent}]
     prompt = "request\n"
     schema = "schema\n"
+    command = ["codex", "exec", "-m", model]
+    if effort is not None:
+        command.extend(["-c", f'model_reasoning_effort="{effort}"'])
     result = {
         "errors": [],
         "accepted": accepted,
+        "model": model,
+        "reasoning_effort": effort,
+        "usage": {
+            "input_tokens": 120,
+            "cached_input_tokens": 30,
+            "output_tokens": 15
+        },
+        "usage_status": "complete",
+        "command": command,
         "batch_size": 1,
         "batch_coupling_possible": False,
         "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
@@ -195,14 +346,17 @@ def test_merge_keeps_raw_provenance_and_excludes_unchecked_text(tmp_path):
     }
     (attempt_dir / "result.json").write_text(json.dumps(result))
     (attempt_dir / "answer.json").write_text(json.dumps({"annotations": [{"pair_index": 0, "intent": intent}]}))
-    (attempt_dir / "events.jsonl").write_text(json.dumps({"type": "turn.started"}) + "\n")
+    events = [{"type": "turn.started"}, {"type": "turn.completed", "usage": result["usage"]}]
+    (attempt_dir / "events.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
     (attempt_dir / "request.txt").write_text(prompt)
     (attempt_dir / "schema.json").write_text(schema)
     summary = {
         "status": "accepted",
         "accepted": accepted,
         "provenance": {
-            "attempts": 1
+            "attempts": 1,
+            "model": model,
+            "reasoning_effort": effort,
         },
         "selected_record_ids": ["train-1"]
     }
@@ -213,4 +367,42 @@ def test_merge_keeps_raw_provenance_and_excludes_unchecked_text(tmp_path):
     assert manifest["accepted_model_annotations"] == 1
     assert merged["intent"]["instruction"] is None
     assert merged["annotation_provenance"]["kind"] == "fresh_isolated_codex_annotation"
+    assert merged["annotation_provenance"]["model"] == model
+    assert merged["annotation_provenance"]["reasoning_effort"] == effort
+    assert merged["annotation_provenance"]["usage"]["input_tokens"] == 120
+    assert "entire batch" in merged["annotation_provenance"]["usage_scope"]
     assert merged["annotation_provenance"]["instruction_excluded_from_training"]
+
+    summary["provenance"]["model"] = AnnotatorModel.LUNA if model == AnnotatorModel.TERRA else AnnotatorModel.TERRA
+    (summaries / "batch_0000_summary.json").write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="model provenance"):
+        merge_accepted(source, summaries, tmp_path / "mismatched.jsonl")
+
+    summary["provenance"]["model"] = model
+    (summaries / "batch_0000_summary.json").write_text(json.dumps(summary))
+    result["command"] = ["codex", "exec", "-m", "gpt-6-luna" if model == AnnotatorModel.TERRA else "gpt-6.1-terra"]
+    (attempt_dir / "result.json").write_text(json.dumps(result))
+    with pytest.raises(ValueError, match="command model"):
+        merge_accepted(source, summaries, tmp_path / "mismatched_command.jsonl")
+
+    result["command"] = command
+    result["usage"]["input_tokens"] = 999
+    (attempt_dir / "result.json").write_text(json.dumps(result))
+    with pytest.raises(ValueError, match="usage does not match"):
+        merge_accepted(source, summaries, tmp_path / "mismatched_usage.jsonl")
+
+    if model == AnnotatorModel.TERRA:
+        result.pop("reasoning_effort")
+        result.pop("usage")
+        result.pop("usage_status")
+        summary["provenance"].pop("reasoning_effort")
+        (attempt_dir / "result.json").write_text(json.dumps(result))
+        (summaries / "batch_0000_summary.json").write_text(json.dumps(summary))
+        (attempt_dir / "events.jsonl").write_text(json.dumps({"type": "turn.started"}) + "\n")
+        legacy_output = tmp_path / "legacy.jsonl"
+        merge_accepted(source, summaries, legacy_output)
+        legacy = json.loads(legacy_output.read_text())["annotation_provenance"]
+        assert legacy["model"] == AnnotatorModel.TERRA
+        assert legacy["reasoning_effort"] is None
+        assert legacy["usage"] == {"input_tokens": None, "cached_input_tokens": None, "output_tokens": None}
+        assert legacy["usage_status"] == "not_reported"
