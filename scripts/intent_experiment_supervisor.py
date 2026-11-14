@@ -45,6 +45,11 @@ class StageStatus(StrEnum):
     LOST_OR_EXITED = "lost_or_exited"
 
 
+class ReportMode(StrEnum):
+    LEGACY = "legacy"
+    STATUS_ONLY = "status_only"
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -368,6 +373,13 @@ def update_report(run_dir: Path, state: dict) -> None:
 
 def refresh_results_report(run_dir: Path, state: dict) -> None:
     """Update report content under the existing lock without taking it again."""
+    try:
+        mode = ReportMode(state.get("report_mode", ReportMode.LEGACY))
+    except (TypeError, ValueError):
+        append_log(run_dir, "Unknown report mode; refusing to replace the generic supervision status.")
+        return
+    if mode == ReportMode.STATUS_ONLY:
+        return
     source = Path(__file__).with_name("report_intent_generator_experiment.py")
     if not source.is_file():
         return
@@ -432,7 +444,7 @@ def complete_requested(run_dir: Path, state: dict) -> bool:
     if group_has_live_members(request["pid"]):
         return False
     for stage in state["stages"]:
-        if stage.get("status") == StageStatus.RUNNING and group_has_live_members(stage["pid"]):
+        if group_has_live_members(stage["pid"]):
             return False
     for worker in registered_workers(run_dir):
         if group_has_live_members(worker["pid"]):
@@ -440,7 +452,7 @@ def complete_requested(run_dir: Path, state: dict) -> bool:
     stage = matches[0]
     if stage.get("status") == StageStatus.RUNNING:
         # The outer caller may have disappeared, so no exit status is known.
-        stage["status"] = StageStatus.COMPLETED
+        stage["status"] = StageStatus.LOST_OR_EXITED
         stage["finished_utc"] = utc_now()
     state["status"] = RunStatus.COMPLETE
     state["finished_utc"] = utc_now()
@@ -450,7 +462,12 @@ def complete_requested(run_dir: Path, state: dict) -> bool:
     return True
 
 
-def initialise(run_dir: Path, clock_path: Path, proposal: Path | None = None) -> None:
+def initialise(run_dir: Path,
+               clock_path: Path,
+               proposal: Path | None = None,
+               *,
+               report_mode: ReportMode | str = ReportMode.LEGACY) -> None:
+    mode = ReportMode(report_mode)
     run_dir.mkdir(parents=True, exist_ok=False)
     (run_dir / "logs").mkdir()
     clock = read_json(clock_path)
@@ -461,6 +478,7 @@ def initialise(run_dir: Path, clock_path: Path, proposal: Path | None = None) ->
         "boot_id": boot_id(),
         "created_utc": utc_now(),
         "stages": [],
+        "report_mode": mode.value,
         "proposal": str(proposal.resolve()) if proposal else None,
         "repository": str(Path.cwd()),
         "expensive_start_cutoff_monotonic": clock["start_monotonic"] + 13500,
@@ -787,26 +805,23 @@ def run_stage(run_dir: Path, name: str, kind: str, timeout: float, command: list
 
 
 def finish(run_dir: Path) -> None:
+    """Close supervision without changing an already terminal run status."""
     with locked(run_dir):
         state = read_json(run_dir / "run_manifest.json")
         if state.get("boot_id") != boot_id():
             raise SystemExit("Run boot ID is missing or differs; cannot verify registered processes")
-        running = [
-            s["name"]
-            for s in state["stages"]
-            if s["status"] == StageStatus.RUNNING and owned_process({
-                **s, "boot_id":
-                    state["boot_id"]
-            })
-        ]
+        # A stage leader can exit while a descendant remains in its session.
+        # Checking every registered group fails closed without signalling any
+        # process whose ownership is no longer verifiable.
+        running = [s["name"] for s in state["stages"] if group_has_live_members(s["pid"])]
         running += [
-            f"annotation worker {s['pid']}" for s in registered_workers(run_dir) if owned_process({
-                **s, "boot_id": state["boot_id"]
-            })
+            f"annotation worker {s['pid']}" for s in registered_workers(run_dir) if group_has_live_members(s["pid"])
         ]
         if running:
             raise SystemExit(f"Cannot finish while registered stages run: {running}")
-        state["status"] = RunStatus.COMPLETE
+        current_status = RunStatus(state["status"])
+        if current_status == RunStatus.ACTIVE:
+            state["status"] = RunStatus.COMPLETE
         state["finished_utc"] = utc_now()
         state["elapsed_seconds"] = time.monotonic() - state["clock"]["start_monotonic"]
         write_json(run_dir / "run_manifest.json", state)
@@ -822,6 +837,7 @@ def main() -> None:
     init.add_argument("run_dir", type=Path)
     init.add_argument("--clock", required=True, type=Path)
     init.add_argument("--proposal", type=Path)
+    init.add_argument("--report-mode", choices=list(ReportMode), default=ReportMode.LEGACY)
     watch = subs.add_parser("watchdog")
     watch.add_argument("run_dir", type=Path)
     leader = subs.add_parser("stage-leader")
@@ -840,7 +856,7 @@ def main() -> None:
     done.add_argument("run_dir", type=Path)
     args = parser.parse_args()
     if args.action == "init":
-        initialise(args.run_dir.resolve(), args.clock, args.proposal)
+        initialise(args.run_dir.resolve(), args.clock, args.proposal, report_mode=args.report_mode)
     elif args.action == "watchdog":
         watchdog(args.run_dir.resolve())
     elif args.action == "stage-leader":

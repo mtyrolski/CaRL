@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -318,6 +319,7 @@ def test_finish_request_waits_for_driver_and_other_registered_groups(tmp_path):
         other.wait()
         assert supervisor.complete_requested(run_dir, current)
         assert current["status"] == "complete"
+        assert current["stages"][0]["status"] == "lost_or_exited"
         assert current["stages"][0]["exit_code"] is None
     finally:
         if driver.poll() is None:
@@ -438,3 +440,119 @@ def test_annotation_registry_tracks_only_unfinished_own_groups(tmp_path):
     ]
     (tmp_path / "terra_workers.jsonl").write_text("\n".join(json.dumps(row) for row in rows) + "\n")
     assert [row["pid"] for row in supervisor.registered_workers(tmp_path)] == [125]
+
+
+def test_status_only_never_calls_the_legacy_results_report(tmp_path, monkeypatch):
+    current = {"status": "active", "clock": {"deadline_utc": "test"}, "stages": [], "report_mode": "status_only"}
+    supervisor.update_report(tmp_path, current)
+    before = (tmp_path / "REPORT.md").read_text()
+    calls = []
+    monkeypatch.setattr(supervisor.importlib.util, "spec_from_file_location", lambda *args: calls.append(args))
+    supervisor.refresh_results_report(tmp_path, current)
+    assert calls == []
+    assert (tmp_path / "REPORT.md").read_text() == before
+    assert "automatic checkpoint" in before
+
+
+def test_legacy_report_remains_default_for_old_manifests(tmp_path, monkeypatch):
+    calls = []
+    module = SimpleNamespace(refresh_report_unlocked=lambda run, current: calls.append((run, current)))
+    spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _module: None))
+    monkeypatch.setattr(supervisor.importlib.util, "spec_from_file_location", lambda *_args: spec)
+    monkeypatch.setattr(supervisor.importlib.util, "module_from_spec", lambda _spec: module)
+    current = {"status": "active"}    # Saved before report_mode was introduced.
+    supervisor.refresh_results_report(tmp_path, current)
+    assert calls == [(tmp_path, current)]
+    supervisor.refresh_results_report(tmp_path, {**current, "report_mode": "legacy"})
+    assert len(calls) == 2
+
+
+def test_unknown_report_mode_fails_closed(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(supervisor.importlib.util, "spec_from_file_location", lambda *args: calls.append(args))
+    supervisor.refresh_results_report(tmp_path, {"report_mode": "unknown"})
+    assert calls == []
+    assert "Unknown report mode" in (tmp_path / "decisions.log").read_text()
+
+
+@pytest.mark.parametrize("mode", [None, "legacy", "status_only"])
+def test_initialise_records_report_mode_before_watchdog_start(tmp_path, monkeypatch, mode):
+    clock = tmp_path / "clock.json"
+    clock.write_text(json.dumps({"start_monotonic": 1, "start_epoch": 2, "deadline_utc": "test"}))
+    run = tmp_path / "run"
+
+    def fake_start(*_args, **_kwargs):
+        state = json.loads((run / "run_manifest.json").read_text())
+        assert state["report_mode"] == (mode or "legacy")
+        return SimpleNamespace(pid=12345)
+
+    monkeypatch.setattr(supervisor.subprocess, "Popen", fake_start)
+    monkeypatch.setattr(supervisor, "proc_start", lambda _pid: 789)
+    if mode is None:
+        supervisor.initialise(run, clock)
+    else:
+        supervisor.initialise(run, clock, report_mode=mode)
+    state = json.loads((run / "run_manifest.json").read_text())
+    assert state["report_mode"] == (mode or "legacy")
+    assert state["watchdog_pid"] == 12345
+    assert "automatic checkpoint" in (run / "REPORT.md").read_text()
+
+
+def test_invalid_report_mode_is_rejected_before_creating_run(tmp_path):
+    run = tmp_path / "run"
+    with pytest.raises(ValueError):
+        supervisor.initialise(run, tmp_path / "missing-clock.json", report_mode="invalid")
+    assert not run.exists()
+
+
+@pytest.mark.parametrize("status", ["deadline_reached", "boot_mismatch", "complete"])
+def test_finish_preserves_terminal_run_status(tmp_path, status):
+    now = time.monotonic()
+    current = {
+        "status": status,
+        "boot_id": supervisor.boot_id(),
+        "stages": [],
+        "report_mode": "status_only",
+        "clock": {
+            "start_monotonic": now - 5,
+            "deadline_utc": "test"
+        }
+    }
+    supervisor.write_json(tmp_path / "run_manifest.json", current)
+    supervisor.finish(tmp_path)
+    recorded = supervisor.read_json(tmp_path / "run_manifest.json")
+    assert recorded["status"] == status
+    assert recorded["finished_utc"]
+    assert recorded["elapsed_seconds"] >= 5
+
+
+def test_finish_marks_active_supervisor_complete_not_a_study_success(tmp_path):
+    now = time.monotonic()
+    current = {
+        "status": "active",
+        "boot_id": supervisor.boot_id(),
+        "stages": [],
+        "report_mode": "status_only",
+        "clock": {
+            "start_monotonic": now,
+            "deadline_utc": "test"
+        }
+    }
+    supervisor.write_json(tmp_path / "run_manifest.json", current)
+    supervisor.finish(tmp_path)
+    assert supervisor.read_json(tmp_path / "run_manifest.json")["status"] == "complete"
+
+
+def test_finish_refuses_live_descendant_after_stage_leader_exits(tmp_path, monkeypatch):
+    now = time.monotonic()
+    supervisor.write_json(tmp_path / "run_manifest.json", {
+        "status": "active",
+        "boot_id": supervisor.boot_id(),
+        "stages": [{"name": "train", "pid": 123456, "status": "completed"}],
+        "report_mode": "status_only",
+        "clock": {"start_monotonic": now, "deadline_utc": "test"},
+    })
+    monkeypatch.setattr(supervisor, "group_has_live_members", lambda group: group == 123456)
+    with pytest.raises(SystemExit, match="registered stages run"):
+        supervisor.finish(tmp_path)
+    assert supervisor.read_json(tmp_path / "run_manifest.json")["status"] == "active"

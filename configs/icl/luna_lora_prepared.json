@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "purpose": "Compare intent generators trained on the same Luna measurements with and without relative scale",
+  "preparation_only": true,
+  "seed": 20261114,
+  "deadline_seconds": 16200,
+  "expensive_start_cutoff_seconds": 13500,
+  "training_stop_seconds": 14400,
+  "calibration": {
+    "contexts_per_board": 2,
+    "candidates_per_context": 4,
+    "attempts_per_candidate": 1,
+    "action_cap": 16,
+    "min_informative_train_contexts": 4,
+    "min_informative_validation_contexts": 1
+  },
+  "controller": {
+    "model": "gpt-6-luna",
+    "service_tier": "default",
+    "reasoning_effort": "none",
+    "temperature": 0,
+    "max_output_tokens": 256,
+    "timeout_seconds": 45,
+    "request_retries": 0,
+    "new_campaign_budget_usd": "2.00",
+    "previous_unknown_reservation_usd": "1.1554224",
+    "previous_ledger": "analysis/luna_intent_20261114T060730Z/luna_intent_ledger.sqlite3"
+  },
+  "generator": {
+    "model": "analysis/intent_generator_20261114T032232Z/models/Qwen3-0.6B",
+    "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+    "representations": ["unscaled", "scaled"],
+    "rank": 4,
+    "learning_rate": 0.0002,
+    "gradient_accumulation": 4,
+    "max_steps": 100,
+    "eval_every": 20,
+    "max_length": 512,
+    "max_new_tokens": 128,
+    "dtype": "bfloat16",
+    "thinking": false,
+    "sampling": "greedy",
+    "loss": "response tokens only",
+    "weights": "success-weighted, equal total weight per context"
+  },
+  "evaluation": {
+    "contexts": {
+      "real_12x12x4": 12,
+      "proposal_gamma2_12x12x10": 8,
+      "generated_v1_12x12x10": 4
+    },
+    "requested_scales": [0.25, 0.75],
+    "action_cap": 16,
+    "attempts_per_proposal": 1,
+    "failed_generation_in_denominator": true,
+    "infrastructure_failure": "report separately as unassessed",
+    "note": "Exploratory evaluation: some layouts were exposed to earlier analysis; family effects are confounded by source."
+  },
+  "inputs": {
+    "calibration_split": "analysis/intent_generator_20261114T032232Z/frozen_split.json",
+    "evaluation_dataset": "analysis/intent_representations_20261114T075324Z/data/dataset.jsonl",
+    "evaluation_ids": "analysis/intent_representations_20261114T075324Z/data/test_ids.json"
+  }
+}
