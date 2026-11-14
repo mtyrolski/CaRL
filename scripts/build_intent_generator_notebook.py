@@ -354,6 +354,12 @@ def notebook(run_relative: str, original_report: str):
                                    "VRAM reserved [GiB]": gib(summary_data.get("gpu_peak_reserved_bytes")),
                                    "Wznowione rekordy": summary_data.get("resumed_records")})
         display(pd.DataFrame(inference_rows).set_index("Metoda"))
+        environment_path = RUN / "icl_followup/environment_comparison.json"
+        if environment_path.exists():
+            environment_info = read_json(environment_path)
+            print("Wersje bibliotek sprawdzone po przebiegach; to nie są niezależne historyczne snapshoty:")
+            display(pd.DataFrame({"Środowisko bazowe": environment_info.get("base_environment", {}),
+                                  "Overlay PEFT": environment_info.get("peft_overlay", {})}))
         '''),
         markdown("""
         ## Co to jest `local_rule`?
@@ -582,6 +588,134 @@ def notebook(run_relative: str, original_report: str):
         extended_goal_rows = RUN / "icl_followup/extended/fence_feasibility/feasibility.jsonl"
         show_goal_comparison(extended_goal_rows,
                              "Dodatkowe konteksty — eksploracyjnie na tych samych 20 planszach")
+        '''),
+        markdown("""
+        ### Struktura propozycji: pełny cel a inne intencje
+
+        Na poniższym wykresie każdy słupek dzielimy na odpowiedzi równe całemu
+        celowi, inne formalnie poprawne oraz niepoprawne lub brakujące. Inna
+        poprawna intencja **może zawierać cały cel razem z dodatkowymi warunkami**;
+        nie nazywamy jej automatycznie etapem pośrednim. Liczby przy słupkach
+        to odpowiednio liczebności tych trzech kategorii. Oddzielna tabela
+        rozróżnia niepoprawne odpowiedzi od braków infrastruktury.
+
+        To opisowa analiza post-hoc rekordów z tych samych 20 plansz, a nie
+        niezależny bootstrap ani pomiar kontrolera. Przed oceną odpowiedzi
+        modeli usunięto co najwyżej jedną zewnętrzną ramkę Markdown;
+        `local_rule` pochodzi ze ścisłego wyniku wygenerowanego programowo.
+        """),
+        code('''
+        import hashlib
+        from matplotlib.patches import Patch
+
+        def classify_goal_rows(rows, planned_ids, method):
+            planned = set(planned_ids)
+            method_rows = [row for row in rows if row.get("method") == method]
+            indexed = {}
+            for row in method_rows:
+                identifier = row.get("record_id")
+                if identifier not in planned or identifier in indexed:
+                    raise ValueError(f"Nieoczekiwany lub powtórzony rekord {method}: {identifier}")
+                indexed[identifier] = row
+            exact = other = invalid = missing = 0
+            for identifier in planned_ids:
+                row = indexed.get(identifier)
+                if row is None or row.get("status") != "evaluated":
+                    missing += 1
+                elif row.get("valid_nontrivial") is not True:
+                    invalid += 1
+                else:
+                    intent = row["intent"]
+                    predicates = intent["effects"]
+                    box_count = sum(ch in "$*" for board_row in row["start_observation"] for ch in board_row)
+                    is_exact = (box_count > 0 and len(predicates) == 1 and not intent.get("preserve")
+                                and predicates[0].get("predicate") == "boxes_on_goals_at_least"
+                                and predicates[0].get("count") == box_count)
+                    exact += int(is_exact)
+                    other += int(not is_exact)
+            return {"planowane": len(planned_ids), "dokladnie_caly_cel": exact,
+                    "inna_poprawna": other, "niepoprawna": invalid, "brak": missing,
+                    "niepoprawna_lub_brak": invalid + missing}
+
+        group_sources = [
+            ("Pierwotne", RUN / "icl_followup/fence_feasibility/feasibility.jsonl",
+             RUN / "icl_followup/assessment/assessment.jsonl", RUN / "frozen_evaluation_contexts.json"),
+            ("Dodatkowe", RUN / "icl_followup/extended/fence_feasibility/feasibility.jsonl",
+             RUN / "icl_followup/extended/assessment/assessment.jsonl",
+             RUN / "icl_followup/extended/frozen_contexts.json"),
+        ]
+        method_names = {"base": "Qwen bazowy", "adapted": "Qwen + LoRA",
+                        "in_context": "Qwen + ICL", "local_rule": "Local rule"}
+        categories = [("dokladnie_caly_cel", "Dokładnie cały cel", "#bd7756"),
+                      ("inna_poprawna", "Inna poprawna (może zawierać cały cel)", "#497e9c"),
+                      ("niepoprawna_lub_brak", "Niepoprawna lub brak", "#b6b6b6")]
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), squeeze=False)
+        chart_rows = []
+        for axis, (group_name, normalized_path, strict_path, ids_path) in zip(axes[0], group_sources):
+            if not normalized_path.exists() or not ids_path.exists():
+                axis.text(.5, .5, "brak danych", transform=axis.transAxes, ha="center")
+                axis.set_title(group_name)
+                continue
+            ids = read_json(ids_path)["record_ids"]
+            if not ids or len(ids) != len(set(ids)):
+                raise ValueError(f"Nieprawidłowe identyfikatory kontekstów: {ids_path}")
+            rows = read_jsonl(normalized_path)
+            if strict_path.exists():
+                rows = [row for row in rows if row.get("method") != "local_rule"]
+                rows.extend(row for row in read_jsonl(strict_path) if row.get("method") == "local_rule")
+            source_hash = hashlib.sha256(normalized_path.read_bytes()).hexdigest()
+            rule_source_hash = hashlib.sha256(strict_path.read_bytes()).hexdigest() if strict_path.exists() else None
+            for y, method in enumerate(method_names):
+                counts = classify_goal_rows(rows, ids, method)
+                chart_rows.append({"zestaw": group_name, "metoda": method, **counts,
+                                   "zrodlo_modeli": str(normalized_path.relative_to(RUN)) if method != "local_rule" else None,
+                                   "sha256_zrodla_modeli": source_hash if method != "local_rule" else None,
+                                   "zrodlo_local_rule": str(strict_path.relative_to(RUN)) if method == "local_rule" and strict_path.exists() else None,
+                                   "sha256_zrodla_local_rule": rule_source_hash if method == "local_rule" else None})
+                left = 0.0
+                for key, _, color in categories:
+                    count = counts[key]
+                    width = 100 * count / counts["planowane"]
+                    axis.barh(y, width, left=left, height=.65, color=color, edgecolor="white")
+                    if width >= 9:
+                        axis.text(left + width / 2, y, str(count), ha="center", va="center", fontsize=8)
+                    left += width
+                axis.text(102, y, f"{counts['dokladnie_caly_cel']} / {counts['inna_poprawna']} / "
+                          f"{counts['niepoprawna_lub_brak']}", va="center", fontsize=8)
+            axis.set_yticks(range(len(method_names)), list(method_names.values()))
+            axis.invert_yaxis()
+            axis.set_xlim(0, 130)
+            axis.set_xticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
+            axis.set_xlabel("Odsetek zaplanowanych odpowiedzi")
+            axis.set_title(f"{group_name}: {len(ids)} kontekstów")
+            axis.grid(axis="x", alpha=.16)
+            axis.set_axisbelow(True)
+        fig.legend(handles=[Patch(facecolor=color, label=label) for _, label, color in categories],
+                   loc="upper center", bbox_to_anchor=(.5, -.035), frameon=False, ncol=3, fontsize=8)
+        fig.suptitle("Struktura propozycji po zdjęciu zewnętrznej ramki")
+        fig.text(.5, -.13, "Liczby z prawej: cały cel / inna poprawna / niepoprawna lub brak. "
+                 "Opisowo; te same plansze, bez kontrolera.", ha="center", fontsize=8)
+        fig.tight_layout()
+        figure_dir = RUN / "figures"
+        figure_dir.mkdir(parents=True, exist_ok=True)
+        for ext in ("pdf", "svg", "png"):
+            temporary = figure_dir / f".goal_repetition.{ext}.tmp"
+            fig.savefig(temporary, format=ext, dpi=220, bbox_inches="tight")
+            temporary.replace(figure_dir / f"goal_repetition.{ext}")
+        display(fig)
+        plt.close(fig)
+        if chart_rows:
+            goal_table = pd.DataFrame(chart_rows)
+            display(goal_table.drop(columns=["zrodlo_modeli", "sha256_zrodla_modeli", "zrodlo_local_rule",
+                                            "sha256_zrodla_local_rule"]))
+            csv_path = figure_dir / "goal_repetition_counts.csv"
+            json_path = figure_dir / "goal_repetition_counts.json"
+            csv_tmp = csv_path.with_name("." + csv_path.name + ".tmp")
+            json_tmp = json_path.with_name("." + json_path.name + ".tmp")
+            goal_table.to_csv(csv_tmp, index=False)
+            json_tmp.write_text(json.dumps(chart_rows, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+            csv_tmp.replace(csv_path)
+            json_tmp.replace(json_path)
         '''),
         markdown("""
         ### Dodatkowe konteksty na tych samych planszach
