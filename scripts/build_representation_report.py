@@ -425,6 +425,62 @@ def notebook(run: Path):
             print("Brak zapisanego audytu różnorodności; nie jest to wynik zerowy.")
         '''),
         markdown("""
+        ## LoRA: intencje a etykiety treningowe — post-hoc
+
+        Dla trzech adapterów liczymy odrębne intencje, ich częstość oraz
+        poprawność na bieżącej planszy. Porównujemy całe kanoniczne intencje
+        z pulą sprawdzonych etykiet treningowych, osobno od przykładów ICL:
+        te trzy generatory nie otrzymywały pełnych demonstracji, choć ich
+        prompty zawierały przykłady składni.
+
+        Druga kolumna porównuje z odtworzoną sekwencją 400 próbek, wyznaczoną
+        z zapisanego seeda i samplera. Kolejności tej nie zapisano jako
+        rzeczywistego dziennika kroków. Dokładna zgodność intencji nie
+        dowodzi jej przyczyny ani wykonania przez kontroler. Zestawienie ×10
+        obejmuje dwie rodziny z różnych źródeł, pokazane także osobno.
+        """),
+        code('''
+        lora_audit = RUN / "lora_training_intent_audit"
+        lora_provenance = read_json(lora_audit / "provenance.json", {}) or {}
+        lora_summary = read_json(lora_audit / "summary.json", {}) or {}
+        lora_frequencies = lora_audit / "frequencies.csv"
+        if lora_provenance and lora_summary:
+            print("Analiza post-hoc:", lora_audit)
+            show_json(lora_audit / "provenance.json")
+            input_checks = [{"plik": path, "oczekiwany SHA-256": expected, "bieżący SHA-256": sha(Path(path)),
+                             "zgodne": sha(Path(path)) == expected}
+                            for path, expected in lora_provenance.get("input_sha256", {}).items()]
+            output_checks = [{"plik": str(lora_audit / name), "oczekiwany SHA-256": expected,
+                              "bieżący SHA-256": sha(lora_audit / name),
+                              "zgodne": sha(lora_audit / name) == expected}
+                             for name, expected in lora_provenance.get("output_sha256", {}).items()]
+            print("Zgodne hashe wejść:", sum(row["zgodne"] for row in input_checks), "/", len(input_checks),
+                  "wyjść:", sum(row["zgodne"] for row in output_checks), "/", len(output_checks))
+            valid_provenance = (bool(input_checks) and bool(output_checks)
+                                and all(row["zgodne"] for row in input_checks + output_checks)
+                                and lora_summary.get("analysis_kind") == "posthoc_descriptive")
+            if valid_provenance and lora_frequencies.is_file():
+                print("Pula treningowa i ograniczenia:", json.dumps(lora_summary.get("training_pool"), ensure_ascii=False))
+                for caveat in lora_summary.get("interpretation", []):
+                    print("-", caveat)
+                display(Markdown("### Podsumowanie: format, rodzina i liczba skrzyń"))
+                display(pd.DataFrame(lora_summary.get("summaries", [])))
+                frequencies = pd.read_csv(lora_frequencies)
+                print("Pełne częstości:", lora_frequencies, "SHA-256:", sha(lora_frequencies),
+                      "wiersze:", len(frequencies))
+                top = frequencies[frequencies["mode"] == "strict"].groupby(
+                    ["variant", "group_type", "group"], sort=False, group_keys=False).head(5)
+                display(Markdown("### Pięć najczęstszych intencji w każdej grupie — ścisły parser"))
+                display(top[["variant", "group_type", "group", "canonical_intent", "occurrences",
+                             "valid_on_board", "invalid_on_board", "training_pool_match",
+                             "reconstructed_sample_match"]])
+            else:
+                print("Audyt lub jego pliki zmieniły się albo są niekompletne; nie przedstawiamy ich jako zweryfikowanego wyniku.")
+                display(pd.DataFrame(input_checks + output_checks))
+        else:
+            print("Brak zapisanego audytu etykiet treningowych; nie jest to wynik zerowy.")
+        '''),
+        markdown("""
         ## Replikacje treningu LoRA
 
         Dla formatów JSON, formalnego i kontrolowanego angielskiego plan obejmuje
