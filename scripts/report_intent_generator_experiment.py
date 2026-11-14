@@ -113,7 +113,7 @@ def assessment_table(summary: dict, run_dir: Path) -> list[str]:
                              "Non-triviality and feasibility await assessment.")
         return lines
     lines = [
-        "| Method | JSON valid | Valid non-trivial | Bounded witness | Unresolved among valid | Missing outputs |",
+        "| Method | JSON valid | Valid non-trivial | Path found by bounded search | Unresolved among valid | Missing outputs |",
         "|---|---:|---:|---:|---:|---:|"
     ]
     for item in results:
@@ -127,21 +127,27 @@ def assessment_table(summary: dict, run_dir: Path) -> list[str]:
     if solver:
         lines.append(
             f"\nThe search limit was depth {solver.get('max_depth')}, {solver.get('max_nodes')} expanded nodes "
-            f"and {solver.get('seconds')} s per proposal. A found witness was replayed in the environment; "
-            "a cutoff is unresolved. These measurements describe a bounded solver, not an LLM or learned controller.")
+            f"and {solver.get('seconds')} s per proposal. Each action sequence found by search was replayed "
+            "in the environment and reached a state satisfying the proposed intent. These results do not "
+            "establish full-puzzle success or controller performance; a cutoff is unresolved.")
     paired = summary.get("paired_adapted_minus_base", {})
     if paired.get("contexts"):
         lines.append(f"\nPaired adapted-minus-base valid-intent difference: {format_delta(paired.get('valid_delta'))}; "
                      f"95% board bootstrap {format_interval(paired.get('valid_delta_95_board_bootstrap'))}; "
                      f"{paired['contexts']} paired contexts across {paired.get('boards')} boards.")
         lines.append(
-            f"\nPaired adapted-minus-base bounded-witness difference: {format_delta(paired.get('witness_delta'))}; "
+            f"\nPaired adapted-minus-base difference in the fraction reached by bounded search: "
+            f"{format_delta(paired.get('witness_delta'))}; "
             f"95% board bootstrap {format_interval(paired.get('witness_delta_95_board_bootstrap'))}.")
     for item in results:
         if item.get("outputs"):
+            statuses = {
+                ("path found" if name == "witness_found" else name.replace("_", " ")): count
+                for name, count in item.get("solver_statuses", {}).items()
+            }
             lines.append(f"\n{item.get('method')}: effect predicates {item.get('effect_types', {})}; "
                          f"conjunction sizes {item.get('conjunction_sizes', {})}; "
-                         f"search outcomes {item.get('solver_statuses', {})}; "
+                         f"search outcomes {statuses}; "
                          f"{item.get('solver_expanded_nodes', 0)} nodes and {item.get('solver_seconds', 0):.2f} s "
                          "of bounded-search time.")
     return lines
@@ -191,7 +197,7 @@ def posthoc_intent_composition(run_dir: Path) -> list[str]:
             f"{count}/{len(valid['adapted'])} valid contexts; contexts from the same board are not independent.")
     if valid["base"] and valid["adapted"]:
         lines.append("Each generator is evaluated on its own proposals; effect predicates and difficulty "
-                     "are not matched. A difference in witness rates can therefore reflect the difficulty "
+                     "are not matched. A difference in the fraction reached can therefore reflect the difficulty "
                      "of the proposed effects as well as generator quality.")
     return lines
 
@@ -218,7 +224,8 @@ def examples(run_dir: Path) -> list[str]:
         solver = row.get("solver") or {}
         if solver.get("witness_found"):
             lines.extend([
-                f"Bounded solver reached this state in {solver.get('witness_depth')} primitive actions:", "```text",
+                f"Bounded search found a sequence of {solver.get('witness_depth')} primitive actions "
+                "reaching a state satisfying the proposed intent:", "```text",
                 *solver.get("reached_observation", []), "```", ""
             ])
         elif row.get("demonstration_later_observation"):
@@ -379,21 +386,21 @@ def build_report(run_dir: Path, state: dict) -> str:
         lines.extend(assessment_table(fence_feasibility, run_dir))
         lines.extend("\n" + line for line in posthoc_intent_composition(run_dir))
         if (run_dir / "fence_feasibility/examples.md").exists():
-            lines.append("\nNormalised examples and their checked witnesses are in `fence_feasibility/examples.md`.")
+            lines.append("\nNormalised examples and their action sequences found by bounded search are in `fence_feasibility/examples.md`.")
     figures = [path.name for path in sorted((run_dir / "figures").glob("*"))] if (run_dir / "figures").exists() else []
     lines.append(f"\nFigure files: {', '.join(figures) if figures else 'not yet available'}. "
                  "The processed JSON/CSV and individual proposals retain the exact denominators and cutoffs.")
     lines.extend(["", "## Example inspection", ""])
     if (run_dir / "assessment/examples.md").exists():
         lines.append(
-            "Full selected examples, predicate truth values and any replayed witnesses are in `assessment/examples.md`.\n"
+            "Full selected examples, predicate truth values and action sequences found by bounded search are in `assessment/examples.md`.\n"
         )
     lines.extend(examples(run_dir))
     lines.extend([
         "", "## Limitations and proposal text", "",
         "The layouts come from a previously selected synthetic exploratory cohort; prior exposure "
         "cannot be ruled out. Three independent validation boards provide limited checkpoint-selection evidence. "
-        "Predicate validity and bounded solver witnesses do not establish transfer, full puzzle success "
+        "Predicate validity and paths found by bounded search do not establish transfer, full-puzzle success "
         "or policy-relative reachability.", ""
     ])
     lines.append("The current supervisor starts stages under a persistent session leader configured as a Linux "
@@ -416,7 +423,7 @@ def build_report(run_dir: Path, state: dict) -> str:
         if before.get("outputs") and after.get("outputs"):
             paragraph += ("In a post-hoc analysis removing a single outer code fence, the corresponding "
                           f"valid counts were {before['valid_nontrivial']}/{before['outputs']} and "
-                          f"{after['valid_nontrivial']}/{after['outputs']}; bounded search found witnesses "
+                          f"{after['valid_nontrivial']}/{after['outputs']}; bounded search found paths "
                           f"for {before['witness_found']}/{before['outputs']} and "
                           f"{after['witness_found']}/{after['outputs']}, respectively. ")
             paragraph += "Proposals were not matched for effect type or difficulty. "

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plot measured held-out validity and bounded solver witnesses."""
+"""Plot measured held-out validity and action sequences found by bounded search."""
 import argparse
 import json
 from pathlib import Path
@@ -45,7 +45,7 @@ def main():
             "board_mean_witness_fraction",
             "witness_fraction_95_board_bootstrap",
             "witness_found",
-            "Bounded witness",
+            "Action sequence found",
             "#bd7756",
         ),
     ]
@@ -113,7 +113,8 @@ def main():
     fig.text(
         0.5,
         -0.045,
-        "Counts: proposals. Whiskers: 95% board bootstrap. Witnesses: bounded search, not a controller.",
+        "Counts: proposals. Whiskers: 95% board bootstrap.\n"
+        "Paths satisfy the intents; controller and full-puzzle success are not measured.",
         ha="center",
         fontsize=8,
     )
