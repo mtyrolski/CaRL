@@ -229,11 +229,12 @@ def initialise(args: argparse.Namespace, adapter: str | None = None, train: bool
     tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
     if tokenizer.chat_template is None:
         raise ValueError("the selected tokenizer does not supply a chat template")
-    model = AutoModelForCausalLM.from_pretrained(
+    model: Any = AutoModelForCausalLM.from_pretrained(
         source,
         local_files_only=True,
         torch_dtype=dtype,
-    ).to(device)
+    )
+    model = model.to(device)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     if train:
@@ -342,11 +343,13 @@ def generate(torch: Any,
 def benchmark(args: argparse.Namespace) -> None:
     records = read_records(args.data)
     training = [row for row in records if row["split"] == DataSplit.TRAIN]
+    validation = [row for row in records if row["split"] == DataSplit.VALIDATION]
     if len(training) < args.accumulation:
         raise ValueError("not enough train examples for benchmark accumulation")
     started = time.monotonic()
     torch, tokenizer, model, device = initialise(args, train=True)
-    token_lengths = lengths(tokenizer, records, args.max_length)
+    # Held-out targets must not affect the training resource check.
+    token_lengths = lengths(tokenizer, training + validation, args.max_length)
     optimizer = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=args.lr)
     model.train()
     sync_gpu(torch)
@@ -407,7 +410,8 @@ def train(args: argparse.Namespace) -> None:
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     torch, tokenizer, model, device = initialise(args, train=True)
-    token_lengths = lengths(tokenizer, rows, args.max_length)
+    # Inspect only examples actually used for fitting or validation.
+    token_lengths = lengths(tokenizer, training + validation, args.max_length)
     atomic_json(
         output / "configuration.json", {
             "args": vars(args),
@@ -457,7 +461,7 @@ def train(args: argparse.Namespace) -> None:
                 if val < best:
                     best = val
                     destination = output / f"checkpoint-{step}"
-                    model.save_pretrained(destination, safe_serialization=True)
+                    model.save_pretrained(str(destination), safe_serialization=True)
                     best_path = str(destination)
                     atomic_json(output / "best.json", {"step": step, "validation_loss": val, "adapter": best_path})
             curve.write(json.dumps(row) + "\n")
@@ -471,7 +475,7 @@ def train(args: argparse.Namespace) -> None:
                 })
             print(json.dumps(row), flush=True)
     last_path = output / f"checkpoint-last-{completed}"
-    model.save_pretrained(last_path, safe_serialization=True)
+    model.save_pretrained(str(last_path), safe_serialization=True)
     atomic_json(
         output / "status.json", {
             "status": "finished" if completed == args.max_steps else "stopped",
