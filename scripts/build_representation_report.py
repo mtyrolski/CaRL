@@ -284,6 +284,59 @@ def notebook(run: Path):
                 display(Image(filename=str(image)))
         '''),
         markdown("""
+        ## Reguła lokalna — POST-HOC
+
+        Po obejrzeniu części wyników Qwena dodano osobny punkt odniesienia:
+        deterministyczną regułę działającą na bieżącej planszy. Reguła używa
+        grafu dostępnych ruchów, aby znaleźć dojście do legalnego pchnięcia
+        skrzyni; gdy pchnięcia nie ma, może zaproponować ruch gracza. Korzysta
+        więc z dodatkowego przeszukiwania i nie jest modelem językowym ani
+        zamrożonym kontrolerem intencji. Nie porównujemy jej jako identycznej
+        metody z Qwenem.
+
+        Plan i ocena poniżej dotyczą tych samych zamrożonych kontekstów, ale
+        zostały dodane **post-hoc**. Wynik BFS to znalezienie ciągu ruchów w
+        ograniczonym przeszukiwaniu, a nie wykonanie przez kontroler. Brak
+        pliku lub pary pozostaje brakiem danych.
+        """),
+        code('''
+        rule_plan = RUN / "local_rule_posthoc/plan.json"
+        rule_directory = RUN / "local_rule_assessment"
+        if rule_plan.exists():
+            show_json(rule_plan)
+        else:
+            print("Brak planu reguły lokalnej.")
+        rule_summary = read_json(rule_directory / "summary.json")
+        if rule_summary:
+            print("Ocena reguły:", rule_directory / "summary.json", "SHA-256:", sha(rule_directory / "summary.json"))
+            for title, key in (("Wszystkie rodziny", "results"), ("Osobne rodziny", "family_results")):
+                display(Markdown("### " + title))
+                if rule_summary.get(key):
+                    display(pd.DataFrame(rule_summary[key]))
+            for image in sorted(rule_directory.glob("validity_*.png")):
+                display(Image(filename=str(image)))
+            for image in sorted(rule_directory.glob("bounded_bfs_*.png")):
+                display(Image(filename=str(image)))
+        else:
+            print("Brak zapisanej oceny reguły lokalnej.")
+        rule_pairs_root = RUN / "local_rule_paired"
+        rule_pairs_final = rule_pairs_root / "final"
+        rule_pairs = (rule_pairs_final if (rule_pairs_final / "paired_summary.json").is_file()
+                      else rule_pairs_root)
+        print("Wybrany snapshot sparowania reguły:", rule_pairs)
+        if (rule_pairs / "paired_summary.json").is_file():
+            display(Markdown("### Sparowane wyniki reguły — POST-HOC"))
+            for path in sorted(rule_pairs.glob("*.json")):
+                show_json(path)
+            for path in sorted(rule_pairs.glob("*.csv")):
+                print("Plik:", path, "SHA-256:", sha(path))
+                display(pd.read_csv(path))
+            for image in sorted(rule_pairs.glob("*.png")):
+                display(Image(filename=str(image)))
+        else:
+            print("Brak zapisanych sparowanych wyników reguły.")
+        '''),
+        markdown("""
         ## Sparowane porównania
 
         Każda para porównuje te same konteksty. Średnia różnica przypisuje
@@ -295,6 +348,14 @@ def notebook(run: Path):
         Główne i dodatkowe porównania zapisano przed generowaniem odpowiedzi
         w `contrasts_plan.json`. Przedziały są eksploracyjne i nie zostały
         skorygowane za wielokrotne porównania.
+
+        Przedziały bootstrapowe opisują zmienność przy ponownym losowaniu
+        spośród zaobserwowanych plansz. Gdy wszystkie wyniki są jednakowe,
+        np. 0/128 lub 128/128, taki bootstrap daje odpowiednio [0, 0] lub
+        [1, 1]; nie oznacza to zerowej niepewności ani pewności co do
+        skuteczności na innych planszach. Plansze dobrano celowo, dlatego
+        przedziałów tych nie należy bez dodatkowych założeń interpretować
+        jako gwarancji dla całej populacji plansz.
         """),
         code('''
         for directory in assessment_directories:
@@ -306,6 +367,35 @@ def notebook(run: Path):
             figure = directory / "paired_overall.png"
             if figure.exists():
                 display(Image(filename=str(figure)))
+        '''),
+        markdown("""
+        ## Różnorodność intencji i zgodność z przykładami ICL
+
+        Dodatkowy audyt opisuje liczbę odrębnych intencji oraz dokładne
+        dopasowania do demonstracji w prompcie. Ścisły odczyt i osobna
+        **post-hoc** analiza jednej otoczki Markdown mają własne mianowniki.
+        Powtórzenie intencji z przykładu jest obserwacją zgodności odpowiedzi,
+        a nie dowodem mechanizmu kopiowania ani samodzielnym pomiarem
+        wykonania przez kontroler. Nieukończone metody pozostają wykluczone
+        i są wymienione w zapisanym audycie.
+        """),
+        code('''
+        diversity_root = RUN / "diversity_audit"
+        final_diversity = diversity_root / "final"
+        diversity = final_diversity if (final_diversity / "summary.json").is_file() else diversity_root
+        print("Wybrany snapshot audytu różnorodności:", diversity)
+        if (diversity / "summary.json").exists():
+            show_json(diversity / "summary.json")
+            for name in ("summary.csv", "frequencies.csv", "support_matches.csv"):
+                path = diversity / name
+                if path.exists():
+                    display(Markdown("### " + name))
+                    print("SHA-256:", sha(path))
+                    display(pd.read_csv(path))
+            for image in sorted(diversity.glob("*.png")):
+                display(Image(filename=str(image)))
+        else:
+            print("Brak zapisanego audytu różnorodności; nie jest to wynik zerowy.")
         '''),
         markdown("""
         ## Replikacje treningu LoRA
@@ -399,14 +489,25 @@ def notebook(run: Path):
         pojedyncza obserwacja, zbyt mało do uczenia skali. Generator w tym
         badaniu nie jest warunkowany skalą; offset demonstracji nie zastępuje
         liczby ruchów kontrolera.
+
+        Wyniki oznaczone **POST-HOC** dotyczą osobnej analizy wykonania po
+        usunięciu najwyżej jednej pełnej otoczki Markdown z odpowiedzi
+        generatora. Zaplanowano ją po obejrzeniu wyników ścisłych i analizy
+        otoczek, więc nie jest wynikiem prerejestrowanym. Używa tej samej
+        polityki, plansz i budżetu; nie łączymy jej mianowników z protokołem
+        ścisłym.
         """),
         code('''
         policy_files = sorted(set(RUN.glob("policy*.json")) | set(RUN.glob("policy*/manifest.json"))
-                              | set(RUN.glob("controller*.json")) | set(RUN.glob("controller*/manifest.json")))
+                              | set(RUN.glob("controller*.json")) | set(RUN.glob("controller*/manifest.json"))
+                              | set(RUN.glob("controller_results/*.manifest.json"))
+                              | set(RUN.glob("controller_fence_results/*.manifest.json")))
         for path in policy_files:
             show_json(path)
         policy_results = sorted(RUN.glob("policy*.jsonl")) + sorted(RUN.glob("policy*/results.jsonl"))
         policy_results += sorted(RUN.glob("controller*.jsonl")) + sorted(RUN.glob("controller*/results.jsonl"))
+        policy_results += sorted(RUN.glob("controller_results/*.jsonl"))
+        policy_results += sorted(RUN.glob("controller_fence_results/*.jsonl"))
         for path in policy_results:
             rows = read_jsonl(path)
             print("Plik prób:", path, "SHA-256:", sha(path), "wiersze:", len(rows))
@@ -426,11 +527,19 @@ def notebook(run: Path):
                         print("Stan po ruchu:\\n" + "\\n".join(step.get("after") or []))
         if not policy_results:
             print("Brak zapisanych prób kontrolera.")
-        for path in sorted(RUN.glob("controller_assessment*/summary.json")):
+        controller_assessments = sorted(set(RUN.glob("controller_assessment*/summary.json"))
+                                        | set(RUN.glob("controller_fence_assessment*/summary.json")))
+        for path in controller_assessments:
             outcome = read_json(path, {}) or {}
-            display(Markdown("### " + path.parent.name))
+            info = outcome.get("config") or {}
+            label = "POST-HOC — " if info.get("analysis_kind") == "posthoc_exploratory" else "ŚCISŁY — "
+            display(Markdown("### " + label + path.parent.name))
             print("Podsumowanie:", path, "SHA-256:", sha(path))
-            print("Mianowniki:", (outcome.get("config") or {}).get("denominators"))
+            print("Normalizacja odpowiedzi generatora:", info.get("generator_output_normalisation", "none"))
+            print("Mianowniki:", info.get("denominators"))
+            if (path.parent / "posthoc_fallback.json").exists():
+                print("Status ewentualnego odtworzenia analizy POST-HOC:")
+                show_json(path.parent / "posthoc_fallback.json")
             if outcome.get("results"):
                 display(pd.DataFrame(outcome["results"]))
             if outcome.get("paired"):
@@ -494,27 +603,75 @@ def notebook(run: Path):
         wynik wykonania intencji przez kontroler.
         """),
         code('''
+        expected = [("base_json_balanced0", "json"), ("base_formal_balanced0", "formal"),
+                    ("base_natural_balanced0", "natural")]
         latest = assessment_directories[-1] if assessment_directories else None
-        summary = read_json(latest / "summary.json", {}) if latest else {}
-        rows = (summary or {}).get("results", [])
-        completed = [row for row in rows if row.get("outputs") == row.get("planned") and row.get("outputs", 0) > 0]
-        if completed and min(row.get("boards_observed", 0) for row in completed) >= 5:
-            numbers = "; ".join(f"{row['variant']}: {row['semantic_valid']}/{row['outputs']}" for row in completed)
-            paragraph = ("In an exploratory Sokoban evaluation, alternative intent representations were compared "
-                         "on the same recorded layouts using a frozen generator. Under strict representation parsing "
-                         "and current-state validity checks, the observed counts of valid, non-trivial intents were "
-                         + numbers + ". These measurements do not establish execution by a controller or transfer "
-                         "to independent environments.")
+        summary = (read_json(latest / "summary.json", {}) if latest else {}) or {}
+        config = summary.get("config") or {}
+        rows = {row.get("variant"): row for row in summary.get("results", []) if row.get("family") == "all"}
+        variants = config.get("variants") or {}
+        selected = [rows.get(name, {}) for name, _ in expected]
+        metadata = [(variants.get(name) or {}).get("metadata") or {} for name, _ in expected]
+        manifest = read_json(RUN / "data/manifest.json", {}) or {}
+        families = manifest.get("test_family_counts") or {}
+        identity_keys = ("model", "revision", "model_weights_sha256", "model_config_sha256", "tokenizer_sha256")
+        same_model = (all(all(item.get(key) for key in identity_keys) for item in metadata)
+                      and len({tuple(item[key] for key in identity_keys) for item in metadata}) == 1
+                      and Path(metadata[0]["model"]).name == "Qwen3-0.6B")
+        complete = (all(row.get("planned", 0) >= 5 and row.get("outputs") == row.get("planned")
+                        and row.get("boards_observed", 0) >= 5 and row.get("valid_not_whole_goal") is not None
+                        for row in selected)
+                    and len({row.get("planned") for row in selected}) == 1
+                    and all("adapter" in item and item["adapter"] is None
+                            and item.get("representation") == representation
+                            and item.get("support_set") == "balanced0"
+                            and item.get("data_sha256") == config.get("data_sha256")
+                            and item.get("test_ids_sha256") == config.get("test_ids_sha256")
+                            for item, (_, representation) in zip(metadata, expected))
+                    and bool(config.get("data_sha256")) and bool(config.get("test_ids_sha256"))
+                    and manifest.get("dataset_sha256") == config.get("data_sha256")
+                    and families.get("real_12x12x4", 0) > 0
+                    and families.get("proposal_gamma2_12x12x10", 0)
+                        + families.get("generated_v1_12x12x10", 0) > 0
+                    and same_model)
+        if complete:
+            denominator = selected[0]["outputs"]
+            counts = [row["valid_not_whole_goal"] for row in selected]
+            paragraph = (f"In an exploratory evaluation on {denominator} Sokoban contexts, unadapted "
+                         "Qwen3-0.6B with two fixed in-context examples produced "
+                         f"{counts[0]}/{denominator}, {counts[1]}/{denominator} and {counts[2]}/{denominator} "
+                         "valid, non-trivial intents under strict checks for JSON, a formal grammar and "
+                         "controlled English, respectively. The comparison changes complete prompts as well "
+                         "as output formats.")
+            audit = read_json(diversity / "summary.json", {}) or {}
+            audit_rows = {(row.get("variant"), row.get("mode")): row for row in audit.get("summaries", [])}
+            matches = [audit_rows.get((name, "strict"), {}) for name, _ in expected]
+            audit_sources = audit.get("sources") or {}
+            match_supported = (audit.get("dataset_sha256") == config.get("data_sha256")
+                               and audit.get("test_ids_sha256") == config.get("test_ids_sha256")
+                               and all((audit_sources.get(name) or {}).get("predictions_sha256")
+                                       and (audit_sources.get(name) or {}).get("predictions_sha256")
+                                       == (variants.get(name) or {}).get("sha256")
+                                       and item.get("balanced0_was_shown") is True
+                                       and item.get("outputs") == denominator
+                                       and isinstance(item.get("match_support_any"), int)
+                                       and 0 <= item["match_support_any"] <= denominator
+                                       for (name, _), item in zip(expected, matches)))
+            if match_supported and any(item["match_support_any"] for item in matches):
+                repeats = [item["match_support_any"] for item in matches]
+                paragraph += (f" Exact matches to a shown example intent appeared in {repeats[0]}/{denominator}, "
+                              f"{repeats[1]}/{denominator} and {repeats[2]}/{denominator} outputs, respectively; "
+                              "these matches do not establish a causal mechanism.")
+            paragraph += (" The four- and ten-box boards came from different sources; these results do not "
+                          "establish controller achievement, complete hierarchical planning or transfer.")
             calibration = read_json(RUN / "policy_calibration_relative_u.json", {}) or {}
             labelled = sum(candidate.get("u") is not None for context in calibration.get("contexts", [])
                            for candidate in context.get("candidates", []))
             if labelled == 1:
-                paragraph += (" A separate calibration yielded one policy-relative scale label, which was not "
-                              "used to condition generator training. Neither scale conditioning nor complete "
-                              "hierarchical search was evaluated.")
+                paragraph += " One policy-relative calibration label was not used to condition generator training."
             print(paragraph)
         else:
-            print("Brak kompletnych wyników dla co najmniej pięciu plansz; akapit nie powstał.")
+            print("Brak akapitu: trzy warianty balanced0 nie mają kompletnych, zgodnych wyników i metadanych.")
         '''),
     ]
     result = nbformat.v4.new_notebook(cells=cells)

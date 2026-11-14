@@ -11,8 +11,11 @@ Every saved action and prompt is independently replayed in the real environment.
 import argparse
 import hashlib
 import json
+import os
 import random
+import time
 from collections import Counter
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +53,17 @@ CONTROLLER_STATUSES = {"achieved", "action_limit", "preservation_violated", "tas
                        "api_error", "invalid_intent"}
 
 
+class GeneratorNormalisation(StrEnum):
+    """Frozen rule applied to a generator answer before policy execution."""
+
+    NONE = "none"
+    REMOVE_ONE_OUTER_FENCE = "remove_one_outer_fence"
+
+
+class AssessmentDeadline(Exception):
+    """A bounded in-process fallback reached its own deadline."""
+
+
 def resolve(path: str | Path) -> Path:
     result = Path(path)
     return result if result.is_absolute() else ROOT / result
@@ -69,8 +83,32 @@ def check_test_subset(full_ids: list[str], contexts: list[Record]) -> None:
         raise ValueError("Controller IDs are not a unique subset of the full frozen matrix IDs")
 
 
+def reconstruct_generator_answer(prediction: Record, mode: GeneratorNormalisation) -> tuple[Record | None, Record]:
+    """Verify raw parsing before optionally removing exactly one complete fence."""
+    raw = prediction.get("raw_output")
+    representation = prediction.get("representation")
+    if not isinstance(raw, str) or not isinstance(representation, str):
+        raise ValueError("Generator output or representation is missing")
+    try:
+        strict_intent = parse_representation(representation, raw)
+        strict_valid = True
+    except ValueError:
+        strict_intent, strict_valid = None, False
+    if prediction.get("syntax_valid") is not strict_valid or prediction.get("parsed_intent") != strict_intent:
+        raise ValueError("Recorded raw parse differs from the original generator response")
+    normalised, removed = (remove_one_outer_fence(raw) if mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE
+                           else (raw, False))
+    try:
+        intent = parse_representation(representation, normalised)
+    except ValueError:
+        intent = None
+    return intent, {"raw_output": raw, "normalised_output": normalised, "fence_removed": removed,
+                    "recorded_syntax_valid": strict_valid, "recorded_parsed_intent": strict_intent}
+
+
 def verify_generator_link(path: Path, variant: str, metadata: Record, all_test: list[Record],
-                          contexts: list[Record], data: Path, matrix: Record, matrix_path: Path) -> tuple[dict[str, str], dict[str, Record]]:
+                          contexts: list[Record], data: Path, matrix: Record, matrix_path: Path,
+                          mode: GeneratorNormalisation) -> tuple[dict[str, str], dict[str, Record], dict[str, Record]]:
     """Reconstruct eligibility and intents from the frozen raw model answers."""
     if not path.exists() or metadata.get("predictions_sha256") != file_hash(path):
         raise ValueError(f"Generator predictions differ from the frozen controller inputs: {variant}")
@@ -137,31 +175,40 @@ def verify_generator_link(path: Path, variant: str, metadata: Record, all_test: 
         by_id[identifier] = row
     statuses: dict[str, str] = {}
     intents: dict[str, Record] = {}
+    diagnostics: dict[str, Record] = {}
     for record in contexts:
         identifier = record["record_id"]
         prediction = by_id.get(identifier)
         if prediction is None:
             statuses[identifier] = "missing_generation"
             continue
-        try:
-            intent = parse_representation(prediction["representation"], prediction["raw_output"])
-        except (KeyError, ValueError):
-            if prediction.get("syntax_valid") is not False or prediction.get("parsed_intent") is not None:
-                raise ValueError(f"Stored invalid prediction differs from raw text: {variant}/{identifier}") from None
+        intent, details = reconstruct_generator_answer(prediction, mode)
+        diagnostics[identifier] = details
+        if intent is None:
             statuses[identifier] = "invalid_representation"
             continue
-        if prediction.get("syntax_valid") is not True or prediction.get("parsed_intent") != intent:
-            raise ValueError(f"Stored intent differs from raw text: {variant}/{identifier}")
         if validate_prediction(intent, record["start_observation"]):
             statuses[identifier] = "invalid_intent"
         else:
             statuses[identifier] = "ready"
             intents[identifier] = intent
-    return statuses, intents
+    return statuses, intents, diagnostics
+
+
+def validate_normalisation_metadata(metadata: Record, mode: GeneratorNormalisation) -> None:
+    value = metadata.get("generator_output_normalisation")
+    if value is None and mode == GeneratorNormalisation.NONE:
+        return  # Older strict-input manifests predate this field.
+    if (not isinstance(value, dict) or value.get("mode") != mode
+            or value.get("posthoc") is not (mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+            or value.get("normaliser_source_sha256") != file_hash(ROOT / "carl/icl/intent_fence_audit.py")
+            or value.get("raw_predictions_sha256") != metadata.get("predictions_sha256")):
+        raise ValueError("Generator normalisation provenance differs from the frozen policy plan")
 
 
 def eligibility_rows(path: Path, predictions_path: Path, variant: str, contexts: list[Record], all_test: list[Record],
-                     ids_path: Path, data: Path, matrix: Record, matrix_path: Path) -> tuple[dict[str, Record], Record]:
+                     ids_path: Path, data: Path, matrix: Record, matrix_path: Path,
+                     mode: GeneratorNormalisation) -> tuple[dict[str, Record], Record]:
     """Accept only complete, hashed, frozen eligibility records or none at all."""
     manifest_path = path / "manifest.json"
     if not manifest_path.exists():
@@ -173,8 +220,9 @@ def eligibility_rows(path: Path, predictions_path: Path, variant: str, contexts:
             or metadata.get("data_sha256") != file_hash(data) or metadata.get("eligibility_sha256") != file_hash(eligibility_path)
             or metadata.get("records_sha256") != file_hash(records_path)):
         raise ValueError(f"Controller input manifest differs from frozen sources: {variant}")
-    expected_statuses, expected_intents = verify_generator_link(predictions_path, variant, metadata, all_test, contexts,
-                                                                 data, matrix, matrix_path)
+    validate_normalisation_metadata(metadata, mode)
+    expected_statuses, expected_intents, diagnostics = verify_generator_link(predictions_path, variant, metadata, all_test,
+                                                                               contexts, data, matrix, matrix_path, mode)
     expected = {r["record_id"]: r for r in contexts}
     rows = read_jsonl(eligibility_path)
     if [r.get("record_id") for r in rows] != [r["record_id"] for r in contexts]:
@@ -185,6 +233,13 @@ def eligibility_rows(path: Path, predictions_path: Path, variant: str, contexts:
                 or row.get("family") != board_family(source) or row.get("status") not in ELIGIBILITY
                 or row.get("status") != expected_statuses[row["record_id"]]):
             raise ValueError(f"Eligibility provenance differs for {variant}/{row['record_id']}")
+        if mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE and row["record_id"] in diagnostics:
+            if any(row.get(key) != value for key, value in diagnostics[row["record_id"]].items()):
+                raise ValueError(f"Recorded generator normalisation differs from raw output: {variant}/{row['record_id']}")
+        elif mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE and any(
+                row.get(key) is not None for key in ("raw_output", "normalised_output", "fence_removed",
+                                                     "recorded_syntax_valid", "recorded_parsed_intent")):
+            raise ValueError(f"Missing generation contains fabricated normalisation data: {variant}/{row['record_id']}")
     policy_records = read_jsonl(records_path)
     ready_ids = [row["record_id"] for row in rows if row["status"] == "ready"]
     if [row.get("record_id") for row in policy_records] != ready_ids:
@@ -204,7 +259,8 @@ def eligibility_rows(path: Path, predictions_path: Path, variant: str, contexts:
 
 
 def controller_rows(path: Path, variant: str, selection: Record, inputs: Record,
-                    action_cap: int) -> tuple[dict[str, Record], Record]:
+                    action_cap: int, stop_monotonic: float | None = None,
+                    stop_epoch: float | None = None) -> tuple[dict[str, Record], Record]:
     rows, snapshot = read_snapshot(path)
     manifest_path = path.with_suffix(".manifest.json")
     if not manifest_path.exists():
@@ -226,6 +282,9 @@ def controller_rows(path: Path, variant: str, selection: Record, inputs: Record,
     result: dict[str, Record] = {}
     audited: Counter[str] = Counter()
     for row in rows:
+        if ((stop_monotonic is not None and time.monotonic() >= stop_monotonic)
+                or (stop_epoch is not None and time.time() >= stop_epoch)):
+            raise AssessmentDeadline("Post-hoc recovery reached its time limit while replaying actions")
         identifier = row.get("record_id")
         if not isinstance(identifier, str) or identifier not in cases or identifier in result:
             raise ValueError(f"Duplicate or foreign controller result: {variant}/{identifier}")
@@ -338,7 +397,7 @@ def compare(rows: list[Record], before: str, after: str, budget: int, metric: st
             "bootstrap_low": bounds[0] if bounds else None, "bootstrap_high": bounds[1] if bounds else None}
 
 
-def plot_curves(output: Path, curves: list[Record], family: str, variants: list[str]) -> None:
+def plot_curves(output: Path, curves: list[Record], family: str, variants: list[str], *, posthoc: bool = False) -> None:
     plt.rcParams.update({"font.family": "serif", "pdf.fonttype": 42, "svg.fonttype": "none"})
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, constrained_layout=True)
     colours = plt.get_cmap("tab10")
@@ -365,7 +424,8 @@ def plot_curves(output: Path, curves: list[Record], family: str, variants: list[
         else:
             axis.text(.5, .5, "Brak ocenionych prób", transform=axis.transAxes, ha="center", fontsize=9)
     axes[0].set_ylabel("Średni odsetek zrealizowanych intencji na planszę")
-    fig.suptitle(f"Zamrożony lokalny kontroler — {family}")
+    prefix = "POST-HOC: po usunięciu jednej otoczki — " if posthoc else "Ścisły format — "
+    fig.suptitle(f"{prefix}zamrożony lokalny kontroler — {family}")
     fig.supxlabel("W nawiasie: ocenione / zaplanowane; przedziały 95% bootstrap po planszach dla zaznaczonych budżetów.",
                   fontsize=8)
     safe = "".join(char if char.isalnum() or char in "-_" else "_" for char in family)
@@ -374,7 +434,32 @@ def plot_curves(output: Path, curves: list[Record], family: str, variants: list[
     plt.close(fig)
 
 
-def main() -> None:
+def normalisation_from_plan(plan: Record, plan_path: Path, run: Path) -> GeneratorNormalisation:
+    mode = GeneratorNormalisation(plan.get("generator_output_normalisation", GeneratorNormalisation.NONE))
+    if mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE:
+        if plan.get("status") != "posthoc_exploratory":
+            raise ValueError("The fence-normalised controller analysis must be labelled post-hoc")
+        strict_path = run / "policy_evaluation_plan.json"
+        if not strict_path.exists():
+            raise ValueError("The corresponding strict controller plan is missing")
+        checksum = plan_path.with_suffix(".sha256")
+        if (not checksum.is_file() or checksum.read_text(encoding="utf-8").strip() != file_hash(plan_path)
+                or plan.get("primary_policy_plan_sha256") != file_hash(strict_path)):
+            raise ValueError("Post-hoc or primary controller plan checksum differs")
+        motivation_path = plan.get("motivation_summary_path")
+        if motivation_path is not None:
+            source = resolve(motivation_path)
+            if not source.is_file() or file_hash(source) != plan.get("motivation_summary_sha256"):
+                raise ValueError("Post-hoc motivation summary differs from its recorded hash")
+        strict = json.loads(strict_path.read_text(encoding="utf-8"))
+        fields = ("frozen_ids", "frozen_ids_sha256", "controller_selection_sha256", "selected_controller",
+                  "decoding", "action_parser", "model_training", "primitive_action_budget", "variants", "api_calls")
+        if any(plan.get(key) != strict.get(key) for key in fields):
+            raise ValueError("Post-hoc plan does not use the strict plan's same cases, policy and budget")
+    return mode
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--data", type=Path)
@@ -383,13 +468,35 @@ def main() -> None:
     parser.add_argument("--predictions", type=Path)
     parser.add_argument("--matrix-plan", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--no-posthoc-fallback", action="store_true", help="Do not recover a missing post-hoc report")
+    parser.add_argument("--fallback-max-seconds", type=float, default=180,
+                        help="Maximum additional wall time for the in-process post-hoc recovery")
     args = parser.parse_args()
+    if args.fallback_max_seconds <= 0:
+        parser.error("fallback-max-seconds must be positive")
+    return args
+
+
+def check_deadline(args: argparse.Namespace) -> None:
+    stop = getattr(args, "stop_monotonic", None)
+    epoch = getattr(args, "stop_epoch", None)
+    if ((stop is not None and time.monotonic() >= stop) or (epoch is not None and time.time() >= epoch)):
+        raise AssessmentDeadline("Post-hoc recovery reached its time limit")
+
+
+def assess(args: argparse.Namespace) -> GeneratorNormalisation:
+    check_deadline(args)
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     run = args.plan.resolve().parent
+    mode = normalisation_from_plan(plan, args.plan, run)
+    posthoc = mode == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE
     data = args.data or run / "data/dataset.jsonl"
     ids = resolve(plan["frozen_ids"])
-    inputs_root = args.inputs or run / "controller_inputs"
-    results_root = args.results or run / "controller_results"
+    inputs_root = args.inputs or run / ("controller_fence_inputs" if posthoc else "controller_inputs")
+    results_root = args.results or run / ("controller_fence_results" if posthoc else "controller_results")
+    if posthoc and (inputs_root.resolve() == (run / "controller_inputs").resolve()
+                    or results_root.resolve() == (run / "controller_results").resolve()):
+        raise ValueError("Post-hoc inputs and results must be separate from the strict protocol")
     predictions_root = args.predictions or run / "predictions"
     matrix_path = args.matrix_plan or run / "matrix_plan.json"
     matrix_checksum = matrix_path.with_suffix(".sha256")
@@ -424,10 +531,12 @@ def main() -> None:
     loaded = []
     rejected = []
     for variant in variants:
+        check_deadline(args)
         try:
             decisions, input_info = eligibility_rows(inputs_root / variant, predictions_root / f"{variant}.jsonl",
-                                                      variant, contexts, all_test, ids, data, matrix, matrix_path)
-            results, output_info = controller_rows(results_root / f"{variant}.jsonl", variant, selection, input_info, cap)
+                                                      variant, contexts, all_test, ids, data, matrix, matrix_path, mode)
+            results, output_info = controller_rows(results_root / f"{variant}.jsonl", variant, selection, input_info, cap,
+                                                   getattr(args, "stop_monotonic", None), getattr(args, "stop_epoch", None))
             if selected_calibration is not None and output_info.get("manifest") is not None:
                 for field in ("policy_config_sha256", "weights_sha256", "tokenizer_sha256", "source_sha256", "action_parser"):
                     if output_info["manifest"].get(field) != selected_calibration.get(field):
@@ -456,6 +565,7 @@ def main() -> None:
     assets_path = run / "controller_assets_snapshot.json"
     assets = None
     if comparable and selected_calibration is not None:
+        check_deadline(args)
         if not assets_path.exists():
             raise ValueError("Controller asset snapshot was not recorded before evaluation")
         assets = json.loads(assets_path.read_text(encoding="utf-8"))
@@ -466,6 +576,7 @@ def main() -> None:
         if set(assets.get("files", {})) != expected_assets:
             raise ValueError("Controller asset snapshot is incomplete")
         for name, metadata in assets["files"].items():
+            check_deadline(args)
             source = Path(selection["model"]) / name
             if not source.is_file() or sha256_file(source) != metadata.get("sha256"):
                 raise ValueError(f"Controller asset changed since test freeze: {name}")
@@ -476,6 +587,12 @@ def main() -> None:
     if (args.output / "config.json").exists() or (args.output / "assessment.jsonl").exists():
         raise FileExistsError("Controller assessment exists; choose a fresh output directory")
     config = {"plan_sha256": file_hash(args.plan), "data_sha256": file_hash(data), "test_ids_sha256": file_hash(ids),
+              "analysis_kind": "posthoc_exploratory" if posthoc else "strict_preregistered",
+              "generator_output_normalisation": mode,
+              "primary_policy_plan_sha256": plan.get("primary_policy_plan_sha256") if posthoc else None,
+              "motivation_summary_sha256": plan.get("motivation_summary_sha256") if posthoc else None,
+              "interpretation": ("Post-hoc after observed strict and fence results; not a preregistered comparison."
+                                 if posthoc else "Original strict controller protocol; no generator formatting repairs."),
               "matrix_plan_sha256": file_hash(matrix_path),
               "assessment_source_sha256": {
                   str(path.relative_to(ROOT)): file_hash(path) for path in (
@@ -499,12 +616,15 @@ def main() -> None:
             classified = classify(context, decisions.get(identifier), results.get(identifier))
             if input_info.get("rejected_reason"):
                 classified.update(status="rejected_infrastructure", error=input_info["rejected_reason"])
-            assessed.append({"variant": variant, **classified})
+            assessed.append({"variant": variant, "analysis_kind": config["analysis_kind"],
+                             "generator_output_normalisation": mode, **classified})
     atomic_text(args.output / "assessment.jsonl", "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in assessed))
     families = sorted({board_family(row) for row in contexts})
     curves = [curve(name, [row for row in assessed if row["variant"] == name], budget, metric, family)
               for name in variants for metric in ("pipeline", "conditional") for family in (None, *families)
               for budget in range(cap + 1)]
+    for row in curves:
+        row.update(analysis_kind=config["analysis_kind"], generator_output_normalisation=mode)
     summaries = []
     for variant in variants:
         rows = [row for row in assessed if row["variant"] == variant]
@@ -512,7 +632,8 @@ def main() -> None:
             selected = [row for row in rows if family is None or row["family"] == family]
             observed = [row for row in selected if row["controller_evaluated"]]
             saved_attempts = [row for row in selected if row["actions"] is not None]
-            summaries.append({"variant": variant, "family": family or "all", "planned": len(selected),
+            summaries.append({"analysis_kind": config["analysis_kind"], "generator_output_normalisation": mode,
+                              "variant": variant, "family": family or "all", "planned": len(selected),
                               "statuses": dict(Counter(row["status"] for row in selected)),
                               "pipeline_evaluated": sum(row["pipeline_evaluated"] for row in selected),
                               "controller_evaluated": len(observed), "controller_success": sum(success(row, cap) for row in observed),
@@ -523,6 +644,8 @@ def main() -> None:
                               "model_calls": sum(row["model_calls"] for row in saved_attempts)})
     contrasts = [compare(assessed, variants[0], variant, cap, metric, family)
                  for variant in variants[1:] for metric in ("pipeline", "conditional") for family in (None, *families)]
+    for row in contrasts:
+        row.update(analysis_kind=config["analysis_kind"], generator_output_normalisation=mode)
     atomic_json(args.output / "summary.json", {"config": config, "results": summaries, "curves": curves,
                                                  "paired": contrasts, "rejected_variants": rejected})
     write_csv(args.output / "curves.csv", curves, list(curves[0]))
@@ -531,9 +654,103 @@ def main() -> None:
     write_csv(args.output / "summary.csv", [{**row, "statuses": json.dumps(row["statuses"], sort_keys=True)}
                                             for row in summaries], list(summaries[0]))
     for family in ("all", *families):
-        plot_curves(args.output, curves, family, variants)
+        check_deadline(args)
+        plot_curves(args.output, curves, family, variants, posthoc=posthoc)
+    atomic_json(args.output / "complete.json", {"status": "complete", "plan_sha256": file_hash(args.plan),
+                                                "summary_sha256": file_hash(args.output / "summary.json"),
+                                                "analysis_kind": config["analysis_kind"]})
     print(json.dumps({"variants": len(variants), "planned_per_variant": len(contexts),
                       "saved_rollouts": sum(info["audit"].get("rollouts", 0) for _, _, _, _, info in loaded)}))
+    return mode
+
+
+def completed_posthoc(directory: Path, plan_hash: str) -> bool:
+    marker_path, summary_path = directory / "complete.json", directory / "summary.json"
+    if not marker_path.is_file() or not summary_path.is_file():
+        return False
+    try:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool(marker.get("status") == "complete" and marker.get("analysis_kind") == "posthoc_exploratory"
+                and marker.get("plan_sha256") == plan_hash and marker.get("summary_sha256") == file_hash(summary_path))
+
+
+def fallback_seconds(run: Path, maximum: float) -> float:
+    """Respect the earliest original, stage or local deadline with a small reserve."""
+    limits = [maximum]
+    manifest_path = run / "run_manifest.json"
+    if manifest_path.exists():
+        state = json.loads(manifest_path.read_text(encoding="utf-8"))
+        clock = state.get("clock", {})
+        for key, now in (("deadline_epoch", time.time()), ("deadline_monotonic", time.monotonic())):
+            if isinstance(clock.get(key), (int, float)):
+                limits.append(clock[key] - now - 5)
+        for stage in state.get("stages", []):
+            if stage.get("status") == "running" and stage.get("pid") == os.getpgrp():
+                for key, now in (("stop_epoch", time.time()), ("stop_monotonic", time.monotonic())):
+                    if isinstance(stage.get(key), (int, float)):
+                        limits.append(stage[key] - now - 5)
+    return max(0.0, min(limits))
+
+
+def run_posthoc_fallback(args: argparse.Namespace) -> None:
+    """Recover one missing post-hoc report in-process, without recursion or GPU."""
+    run = args.plan.resolve().parent
+    fence_plan = run / "policy_evaluation_fence_plan.json"
+    if not fence_plan.is_file():
+        return
+    status_path = args.output / "posthoc_fallback.json"
+    record: Record = {"plan": str(fence_plan), "analysis_kind": "posthoc_exploratory"}
+    try:
+        plan = json.loads(fence_plan.read_text(encoding="utf-8"))
+        normalisation_from_plan(plan, fence_plan, run)
+        if plan.get("primary_policy_plan_sha256") != file_hash(args.plan):
+            raise ValueError("Post-hoc plan does not refer to this strict evaluation plan")
+        plan_hash = file_hash(fence_plan)
+        base = run / "controller_assessment_fence"
+        existing = [base, *sorted(run.glob("controller_assessment_fence_recovery*"))]
+        completed = next((path for path in existing if completed_posthoc(path, plan_hash)), None)
+        if completed is not None:
+            record.update(status="already_complete", output=str(completed))
+        else:
+            output = base
+            for index in range(100):
+                if not output.exists():
+                    break
+                output = run / ("controller_assessment_fence_recovery" + (f"_{index + 1}" if index else ""))
+            else:
+                raise ValueError("No free post-hoc recovery directory")
+            budget = fallback_seconds(run, args.fallback_max_seconds)
+            if budget <= 0:
+                record.update(status="skipped_deadline", output=str(output), budget_seconds=budget)
+            else:
+                recovery = argparse.Namespace(**vars(args))
+                recovery.plan, recovery.output = fence_plan, output
+                recovery.inputs, recovery.results = None, None
+                recovery.no_posthoc_fallback = True
+                recovery.stop_monotonic = time.monotonic() + budget
+                recovery.stop_epoch = time.time() + budget
+                record.update(status="running", output=str(output), budget_seconds=budget)
+                atomic_json(status_path, record)
+                try:
+                    assess(recovery)  # One bounded call; assess never invokes this fallback.
+                    record["status"] = "complete"
+                except AssessmentDeadline as error:
+                    record.update(status="timed_out", error=str(error))
+                except (ValueError, KeyError, TypeError, OSError) as error:
+                    record.update(status="failed", error=f"{type(error).__name__}: {error}")
+    except (ValueError, KeyError, TypeError, OSError) as error:
+        record.update(status="failed", error=f"{type(error).__name__}: {error}")
+    atomic_json(status_path, record)
+    print(json.dumps({"posthoc_fallback": record}, ensure_ascii=False), flush=True)
+
+
+def main() -> None:
+    args = parse_args()
+    mode = assess(args)
+    if mode == GeneratorNormalisation.NONE and not args.no_posthoc_fallback:
+        run_posthoc_fallback(args)
 
 
 if __name__ == "__main__":

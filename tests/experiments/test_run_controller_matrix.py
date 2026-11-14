@@ -12,6 +12,7 @@ from scripts.run_controller_matrix import remaining_seconds
 from scripts.run_controller_matrix import run_child
 from scripts.run_controller_matrix import start_allowed
 from scripts.run_controller_matrix import verify_controller_assets
+from scripts.run_controller_matrix import verify_fence_plan
 
 
 def test_cutoff_and_reporting_reserve_use_both_clocks(monkeypatch):
@@ -67,3 +68,18 @@ def test_complete_unterminated_line_is_retained(tmp_path):
     output.write_bytes(b'{"record_id":"a"}')
     preserve_partial_tail(output)
     assert output.read_bytes() == b'{"record_id":"a"}\n'
+
+
+def test_posthoc_plan_keeps_primary_contexts_controller_and_budget():
+    strict = {"frozen_ids": "ids", "frozen_ids_sha256": "hash", "controller_selection_sha256": "policy",
+              "selected_controller": {"model": "qwen"}, "primitive_action_budget": 16, "variants": ["one"],
+              "decoding": "greedy", "model_training": False, "api_calls": 0, "action_parser": "fixed"}
+    posthoc = {**strict, "status": "posthoc_exploratory", "generator_output_normalisation": "remove_one_outer_fence",
+               "primary_policy_plan_sha256": "original"}
+    verify_fence_plan(posthoc, strict, "original")
+    with pytest.raises(ValueError, match="differs"):
+        verify_fence_plan({**posthoc, "primitive_action_budget": 8}, strict, "original")
+    with pytest.raises(ValueError, match="differs"):
+        verify_fence_plan({**posthoc, "status": "preregistered"}, strict, "original")
+    with pytest.raises(ValueError, match="differs"):
+        verify_fence_plan({**posthoc, "action_parser": "changed"}, strict, "original")

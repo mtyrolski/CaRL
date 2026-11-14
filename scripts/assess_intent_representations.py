@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import matplotlib
+from matplotlib.lines import Line2D
 
 from carl.icl.intent_assessment import board_means
 from carl.icl.intent_assessment import bootstrap
@@ -227,10 +228,13 @@ def assess_one(record: Record, prediction: Record | None, parser: Parser, *, bfs
     except ValueError:
         fence_intent, fence_syntax_valid = None, False
     fence_semantic_valid = bool(fence_syntax_valid and not validate_prediction(fence_intent, board))
+    fence_whole_goal = bool(fence_intent is not None and fence_semantic_valid and whole_goal(fence_intent, board))
     result.update({"representation": representation, "support_set": prediction["support_set"],
                    "syntax_valid": syntax_valid, "syntax_error": syntax_error,
                    "raw_json_valid": raw_json_valid, "fence_removed": fence_removed,
                    "fence_syntax_valid": fence_syntax_valid, "fence_semantic_valid": fence_semantic_valid,
+                   "fence_whole_goal": fence_whole_goal,
+                   "fence_valid_not_whole_goal": fence_semantic_valid and not fence_whole_goal,
                    "semantic_valid": valid, "semantic_errors": semantic_errors,
                    "whole_goal": asks_whole_goal,
                    "valid_not_whole_goal": valid and not asks_whole_goal,
@@ -274,6 +278,8 @@ def summarize(variant: str, rows: list[Record], *, bfs: bool) -> Record:
                       "fence_removed": sum(row["fence_removed"] for row in measured),
                       "fence_syntax_valid": sum(row["fence_syntax_valid"] for row in measured),
                       "fence_semantic_valid": sum(row["fence_semantic_valid"] for row in measured),
+                      "fence_whole_goal": sum(row["fence_whole_goal"] for row in measured),
+                      "fence_valid_not_whole_goal": sum(row["fence_valid_not_whole_goal"] for row in measured),
                       "semantic_valid": len(valid),
                       "whole_goal": sum(row["whole_goal"] for row in valid),
                       "whole_goal_only": sum(row["whole_goal_only"] for row in valid),
@@ -283,7 +289,7 @@ def summarize(variant: str, rows: list[Record], *, bfs: bool) -> Record:
                       "conjunction_sizes": dict(Counter(str(row["conjunction_size"]) for row in valid)),
                       "preserve_sizes": dict(Counter(str(row["preserve_size"]) for row in valid))}
     for field in ("syntax_valid", "semantic_valid", "whole_goal", "whole_goal_only", "valid_not_whole_goal",
-                  "fence_syntax_valid", "fence_semantic_valid"):
+                  "fence_syntax_valid", "fence_semantic_valid", "fence_whole_goal", "fence_valid_not_whole_goal"):
         result[field + "_board_mean"], result[field + "_95_board_bootstrap"] = measure(measured, field)
     for field in ("generation_seconds", "generated_tokens"):
         known = [row[field] for row in measured if isinstance(row.get(field), (int, float))
@@ -506,7 +512,7 @@ def comparison_pairs(variants: list[str], reference: str, requested: list[str]) 
 def flat_summary(row: Record) -> Record:
     result = dict(row)
     for field in ("syntax_valid", "semantic_valid", "whole_goal", "whole_goal_only", "valid_not_whole_goal", "bfs_found",
-                  "fence_syntax_valid", "fence_semantic_valid"):
+                  "fence_syntax_valid", "fence_semantic_valid", "fence_whole_goal", "fence_valid_not_whole_goal"):
         bounds = row.get(field + "_95_board_bootstrap")
         result[field + "_bootstrap_low"] = bounds[0] if bounds else None
         result[field + "_bootstrap_high"] = bounds[1] if bounds else None
@@ -565,7 +571,7 @@ def plot_training_seeds(output: Path, points: list[Record]) -> None:
         axis.set_xticks(range(3), ["JSON", "Formalny", "Kontrolowany angielski"], fontsize=8)
         axis.set(ylim=(-.05, 1.1), title=title, ylabel="Średni odsetek na planszę")
         axis.grid(axis="y", alpha=.2)
-    handles = [plt.Line2D([], [], marker="o", linestyle="none", color=colours[seed], label=str(seed))
+    handles = [Line2D([], [], marker="o", linestyle="none", color=colours[seed], label=str(seed))
                for seed in (1729, 2718, 3141)]
     axes[-1].legend(handles=handles, title="Seed treningu", fontsize=8)
     fig.suptitle("Wariacja między seedami treningu — opisowo")
@@ -733,7 +739,8 @@ def main() -> None:
                       "seconds": args.seconds, "seed": RNG_SEED, "bootstrap_resamples": 2000,
                       "bfs_interpretation": "Bounded solver, not a controller; cutoff is unresolved.",
                       "format_interpretation": "Strict parser checks representation syntax and common intent schema; no formatting repairs.",
-                      "fence_interpretation": "Separate posthoc analysis removes at most one complete plain/json Markdown fence under the same rule for all formats.",
+                      "fence_interpretation": "Separate posthoc analysis removes at most one complete plain/json Markdown fence under the same rule for all formats. "
+                                              "Whole-goal and valid-not-whole-goal partition semantically valid intents, using all evaluated outputs as denominator.",
                       "exposure_interpretation": "Not in the previous LoRA matrix does not establish lack of prior model exposure."}
     atomic_json(args.output / "config.json", config)
     atomic_json(args.output / "rejected_variants.json", rejected)
@@ -777,10 +784,12 @@ def main() -> None:
                              args.contrast + [f"{before}={after}" for before, after in planned_roles])
     contrasts = [{**paired(all_rows, before, after, metric, family, exposure),
                   "contrast_role": planned_roles.get((before, after), "reference_extra"),
+                  "metric_protocol": "posthoc_fence" if metric.startswith("fence_") else "strict",
                   "registered_primary_metric": bool(contrast_plan and metric == contrast_plan.get("primary_metric"))}
                  for before, after in pairs
                  for metric in ("syntax_valid", "semantic_valid", "valid_not_whole_goal", "whole_goal_only",
-                                "fence_syntax_valid", "fence_semantic_valid")
+                                "fence_syntax_valid", "fence_semantic_valid", "fence_whole_goal",
+                                "fence_valid_not_whole_goal")
                  for family in (None, *families) for exposure in (None, *exposures)]
     seed_points, seed_summaries = training_seed_summary(all_summaries)
     summary = {"config": config, "results": all_summaries, "family_results": family_summaries,
@@ -790,18 +799,20 @@ def main() -> None:
     write_csv(args.output / "summary.csv", [flat_summary(row) for row in all_summaries + family_summaries],
               ["family", "variant", "planned", "outputs", "missing", "infrastructure_errors", "boards_planned",
                "boards_observed", "syntax_valid", "raw_json_valid", "fence_removed", "fence_syntax_valid",
-               "fence_semantic_valid", "semantic_valid", "whole_goal", "whole_goal_only", "valid_not_whole_goal",
+               "fence_semantic_valid", "fence_whole_goal", "fence_valid_not_whole_goal",
+               "semantic_valid", "whole_goal", "whole_goal_only", "valid_not_whole_goal",
                "distinct_intents", "bfs_attempted", "bfs_found", "bfs_unresolved", "bfs_errors",
                "bfs_pipeline_evaluated", "generation_seconds", "generation_seconds_known", "generated_tokens",
                "generated_tokens_known", *[field + suffix for field in
                    ("syntax_valid", "semantic_valid", "whole_goal", "whole_goal_only", "valid_not_whole_goal", "bfs_found",
-                    "fence_syntax_valid", "fence_semantic_valid")
+                    "fence_syntax_valid", "fence_semantic_valid", "fence_whole_goal", "fence_valid_not_whole_goal")
                    for suffix in ("_board_mean", "_bootstrap_low", "_bootstrap_high")]])
     if exposure_summaries:
         write_csv(args.output / "exposure.csv", [flat_summary(row) for row in exposure_summaries],
                   ["family", "previous_lora_exposure", "variant", "planned", "outputs", "missing", "boards_planned",
                    "boards_observed", "syntax_valid", "semantic_valid", "valid_not_whole_goal", "whole_goal",
-                   "fence_semantic_valid", "bfs_attempted", "bfs_found", "bfs_unresolved"])
+                   "fence_semantic_valid", "fence_whole_goal", "fence_valid_not_whole_goal",
+                   "bfs_attempted", "bfs_found", "bfs_unresolved"])
     if contrasts:
         write_csv(args.output / "paired.csv", contrasts, list(contrasts[0]))
         plot_contrasts(args.output, contrasts)

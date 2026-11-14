@@ -6,6 +6,7 @@ import pytest
 
 from scripts.prepare_controller_intents import prepare
 from scripts.prepare_controller_intents import verify_generator_config
+from scripts.prepare_controller_intents import verify_prediction_rows
 
 
 def make_record(identifier):
@@ -41,6 +42,67 @@ def test_mismatched_or_duplicate_predictions_fail_closed():
         prepare([make_record("a")], ["a"], [{**one, "parsed_intent": {}}], "candidate")
     with pytest.raises(ValueError, match="parse status"):
         prepare([make_record("a")], ["a"], [{**one, "raw_output": "invalid"}], "candidate")
+
+
+def test_strict_default_remains_identical_and_reports_no_new_fields():
+    row = prediction("a", 3)
+    fenced = {**row, "raw_output": f"```json\n{row['raw_output']}\n```", "syntax_valid": False,
+              "parsed_intent": None}
+    implicit = prepare([make_record("a")], ["a"], [fenced], "candidate")
+    explicit = prepare([make_record("a")], ["a"], [fenced], "candidate", remove_fence=False)
+    assert implicit == explicit
+    assert implicit[0] == [] and implicit[1][0]["status"] == "invalid_representation"
+    assert "fence_removed" not in implicit[1][0] and "raw_output" not in implicit[1][0]
+
+
+@pytest.mark.parametrize("representation,raw", [
+    ("json", '```json\n{"effects":[{"predicate":"box_at","row":1,"col":3}],"preserve":[],"instruction":null}\n```'),
+    ("formal", "```\nE[box(1,3)] P[]\n```"),
+    ("natural", "```\nAchieve: box at row 1 column 3. Preserve: nothing.\n```"),
+])
+def test_posthoc_fence_normalisation_uses_same_rule_and_preserves_raw(representation, raw):
+    base = {**prediction("a", 3), "representation": representation, "raw_output": raw,
+            "syntax_valid": False, "parsed_intent": None}
+    inputs, decisions = prepare([make_record("a"), make_record("b")], ["a", "b"], [base], "candidate",
+                                remove_fence=True)
+    assert [row["status"] for row in decisions] == ["ready", "missing_generation"]
+    assert decisions[0]["fence_removed"] is True and decisions[0]["raw_output"] == raw
+    assert decisions[0]["recorded_syntax_valid"] is False and decisions[0]["recorded_parsed_intent"] is None
+    assert "```" not in decisions[0]["normalised_output"]
+    assert decisions[1]["fence_removed"] is None and decisions[1]["raw_output"] is None
+    assert inputs[0]["intent"]["effects"] == [{"predicate": "box_at", "row": 1, "col": 3}]
+    assert not ({"raw_output", "normalised_output", "fragment_actions", "later_observation"} & set(inputs[0]))
+
+
+@pytest.mark.parametrize("raw", [
+    'Here is the result:\n```json\n{"effects":[]}\n```',
+    '```\n```json\n{"effects":[]}\n```\n```',
+    '```python\n{"effects":[]}\n```',
+])
+def test_nested_fences_or_surrounding_prose_are_not_repaired(raw):
+    row = {**prediction("a", 3), "raw_output": raw, "syntax_valid": False, "parsed_intent": None}
+    inputs, decisions = prepare([make_record("a")], ["a"], [row], "candidate", remove_fence=True)
+    assert inputs == [] and decisions[0]["status"] == "invalid_representation"
+    assert decisions[0]["fence_removed"] is False and decisions[0]["normalised_output"] == raw
+
+
+def test_normalisation_still_rejects_forged_recorded_strict_parse():
+    row = prediction("a", 3)
+    raw = f"```json\n{row['raw_output']}\n```"
+    with pytest.raises(ValueError, match="parse status"):
+        prepare([make_record("a")], ["a"], [{**row, "raw_output": raw}], "candidate", remove_fence=True)
+
+
+def test_rows_must_match_frozen_representation_support_and_test_split():
+    expected = {"representation": "json", "support_set": "zero"}
+    row = {**prediction("a", 3), "split": "test", "support_set": "zero"}
+    verify_prediction_rows([row], "candidate", expected)
+    for change in ({"split": "train"}, {"representation": "formal"}, {"support_set": "balanced0"},
+                   {"variant": "other"}, {"raw_output": None}):
+        with pytest.raises(ValueError, match="row differs"):
+            verify_prediction_rows([{**row, **change}], "candidate", expected)
+    with pytest.raises(ValueError, match="independent parsing"):
+        verify_prediction_rows([{**row, "parsed_intent": {}}], "candidate", expected)
 
 
 def test_generator_configuration_must_match_frozen_matrix_and_prompts(tmp_path):

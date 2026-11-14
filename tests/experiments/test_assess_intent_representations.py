@@ -1,5 +1,6 @@
 """Assess actual raw representation output without confusing missing trials with failures."""
 
+import csv
 import json
 import sys
 
@@ -56,6 +57,53 @@ def test_parser_format_semantics_and_whole_goal_are_distinct():
     assert "already true" in " ".join(already_true["semantic_errors"])
     assert not bad_format["syntax_valid"] and not bad_format["semantic_valid"]
     assert bad_format["fence_removed"] and bad_format["fence_syntax_valid"]
+
+
+def test_posthoc_fence_metrics_partition_valid_intents_on_the_current_board():
+    not_whole = {"effects": [{"predicate": "box_at", "row": 2, "col": 3}], "preserve": [], "instruction": None}
+
+    def fenced(intent):
+        return prediction(None, raw=f"```json\n{json.dumps(intent)}\n```")
+
+    whole = run(record("one", "board1"), fenced(GOAL))
+    subgoal = run(record("two", "board2"), fenced(not_whole))
+    already_true = run(record("three", "board3"), fenced(TRUE))
+    for row in (whole, subgoal, already_true):
+        assert not row["semantic_valid"] and row["fence_removed"]
+        assert row["fence_whole_goal"] + row["fence_valid_not_whole_goal"] == row["fence_semantic_valid"]
+    assert whole["fence_whole_goal"] and not whole["fence_valid_not_whole_goal"]
+    assert subgoal["fence_valid_not_whole_goal"] and not subgoal["fence_whole_goal"]
+    assert not already_true["fence_semantic_valid"]
+    conjunction = {**GOAL, "effects": [*GOAL["effects"], *not_whole["effects"]]}
+    assert run(record(), fenced(conjunction))["fence_whole_goal"]
+
+    missing = run(record("four", "board4"), None)
+    error = run(record("five", "board5"), {"status": "infrastructure_error", "error": "timeout"})
+    summary = summarize("model", [whole, subgoal, already_true, missing, error], bfs=False)
+    assert (summary["planned"], summary["outputs"], summary["missing"], summary["infrastructure_errors"]) == (5, 3, 1, 1)
+    assert (summary["fence_semantic_valid"], summary["fence_whole_goal"], summary["fence_valid_not_whole_goal"]) == (2, 1, 1)
+    assert summary["fence_whole_goal_board_mean"] == pytest.approx(1 / 3)
+    assert summary["fence_valid_not_whole_goal_board_mean"] == pytest.approx(1 / 3)
+    assert summary["semantic_valid"] == 0
+
+
+def test_posthoc_fence_pairing_uses_identical_available_contexts():
+    not_whole = {"effects": [{"predicate": "box_at", "row": 2, "col": 3}], "preserve": [], "instruction": None}
+
+    def fenced(intent):
+        return prediction(None, raw=f"```json\n{json.dumps(intent)}\n```")
+
+    rows = []
+    for identifier, before, after in (("a", not_whole, GOAL), ("b", GOAL, GOAL), ("c", None, not_whole)):
+        context = record(identifier, identifier)
+        for variant, intent in (("base", before), ("new", after)):
+            rows.append({"variant": variant, **run(context, fenced(intent) if intent is not None else None)})
+    whole = paired(rows, "base", "new", "fence_whole_goal")
+    subgoal = paired(rows, "base", "new", "fence_valid_not_whole_goal")
+    assert whole["planned_pairs"] == subgoal["planned_pairs"] == 3
+    assert whole["paired_contexts"] == subgoal["paired_contexts"] == 2
+    assert whole["unpaired_contexts"] == subgoal["unpaired_contexts"] == 1
+    assert whole["board_mean_delta"] == .5 and subgoal["board_mean_delta"] == -.5
 
 
 def test_json_grammar_validity_is_separate_from_schema():
@@ -220,6 +268,8 @@ def test_end_to_end_creates_data_and_figures_for_complete_and_missing_rows(tmp_p
     summary = json.loads((output / "summary.json").read_text())
     assert summary["results"][0]["planned"] == 2 and summary["results"][0]["missing"] == 1
     assert summary["results"][0]["bfs_found"] == 1
+    assert summary["results"][0]["fence_whole_goal"] == 1
+    assert summary["results"][0]["fence_valid_not_whole_goal"] == 0
     rejected = next(row for row in summary["results"] if row["variant"] == "json_bad")
     assert rejected["outputs"] == 0 and rejected["infrastructure_errors"] == 2
     assert json.loads((output / "rejected_variants.json").read_text())[0]["variant"] == "json_bad"
@@ -231,7 +281,18 @@ def test_end_to_end_creates_data_and_figures_for_complete_and_missing_rows(tmp_p
     assert cohorts["not_in_previous_lora_matrix"]["paired_contexts"] == 0
     assert cohorts["in_previous_lora_matrix"]["contrast_role"] == "primary"
     assert cohorts["in_previous_lora_matrix"]["registered_primary_metric"]
+    posthoc = [row for row in summary["paired"] if row["metric"] in
+               {"fence_whole_goal", "fence_valid_not_whole_goal"}]
+    assert posthoc and all(row["metric_protocol"] == "posthoc_fence" and not row["registered_primary_metric"]
+                           for row in posthoc)
     assert (output / "summary.csv").exists() and (output / "exposure.csv").exists()
+    for filename in ("summary.csv", "exposure.csv"):
+        with (output / filename).open(newline="", encoding="utf-8") as stream:
+            fields = csv.DictReader(stream).fieldnames
+        assert fields is not None and {"fence_whole_goal", "fence_valid_not_whole_goal"} <= set(fields)
+    with (output / "paired.csv").open(newline="", encoding="utf-8") as stream:
+        csv_rows = list(csv.DictReader(stream))
+    assert {row["metric"] for row in csv_rows} >= {"fence_whole_goal", "fence_valid_not_whole_goal"}
     assert (output / "validity_Wszystkie_plansze.pdf").exists()
     snapshot = output / "input_snapshot"
     assert (snapshot / "json_zero.jsonl").read_bytes() == predictions.read_bytes()

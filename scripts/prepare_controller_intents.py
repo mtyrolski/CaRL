@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from carl.icl.intent_data import validate_prediction
+from carl.icl.intent_fence_audit import remove_one_outer_fence
 from carl.icl.intent_generator_experiment import file_sha256
 from carl.icl.intent_representation_experiment import parse_representation
 from scripts.run_representation_matrix import verify_plan
 
 
 def verify_generator_config(metadata: dict[str, Any], plan: dict[str, Any], variant: str,
-                            predictions: Path) -> None:
+                            predictions: Path) -> dict[str, Any]:
     """Bind generated inputs to the whole frozen matrix, not just board IDs."""
     jobs = [job for job in plan["methods"] if job["name"] == variant]
     if len(jobs) != 1:
@@ -55,10 +56,34 @@ def verify_generator_config(metadata: dict[str, Any], plan: dict[str, Any], vari
     prompt_file = predictions.with_suffix(".prompts.jsonl")
     if metadata.get("prompts_sha256") != file_sha256(prompt_file):
         raise ValueError("The saved generator prompts differ from their manifest")
+    return job
+
+
+def recorded_parse(prediction: dict[str, Any]) -> tuple[dict[str, Any] | None, Exception | None]:
+    """Verify the recorded strict parse before applying any optional transformation."""
+    try:
+        intent = parse_representation(prediction["representation"], prediction["raw_output"])
+    except (KeyError, ValueError) as error:
+        if prediction.get("syntax_valid") is not False or prediction.get("parsed_intent") is not None:
+            raise ValueError("Recorded parse status differs from the raw response") from error
+        return None, error
+    if prediction.get("syntax_valid") is not True or prediction.get("parsed_intent") != intent:
+        raise ValueError("Recorded intent differs from independent parsing of the raw response")
+    return intent, None
+
+
+def verify_prediction_rows(predictions: list[dict[str, Any]], variant: str, method: dict[str, Any]) -> None:
+    """Reject row-level configuration mismatches before starting any controller."""
+    for row in predictions:
+        if (row.get("variant") != variant or row.get("split") != "test"
+                or row.get("representation") != method["representation"]
+                or row.get("support_set") != method["support_set"] or not isinstance(row.get("raw_output"), str)):
+            raise ValueError("Prediction row differs from the frozen method or lacks raw output")
+        recorded_parse(row)
 
 
 def prepare(records: list[dict[str, Any]], ids: list[str], predictions: list[dict[str, Any]],
-            variant: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            variant: str, remove_fence: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     test = [r for r in records if r.get("split") == "test"]
     by_id = {r["record_id"]: r for r in test}
     if len(by_id) != len(test):
@@ -80,22 +105,33 @@ def prepare(records: list[dict[str, Any]], ids: list[str], predictions: list[dic
         item = {"record_id": identifier, "layout_id": source["layout_id"],
                 "family": source.get("evaluation_family", source.get("family")), "variant": variant}
         if prediction is None:
+            if remove_fence:
+                item.update(raw_output=None, normalised_output=None, fence_removed=None,
+                            recorded_syntax_valid=None, recorded_parsed_intent=None)
             decisions.append({**item, "status": "missing_generation", "errors": []})
             continue
-        try:
-            intent = parse_representation(prediction["representation"], prediction["raw_output"])
-        except (KeyError, ValueError) as error:
-            if prediction.get("syntax_valid") is not False or prediction.get("parsed_intent") is not None:
-                raise ValueError("Recorded parse status differs from the raw response") from error
+        intent, error = recorded_parse(prediction)
+        if remove_fence:
+            raw = prediction.get("raw_output")
+            if not isinstance(raw, str):
+                raise ValueError("Fence normalisation requires the original raw response")
+            normalised, removed = remove_one_outer_fence(raw)
+            item.update(raw_output=raw, normalised_output=normalised, fence_removed=removed,
+                        recorded_syntax_valid=prediction["syntax_valid"],
+                        recorded_parsed_intent=prediction["parsed_intent"])
+            try:
+                intent, error = parse_representation(prediction["representation"], normalised), None
+            except (KeyError, ValueError) as normalised_error:
+                intent, error = None, normalised_error
+        if error is not None:
             decisions.append({**item, "status": "invalid_representation", "errors": [str(error)]})
             continue
-        if prediction.get("syntax_valid") is not True or prediction.get("parsed_intent") != intent:
-            raise ValueError("Recorded intent differs from independent parsing of the raw response")
         errors = validate_prediction(intent, source["start_observation"])
         if errors:
             decisions.append({**item, "status": "invalid_intent", "errors": errors})
             continue
-        controller_records.append({**item, "split": "test", "start_observation": source["start_observation"],
+        controller_records.append({**{key: item[key] for key in ("record_id", "layout_id", "family", "variant")},
+                                   "split": "test", "start_observation": source["start_observation"],
                                    "task_goal": source["task_goal"], "intent": intent})
         decisions.append({**item, "status": "ready", "errors": []})
     return controller_records, decisions
@@ -123,6 +159,8 @@ def main() -> None:
     parser.add_argument("--matrix-plan", type=Path, required=True)
     parser.add_argument("--variant", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--remove-one-generator-fence", action="store_true",
+                        help="Post-hoc exploratory normalization of one complete outer Markdown fence")
     args = parser.parse_args()
     frozen = json.loads(args.test_ids.read_text(encoding="utf-8"))
     if frozen.get("dataset_sha256") != file_sha256(args.data):
@@ -137,8 +175,11 @@ def main() -> None:
     metadata = json.loads(args.predictions.with_suffix(".run.json").read_text(encoding="utf-8"))
     if matrix["inputs"]["data"]["sha256"] != file_sha256(args.data):
         raise ValueError("Controller dataset differs from the frozen matrix")
-    verify_generator_config(metadata, matrix, args.variant, args.predictions)
-    inputs, decisions = prepare(read_jsonl(args.data), frozen["record_ids"], read_jsonl(args.predictions), args.variant)
+    method = verify_generator_config(metadata, matrix, args.variant, args.predictions)
+    predictions = read_jsonl(args.predictions)
+    verify_prediction_rows(predictions, args.variant, method)
+    inputs, decisions = prepare(read_jsonl(args.data), frozen["record_ids"], predictions, args.variant,
+                                remove_fence=args.remove_one_generator_fence)
     if args.output_dir.exists():
         raise FileExistsError("Use a fresh controller input directory")
     args.output_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +197,15 @@ def main() -> None:
                     "records_sha256": file_sha256(temporary / "records.jsonl"),
                     "eligibility_sha256": file_sha256(temporary / "eligibility.jsonl"),
                     "input_contract": "Only generated intent, current board and task; no future board or actions."}
+        if args.remove_one_generator_fence:
+            normaliser = Path(__file__).resolve().parents[1] / "carl/icl/intent_fence_audit.py"
+            manifest["generator_output_normalisation"] = {
+                "mode": "remove_one_outer_fence", "posthoc": True,
+                "normaliser_source_sha256": file_sha256(normaliser),
+                "raw_predictions_sha256": file_sha256(args.predictions),
+                "fences_removed": sum(row.get("fence_removed") is True for row in decisions),
+                "explanation": "One complete plain or json Markdown fence only; no other output repair.",
+            }
         atomic_text(temporary / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         os.rename(temporary, args.output_dir)
     except Exception:

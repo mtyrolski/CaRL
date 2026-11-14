@@ -3,18 +3,28 @@
 import hashlib
 import json
 import sys
+import time
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
+import scripts.assess_fixed_controller as controller_assessment
 from carl.icl.intent_representation_experiment import messages_for
 from carl.icl.local_intent_policy import run_record
+from scripts.assess_fixed_controller import AssessmentDeadline
+from scripts.assess_fixed_controller import GeneratorNormalisation
+from scripts.assess_fixed_controller import check_deadline
 from scripts.assess_fixed_controller import check_test_subset
 from scripts.assess_fixed_controller import classify
 from scripts.assess_fixed_controller import compare
 from scripts.assess_fixed_controller import curve
 from scripts.assess_fixed_controller import main
+from scripts.assess_fixed_controller import normalisation_from_plan
+from scripts.assess_fixed_controller import reconstruct_generator_answer
+from scripts.assess_fixed_controller import run_posthoc_fallback
 from scripts.assess_fixed_controller import success
+from scripts.assess_fixed_controller import validate_normalisation_metadata
 from scripts.run_fixed_local_controller import evaluate_record
 
 BOARD = ["#####", "#####", "#@$.#", "#####", "#####"]
@@ -49,6 +59,100 @@ def test_controller_subset_must_belong_to_the_full_frozen_matrix():
         check_test_subset(["a", "b"], [record("a"), record("c")])
     with pytest.raises(ValueError, match="unique subset"):
         check_test_subset(["a", "a"], [record("a")])
+
+
+def test_posthoc_removes_only_one_complete_fence_without_changing_raw_verification():
+    raw = "```json\n" + json.dumps(INTENT) + "\n```"
+    prediction = {"representation": "json", "raw_output": raw, "syntax_valid": False, "parsed_intent": None}
+    strict, strict_details = reconstruct_generator_answer(prediction, GeneratorNormalisation.NONE)
+    relaxed, details = reconstruct_generator_answer(prediction, GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+    assert strict is None and not strict_details["fence_removed"]
+    assert relaxed == INTENT and details["fence_removed"] and details["raw_output"] == raw
+    assert details["normalised_output"] == json.dumps(INTENT)
+    with pytest.raises(ValueError, match="Recorded raw parse"):
+        reconstruct_generator_answer({**prediction, "syntax_valid": True}, GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+    nested = {**prediction, "raw_output": "```json\n" + raw + "\n```"}
+    result, nested_details = reconstruct_generator_answer(nested, GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+    assert result is None and not nested_details["fence_removed"]
+
+
+def test_posthoc_manifest_binds_raw_data_and_normaliser():
+    normaliser = Path("carl/icl/intent_fence_audit.py")
+    value = {"mode": "remove_one_outer_fence", "posthoc": True,
+             "normaliser_source_sha256": hashlib.sha256(normaliser.read_bytes()).hexdigest(),
+             "raw_predictions_sha256": "raw-sha"}
+    metadata = {"predictions_sha256": "raw-sha", "generator_output_normalisation": value}
+    validate_normalisation_metadata(metadata, GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+    validate_normalisation_metadata({}, GeneratorNormalisation.NONE)
+    with pytest.raises(ValueError, match="normalisation provenance"):
+        validate_normalisation_metadata(metadata, GeneratorNormalisation.NONE)
+    with pytest.raises(ValueError, match="normalisation provenance"):
+        validate_normalisation_metadata({"predictions_sha256": "other", "generator_output_normalisation": value},
+                                        GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+
+
+def test_posthoc_plan_must_bind_same_cases_controller_budget_and_hashes(tmp_path):
+    strict = {"frozen_ids": "ids.json", "frozen_ids_sha256": "ids", "controller_selection_sha256": "selection",
+              "selected_controller": {"model": "fixed"}, "decoding": "greedy", "action_parser": "fixed",
+              "model_training": False, "primitive_action_budget": 16, "variants": ["base"]}
+    strict_path = tmp_path / "policy_evaluation_plan.json"
+    strict_path.write_text(json.dumps(strict))
+    plan = {**strict, "status": "posthoc_exploratory", "generator_output_normalisation": "remove_one_outer_fence",
+            "primary_policy_plan_sha256": hashlib.sha256(strict_path.read_bytes()).hexdigest()}
+    path = tmp_path / "policy_evaluation_fence_plan.json"
+    path.write_text(json.dumps(plan))
+    path.with_suffix(".sha256").write_text(hashlib.sha256(path.read_bytes()).hexdigest())
+    assert normalisation_from_plan(plan, path, tmp_path) == GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE
+    modified = {**plan, "primitive_action_budget": 8}
+    path.write_text(json.dumps(modified))
+    path.with_suffix(".sha256").write_text(hashlib.sha256(path.read_bytes()).hexdigest())
+    with pytest.raises(ValueError, match="same cases, policy and budget"):
+        normalisation_from_plan(modified, path, tmp_path)
+    path.with_suffix(".sha256").write_text("wrong")
+    with pytest.raises(ValueError, match="checksum"):
+        normalisation_from_plan(modified, path, tmp_path)
+
+
+def test_posthoc_fallback_runs_once_and_uses_recovery_for_incomplete_output(tmp_path, monkeypatch):
+    strict = {"frozen_ids": "ids", "frozen_ids_sha256": "ids", "controller_selection_sha256": "selection",
+              "selected_controller": {"model": "fixed"}, "decoding": "greedy", "action_parser": "fixed",
+              "model_training": False, "primitive_action_budget": 16, "variants": ["base"]}
+    strict_path = tmp_path / "policy_evaluation_plan.json"
+    strict_path.write_text(json.dumps(strict))
+    fence = {**strict, "status": "posthoc_exploratory", "generator_output_normalisation": "remove_one_outer_fence",
+             "primary_policy_plan_sha256": hashlib.sha256(strict_path.read_bytes()).hexdigest()}
+    fence_path = tmp_path / "policy_evaluation_fence_plan.json"
+    fence_path.write_text(json.dumps(fence))
+    fence_path.with_suffix(".sha256").write_text(hashlib.sha256(fence_path.read_bytes()).hexdigest())
+    (tmp_path / "controller_assessment_fence").mkdir()  # Interrupted previous attempt.
+    primary = tmp_path / "strict_assessment"
+    primary.mkdir()
+    args = Namespace(plan=strict_path, output=primary, fallback_max_seconds=30, inputs=None, results=None,
+                     no_posthoc_fallback=False)
+    calls = []
+    def fake_assess(recovery):
+        calls.append(recovery)
+        recovery.output.mkdir()
+        summary = recovery.output / "summary.json"
+        summary.write_text("{}")
+        (recovery.output / "complete.json").write_text(json.dumps({
+            "status": "complete", "analysis_kind": "posthoc_exploratory",
+            "plan_sha256": hashlib.sha256(fence_path.read_bytes()).hexdigest(),
+            "summary_sha256": hashlib.sha256(summary.read_bytes()).hexdigest()}))
+        return GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE
+    monkeypatch.setattr(controller_assessment, "assess", fake_assess)
+    run_posthoc_fallback(args)
+    report = json.loads((primary / "posthoc_fallback.json").read_text())
+    assert report["status"] == "complete" and len(calls) == 1
+    assert calls[0].output.name == "controller_assessment_fence_recovery" and calls[0].no_posthoc_fallback
+    run_posthoc_fallback(args)
+    assert json.loads((primary / "posthoc_fallback.json").read_text())["status"] == "already_complete"
+    assert len(calls) == 1
+
+
+def test_fallback_deadline_is_enforced_without_killing_unrelated_processes():
+    with pytest.raises(AssessmentDeadline):
+        check_deadline(Namespace(stop_monotonic=time.monotonic() - 1))
 
 
 def test_first_satisfaction_sets_exact_integer_budget():
@@ -197,6 +301,67 @@ def test_end_to_end_verifies_records_and_replays_observed_controller(tmp_path, m
     assert [row["successes"] for row in curves] == [0, 1, 1, 1, 1]
     assert (output / "curves.csv").exists() and (output / "controller_budget_all.svg").exists()
 
+    # Run the same cases and controller through the separate post-hoc path:
+    # one raw response becomes parseable only after a complete outer fence.
+    strict_path = run / "policy_evaluation_plan.json"
+    strict_path.write_text(json.dumps(plan))
+    fence_plan = {**plan, "status": "posthoc_exploratory", "generator_output_normalisation": "remove_one_outer_fence",
+                  "primary_policy_plan_sha256": digest(strict_path)}
+    fence_plan_path = run / "policy_evaluation_fence_plan.json"
+    fence_plan_path.write_text(json.dumps(fence_plan))
+    fence_plan_path.with_suffix(".sha256").write_text(digest(fence_plan_path))
+    original_predictions = prediction_path.read_text()
+    fenced = [dict(row) for row in proposed]
+    fenced[0].update(raw_output="```json\n" + fenced[0]["raw_output"] + "\n```", syntax_valid=False, parsed_intent=None)
+    prediction_path.write_text("\n".join(map(json.dumps, fenced)) + "\n")
+    fence_inputs = run / "controller_fence_inputs/base"
+    fence_inputs.mkdir(parents=True)
+    by_id = {row["record_id"]: row for row in fenced}
+    fence_decisions = []
+    for decision in decisions:
+        decision = dict(decision)
+        if decision["record_id"] in by_id:
+            _, diagnostics = reconstruct_generator_answer(by_id[decision["record_id"]],
+                                                           GeneratorNormalisation.REMOVE_ONE_OUTER_FENCE)
+            decision.update(diagnostics)
+        fence_decisions.append(decision)
+    fence_eligibility, fence_records = fence_inputs / "eligibility.jsonl", fence_inputs / "records.jsonl"
+    fence_eligibility.write_text("\n".join(map(json.dumps, fence_decisions)) + "\n")
+    fence_records.write_bytes(records_path.read_bytes())
+    normaliser = Path("carl/icl/intent_fence_audit.py")
+    fence_manifest = json.loads((inputs / "manifest.json").read_text())
+    fence_manifest.update(eligibility_sha256=digest(fence_eligibility), records_sha256=digest(fence_records),
+                          predictions_sha256=digest(prediction_path), generator_output_normalisation={
+                              "mode": "remove_one_outer_fence", "posthoc": True,
+                              "normaliser_source_sha256": digest(normaliser),
+                              "raw_predictions_sha256": digest(prediction_path)})
+    (fence_inputs / "manifest.json").write_text(json.dumps(fence_manifest))
+    fence_results = run / "controller_fence_results"
+    fence_results.mkdir()
+    (fence_results / "base.jsonl").write_bytes(result_path.read_bytes())
+    (fence_results / "base.manifest.json").write_bytes(result_path.with_suffix(".manifest.json").read_bytes())
+    fence_output = run / "controller_fence_assessment"
+    monkeypatch.setattr(sys, "argv", ["assessment", "--plan", str(fence_plan_path), "--output", str(fence_output)])
+    main()
+    fence_summary = json.loads((fence_output / "summary.json").read_text())
+    assert fence_summary["config"]["analysis_kind"] == "posthoc_exploratory"
+    assert fence_summary["config"]["generator_output_normalisation"] == "remove_one_outer_fence"
+    assert fence_summary["results"][0]["controller_success"] == 1
+    assert fence_summary["curves"][0]["analysis_kind"] == "posthoc_exploratory"
+
+    # A strict assessment automatically recovers the independent post-hoc
+    # report if its usual directory has not been completed by the runner.
+    auto_output = run / "strict_with_fallback"
+    monkeypatch.setattr(sys, "argv", ["assessment", "--plan", str(strict_path), "--output", str(auto_output),
+                                      "--fallback-max-seconds", "60"])
+    main()
+    fallback = json.loads((auto_output / "posthoc_fallback.json").read_text())
+    assert fallback["status"] == "complete"
+    recovered = json.loads((run / "controller_assessment_fence/summary.json").read_text())
+    assert recovered["config"]["analysis_kind"] == "posthoc_exploratory"
+    assert recovered["results"][0]["controller_success"] == 1
+    prediction_path.write_text(original_predictions)
+
     # Even if the preparer's hash is updated, a run using another support is
     # rejected against the independently frozen matrix settings.
     original_run = run_path.read_text()
@@ -205,7 +370,8 @@ def test_end_to_end_verifies_records_and_replays_observed_controller(tmp_path, m
     input_manifest = json.loads((inputs / "manifest.json").read_text())
     input_manifest["prediction_run_sha256"] = digest(run_path)
     (inputs / "manifest.json").write_text(json.dumps(input_manifest))
-    monkeypatch.setattr(sys, "argv", ["assessment", "--plan", str(plan_file), "--output", str(run / "bad_metadata")])
+    monkeypatch.setattr(sys, "argv", ["assessment", "--plan", str(plan_file), "--output", str(run / "bad_metadata"),
+                                      "--no-posthoc-fallback"])
     main()
     rejected = json.loads((run / "bad_metadata/rejected_variants.json").read_text())
     assert rejected[0]["variant"] == "base" and "differs in support_set" in rejected[0]["reason"]
@@ -221,7 +387,8 @@ def test_end_to_end_verifies_records_and_replays_observed_controller(tmp_path, m
     records_path.write_text("\n".join(map(json.dumps, cases)) + "\n")
     input_manifest["records_sha256"] = digest(records_path)
     (inputs / "manifest.json").write_text(json.dumps(input_manifest))
-    monkeypatch.setattr(sys, "argv", ["assessment", "--plan", str(plan_file), "--output", str(run / "forged_intent")])
+    monkeypatch.setattr(sys, "argv", ["assessment", "--plan", str(plan_file), "--output", str(run / "forged_intent"),
+                                      "--no-posthoc-fallback"])
     main()
     rejected = json.loads((run / "forged_intent/rejected_variants.json").read_text())
     assert "violates the board/intent contract" in rejected[0]["reason"]

@@ -29,6 +29,11 @@ class JobStatus(StrEnum):
     CUTOFF = "cutoff"
 
 
+class InputMode(StrEnum):
+    STRICT = "strict"
+    FENCE = "fence"
+
+
 def append_event(path: Path, event: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8", buffering=1) as output:
         output.write(json.dumps({"epoch": time.time(), **event}) + "\n")
@@ -105,17 +110,44 @@ def preserve_partial_tail(output: Path) -> None:
     os.replace(temporary, output)
 
 
+def verify_fence_plan(plan: dict[str, Any], strict: dict[str, Any], strict_hash: str) -> None:
+    """Keep a post-hoc parser sensitivity analysis paired with its primary plan."""
+    shared = (
+        "frozen_ids", "frozen_ids_sha256", "controller_selection_sha256", "selected_controller",
+        "primitive_action_budget", "variants", "decoding", "action_parser", "model_training", "api_calls",
+    )
+    if (
+        plan.get("status") != "posthoc_exploratory"
+        or plan.get("generator_output_normalisation") != "remove_one_outer_fence"
+        or plan.get("primary_policy_plan_sha256") != strict_hash
+        or strict.get("decoding") != "greedy"
+        or strict.get("model_training") is not False
+        or strict.get("api_calls") != 0
+        or any(plan.get(key) != strict.get(key) for key in shared)
+    ):
+        raise ValueError("Post-hoc policy plan differs from the frozen primary comparison")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--timeout-per-variant", type=float, default=600)
+    parser.add_argument("--mode", choices=list(InputMode), default=InputMode.STRICT)
     args = parser.parse_args()
     if args.timeout_per_variant <= 0:
         raise ValueError("Per-variant timeout must be positive")
     run = args.run.resolve()
     ensure_supervised(run)
     manifest = json.loads((run / "run_manifest.json").read_text())
-    plan = json.loads((run / "policy_evaluation_plan.json").read_text())
+    strict_plan_path = run / "policy_evaluation_plan.json"
+    plan_path = run / ("policy_evaluation_fence_plan.json" if args.mode == InputMode.FENCE
+                       else "policy_evaluation_plan.json")
+    plan = json.loads(plan_path.read_text())
+    if args.mode == InputMode.FENCE:
+        if plan_path.with_suffix(".sha256").read_text().strip() != file_sha256(plan_path):
+            raise ValueError("Post-hoc policy plan checksum differs")
+        strict = json.loads(strict_plan_path.read_text())
+        verify_fence_plan(plan, strict, file_sha256(strict_plan_path))
     selection = run / "controller_selection.json"
     if plan["controller_selection_sha256"] != file_sha256(selection):
         raise ValueError("The calibrated controller selection has changed")
@@ -128,9 +160,11 @@ def main() -> int:
     matrix_plan = run / "matrix_plan.json"
     if plan["frozen_ids_sha256"] != file_sha256(ids):
         raise ValueError("The frozen controller contexts have changed")
-    history = run / "controller_jobs.jsonl"
+    input_root = run / ("controller_fence_inputs" if args.mode == InputMode.FENCE else "controller_inputs")
+    result_root = run / ("controller_fence_results" if args.mode == InputMode.FENCE else "controller_results")
+    history = run / ("controller_fence_jobs.jsonl" if args.mode == InputMode.FENCE else "controller_jobs.jsonl")
     (run / "logs").mkdir(exist_ok=True)
-    (run / "controller_results").mkdir(exist_ok=True)
+    result_root.mkdir(exist_ok=True)
     lock_path = run / ".matrix_gpu.lock"
     failed = False
     with lock_path.open("a+") as lock:
@@ -150,7 +184,7 @@ def main() -> int:
                 append_event(history, {"variant": variant, "status": JobStatus.MISSING_GENERATION})
                 failed = True
                 continue
-            input_dir = run / "controller_inputs" / variant
+            input_dir = input_root / variant
             input_manifest = input_dir / "manifest.json"
             if input_manifest.exists():
                 prior = json.loads(input_manifest.read_text())
@@ -164,11 +198,24 @@ def main() -> int:
                         or prior["prediction_run_sha256"] != file_sha256(prediction.with_suffix(".run.json"))
                         or prior["prompts_sha256"] != file_sha256(prediction.with_suffix(".prompts.jsonl"))):
                     raise ValueError("Prepared controller inputs differ from current frozen predictions")
+                normalisation = prior.get("generator_output_normalisation")
+                normaliser = Path(__file__).resolve().parents[1] / "carl/icl/intent_fence_audit.py"
+                invalid_fence = args.mode == InputMode.FENCE and (
+                    not isinstance(normalisation, dict)
+                    or normalisation.get("mode") != "remove_one_outer_fence"
+                    or normalisation.get("posthoc") is not True
+                    or normalisation.get("raw_predictions_sha256") != file_sha256(prediction)
+                    or normalisation.get("normaliser_source_sha256") != file_sha256(normaliser)
+                )
+                if invalid_fence or (args.mode == InputMode.STRICT and normalisation is not None):
+                    raise ValueError("Prepared controller inputs use a different generator-output protocol")
             else:
                 prepare = [sys.executable, "scripts/prepare_controller_intents.py", "--data", str(data), "--test-ids",
                            str(ids), "--predictions", str(prediction), "--matrix-plan", str(matrix_plan), "--variant",
                            variant, "--output-dir", str(input_dir)]
-                log = run / "logs" / f"controller_{variant}_prepare.log"
+                if args.mode == InputMode.FENCE:
+                    prepare.append("--remove-one-generator-fence")
+                log = run / "logs" / f"controller_{args.mode}_{variant}_prepare.log"
                 append_event(history, {"variant": variant, "phase": "prepare", "status": JobStatus.STARTED,
                                        "command": prepare, "log": str(log), "timeout_seconds": 60})
                 status, code = run_child(prepare, log, min(60, remaining_seconds(manifest)))
@@ -184,7 +231,7 @@ def main() -> int:
                 append_event(history, {"variant": variant, "status": JobStatus.CUTOFF})
                 failed = True
                 break
-            output = run / "controller_results" / f"{variant}.jsonl"
+            output = result_root / f"{variant}.jsonl"
             summary = output.with_suffix(".summary.json")
             if summary.exists() and json.loads(summary.read_text()).get("status") == "complete":
                 saved = json.loads(output.with_suffix(".manifest.json").read_text())
@@ -208,7 +255,7 @@ def main() -> int:
                 append_event(history, {"variant": variant, "status": JobStatus.CUTOFF})
                 failed = True
                 break
-            log = run / "logs" / f"controller_{variant}.log"
+            log = run / "logs" / f"controller_{args.mode}_{variant}.log"
             append_event(history, {"variant": variant, "phase": "rollout", "status": JobStatus.STARTED,
                                    "command": command, "log": str(log), "timeout_seconds": timeout})
             status, code = run_child(command, log, timeout)
@@ -216,6 +263,45 @@ def main() -> int:
             append_event(history, {"variant": variant, "phase": "rollout", "status": status, "exit_code": code})
             failed |= status != JobStatus.COMPLETE
             print(json.dumps({"variant": variant, "status": status, "exit_code": code}), flush=True)
+    if args.mode == InputMode.STRICT and (run / "policy_evaluation_fence_plan.json").is_file():
+        if start_allowed(manifest):
+            command = [sys.executable, str(Path(__file__).resolve()), "--run", str(run), "--mode", InputMode.FENCE,
+                       "--timeout-per-variant", str(args.timeout_per_variant)]
+            timeout = max(1.0, remaining_seconds(manifest) - 2)
+            log = run / "logs/controller_fence_secondary.log"
+            append_event(history, {"phase": "posthoc_fence", "status": JobStatus.STARTED, "command": command,
+                                   "log": str(log), "timeout_seconds": timeout})
+            status, code = run_child(command, log, timeout)
+            append_event(history, {"phase": "posthoc_fence", "status": status, "exit_code": code})
+            failed |= status != JobStatus.COMPLETE
+            assessment = run / "controller_assessment_fence"
+            if assessment.exists() and not (assessment / "summary.json").is_file():
+                assessment = run / f"controller_assessment_fence_recovery_{int(time.time())}"
+            if (assessment / "summary.json").is_file():
+                append_event(history, {"phase": "posthoc_assessment", "status": JobStatus.COMPLETE,
+                                       "output": str(assessment), "reused": True})
+            else:
+                command = [sys.executable, "scripts/assess_fixed_controller.py", "--plan",
+                           str(run / "policy_evaluation_fence_plan.json"), "--inputs",
+                           str(run / "controller_fence_inputs"), "--results", str(run / "controller_fence_results"),
+                           "--output", str(assessment)]
+                available = min(manifest["clock"]["deadline_epoch"] - time.time(),
+                                manifest["clock"]["deadline_monotonic"] - time.monotonic()) - 45
+                if available > 5:
+                    timeout = min(600.0, available)
+                    log = run / "logs/controller_fence_assessment.log"
+                    append_event(history, {"phase": "posthoc_assessment", "status": JobStatus.STARTED,
+                                           "command": command, "log": str(log), "timeout_seconds": timeout})
+                    assessed, assessed_code = run_child(command, log, timeout)
+                    append_event(history, {"phase": "posthoc_assessment", "status": assessed,
+                                           "exit_code": assessed_code, "output": str(assessment)})
+                    failed |= assessed != JobStatus.COMPLETE
+                else:
+                    append_event(history, {"phase": "posthoc_assessment", "status": JobStatus.CUTOFF})
+                    failed = True
+        else:
+            append_event(history, {"phase": "posthoc_fence", "status": JobStatus.CUTOFF})
+            failed = True
     return 1 if failed else 0
 
 
