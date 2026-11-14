@@ -518,60 +518,70 @@ def notebook(run_relative: str, original_report: str):
         poprawne intencje po usunięciu ramki, a nie wszystkie niezależne plansze.
         """),
         code('''
+        def show_goal_comparison(goal_rows_path, label):
+            print("\\n" + label)
+            if not goal_rows_path.exists():
+                print("Brak zapisanej analizy.")
+                return
+            goal_rows = read_jsonl(goal_rows_path)
+            methods = ("base", "adapted", "in_context")
+            goal_comparison = []
+            for method in methods:
+                evaluated = [row for row in goal_rows if row.get("method") == method and row.get("status") == "evaluated"]
+                valid = [row for row in evaluated if row.get("valid_nontrivial") is True]
+                contains_goal = 0
+                exact_goal = 0
+                for row in valid:
+                    intent = row["intent"]
+                    box_count = sum(ch in "$*" for board_row in row["start_observation"] for ch in board_row)
+                    predicates = intent.get("effects", [])
+                    includes_goal = box_count > 0 and any(
+                        predicate.get("predicate") == "boxes_on_goals_at_least" and predicate.get("count") == box_count
+                        for predicate in predicates
+                    )
+                    contains_goal += int(includes_goal)
+                    exact_goal += int(includes_goal and len(predicates) == 1 and not intent.get("preserve"))
+                goal_comparison.append({"Metoda": method, "Dostępne odpowiedzi": len(evaluated),
+                                        "Formalnie poprawne": len(valid),
+                                        "Zawiera cały cel": f"{contains_goal}/{len(valid)}" if valid else "brak poprawnych danych",
+                                        "Dokładnie cały cel": f"{exact_goal}/{len(valid)}" if valid else "brak poprawnych danych",
+                                        "Dokładnie cały cel [%]": round(100 * exact_goal / len(valid), 1) if valid else None})
+            display(pd.DataFrame(goal_comparison).set_index("Metoda"))
+            icl_valid = [row for row in goal_rows if row.get("method") == "in_context"
+                         and row.get("status") == "evaluated" and row.get("valid_nontrivial") is True]
+            icl_evaluated = [row for row in goal_rows if row.get("method") == "in_context"
+                             and row.get("status") == "evaluated"]
+            if icl_evaluated:
+                icl_counts = next(row for row in goal_comparison if row["Metoda"] == "in_context")
+                found = sum(bool((row.get("solver") or {}).get("witness_found")) for row in icl_evaluated)
+                cutoffs = sum((row.get("solver") or {}).get("status") in ("node_limit", "time_limit", "depth_limit")
+                              for row in icl_evaluated)
+                print("ICL po zdjęciu ramki: dokładnie cały cel w", icl_counts["Dokładnie cały cel"],
+                      "formalnie poprawnych odpowiedzi; BFS znalazło ciąg dla", f"{found}/{len(icl_evaluated)}",
+                      "odpowiedzi, a limit osiągnięto dla", f"{cutoffs}/{len(icl_evaluated)}" + ".")
+                if found and icl_valid and all(
+                    len(row["intent"].get("effects", [])) == 1 and not row["intent"].get("preserve")
+                    and row["intent"]["effects"][0].get("predicate") == "boxes_on_goals_at_least"
+                    and row["intent"]["effects"][0].get("count") == sum(
+                        ch in "$*" for board_row in row["start_observation"] for ch in board_row)
+                    for row in icl_valid
+                ):
+                    print("W znalezionych ciągach dla tych intencji BFS doprowadziło do ułożenia wszystkich skrzyń; "
+                          "to wynik BFS, nie wykonanie przez model lub kontroler. Inne metody proponowały "
+                          "różne intencje, więc nie jest to porównanie ich skuteczności rozwiązywania plansz.")
+                    found_boards = {row["layout_id"] for row in icl_evaluated
+                                    if (row.get("solver") or {}).get("witness_found")}
+                    print("Znalezione ciągi dotyczą", len(found_boards), "różnych plansz.")
+            else:
+                print("Brak zapisanych wyników ICL do tej analizy.")
+
         goal_rows_path = RUN / "icl_followup/fence_feasibility/feasibility.jsonl"
         if not goal_rows_path.exists():
             goal_rows_path = RUN / "fence_feasibility/feasibility.jsonl"
-        goal_rows = read_jsonl(goal_rows_path)
-        methods = ("base", "adapted", "in_context")
-        goal_comparison = []
-        for method in methods:
-            evaluated = [row for row in goal_rows if row.get("method") == method and row.get("status") == "evaluated"]
-            valid = [row for row in evaluated if row.get("valid_nontrivial") is True]
-            contains_goal = 0
-            exact_goal = 0
-            for row in valid:
-                intent = row["intent"]
-                box_count = sum(ch in "$*" for board_row in row["start_observation"] for ch in board_row)
-                predicates = intent.get("effects", [])
-                includes_goal = box_count > 0 and any(
-                    predicate.get("predicate") == "boxes_on_goals_at_least" and predicate.get("count") == box_count
-                    for predicate in predicates
-                )
-                contains_goal += int(includes_goal)
-                exact_goal += int(includes_goal and len(predicates) == 1 and not intent.get("preserve"))
-            goal_comparison.append({"Metoda": method, "Dostępne odpowiedzi": len(evaluated),
-                                    "Formalnie poprawne": len(valid),
-                                    "Zawiera cały cel": f"{contains_goal}/{len(valid)}" if valid else "brak poprawnych danych",
-                                    "Dokładnie cały cel": f"{exact_goal}/{len(valid)}" if valid else "brak poprawnych danych",
-                                    "Dokładnie cały cel [%]": round(100 * exact_goal / len(valid), 1) if valid else None})
-        display(pd.DataFrame(goal_comparison).set_index("Metoda"))
-        icl_valid = [row for row in goal_rows if row.get("method") == "in_context"
-                     and row.get("status") == "evaluated" and row.get("valid_nontrivial") is True]
-        icl_evaluated = [row for row in goal_rows if row.get("method") == "in_context"
-                         and row.get("status") == "evaluated"]
-        if icl_evaluated:
-            icl_counts = next(row for row in goal_comparison if row["Metoda"] == "in_context")
-            found = sum(bool((row.get("solver") or {}).get("witness_found")) for row in icl_evaluated)
-            cutoffs = sum((row.get("solver") or {}).get("status") in ("node_limit", "time_limit", "depth_limit")
-                          for row in icl_evaluated)
-            print("ICL po zdjęciu ramki: dokładnie cały cel w", icl_counts["Dokładnie cały cel"],
-                  "formalnie poprawnych odpowiedzi; BFS znalazło ciąg dla", f"{found}/{len(icl_evaluated)}",
-                  "odpowiedzi, a limit osiągnięto dla", f"{cutoffs}/{len(icl_evaluated)}" + ".")
-            if found and icl_valid and all(
-                len(row["intent"].get("effects", [])) == 1 and not row["intent"].get("preserve")
-                and row["intent"]["effects"][0].get("predicate") == "boxes_on_goals_at_least"
-                and row["intent"]["effects"][0].get("count") == sum(
-                    ch in "$*" for board_row in row["start_observation"] for ch in board_row)
-                for row in icl_valid
-            ):
-                print("W znalezionych ciągach dla tych intencji BFS doprowadziło do ułożenia wszystkich skrzyń; "
-                      "to wynik BFS, nie wykonanie przez model lub kontroler. Inne metody proponowały "
-                      "różne intencje, więc nie jest to porównanie ich skuteczności rozwiązywania plansz.")
-                found_boards = {row["layout_id"] for row in icl_evaluated
-                                if (row.get("solver") or {}).get("witness_found")}
-                print("Znalezione ciągi dotyczą", len(found_boards), "różnych plansz.")
-        else:
-            print("Brak zapisanych wyników ICL do tej analizy.")
+        show_goal_comparison(goal_rows_path, "Pierwotne konteksty — analiza po zdjęciu ramki")
+        extended_goal_rows = RUN / "icl_followup/extended/fence_feasibility/feasibility.jsonl"
+        show_goal_comparison(extended_goal_rows,
+                             "Dodatkowe konteksty — eksploracyjnie na tych samych 20 planszach")
         '''),
         markdown("""
         ### Dodatkowe konteksty na tych samych planszach

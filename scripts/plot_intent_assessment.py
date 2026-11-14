@@ -116,10 +116,11 @@ def main():
                        "Intents differ in difficulty; found paths satisfy their proposed intents.")
     fig.text(
         0.5,
-        -0.045,
+        -0.04,
         "Counts: proposals. Whiskers: 95% board bootstrap.\n"
         f"{comparison_note}\nNo controller or full-puzzle success is measured.",
         ha="center",
+        va="top",
         fontsize=8,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
