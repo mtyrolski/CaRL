@@ -485,6 +485,76 @@ def notebook(run: Path):
             print("Brak zapisanego audytu etykiet treningowych; nie jest to wynik zerowy.")
         '''),
         markdown("""
+        ## Krzywe treningu LoRA
+
+        Poniżej pokazujemy trzy ukończone adaptery rangi 4 z seedem 1729.
+        Linia przedstawia zapisany loss dla każdego kroku treningu, bez
+        wygładzania. Punkty walidacji występują wyłącznie w zmierzonych
+        krokach; gwiazdką oznaczono checkpoint o najmniejszym zapisanym
+        loss walidacyjnym. Główne porównanie z góry używało checkpointu
+        `last-100`; późniejszy audyt potwierdził, że dla wszystkich trzech
+        formatów jest on identyczny z minimum walidacji w kroku 100.
+        Walidacja waży jednakowo trzy plansze, z maksymalnie czterema
+        kontekstami na każdą, natomiast loss treningowy jest średnią czterech
+        próbek na krok; liczby te mają więc różne ważenie. Panele mają osobne
+        skale osi i różne formaty odpowiedzi, przez
+        co nie należy porównywać między nimi wartości loss jako miary jakości.
+        Loss jest diagnostyką treningu: główny wynik stanowi ocena intencji
+        na odłożonych planszach, a wynik kontrolera opisano osobno.
+
+        Wykres odtwarza zapisane dane bez modelu, GPU i API:
+
+        ```bash
+        .venv/bin/python scripts/plot_lora_training_curves.py --run analysis/intent_representations_20261114T075324Z --output /tmp/carl-lora-training-curves
+        ```
+        """),
+        code('''
+        curve_directory = RUN / "lora_training_curves_seed1729"
+        curve_provenance = read_json(curve_directory / "provenance.json", {}) or {}
+        if curve_provenance:
+            show_json(curve_directory / "provenance.json")
+            curve_checks = []
+            for method in curve_provenance.get("methods", []):
+                for name, expected in (method.get("inputs") or {}).items():
+                    actual = sha(RUN / name)
+                    curve_checks.append({"plik": name, "oczekiwany_sha256": expected,
+                                         "aktualny_sha256": actual, "zgodne": actual == expected})
+            for name, expected in (curve_provenance.get("outputs") or {}).items():
+                actual = sha(curve_directory / name)
+                curve_checks.append({"plik": name, "oczekiwany_sha256": expected,
+                                     "aktualny_sha256": actual, "zgodne": actual == expected})
+            current_script = sha(ROOT / "scripts/plot_lora_training_curves.py")
+            curve_checks.append({"plik": "scripts/plot_lora_training_curves.py",
+                                 "oczekiwany_sha256": curve_provenance.get("script_sha256"),
+                                 "aktualny_sha256": current_script,
+                                 "zgodne": current_script == curve_provenance.get("script_sha256")})
+            audit_hash = curve_provenance.get("validation_checkpoint_audit_sha256")
+            if audit_hash:
+                actual = sha(RUN / "validation_checkpoint_audit.json")
+                curve_checks.append({"plik": "validation_checkpoint_audit.json", "oczekiwany_sha256": audit_hash,
+                                     "aktualny_sha256": actual, "zgodne": actual == audit_hash})
+            display(pd.DataFrame(curve_checks))
+            methods = curve_provenance.get("methods", [])
+            expected_formats = {"json", "formal", "natural"}
+            expected_files = {"lora_training_loss.csv", "lora_training_loss.png", "lora_training_loss.pdf",
+                              "lora_training_loss.svg"}
+            if (curve_checks and all(check["zgodne"] for check in curve_checks)
+                    and len(methods) == 3 and all(method.get("inputs") for method in methods)
+                    and {method.get("representation") for method in methods} == expected_formats
+                    and expected_files.issubset(curve_provenance.get("outputs") or {})):
+                display(Image(filename=str(curve_directory / "lora_training_loss.png")))
+                measurements = pd.read_csv(curve_directory / "lora_training_loss.csv")
+                print("Zapisane kroki treningowe:", len(measurements),
+                      "punkty walidacji:", measurements["validation_loss"].notna().sum())
+                display(measurements.loc[measurements["validation_loss"].notna(),
+                                         ["representation", "step", "validation_loss", "selected_checkpoint"]])
+                print("Wektorowe wersje wykresu: PDF i SVG w", curve_directory)
+            else:
+                print("Dane lub ich hashe są niekompletne; wykres nie jest pokazany jako zweryfikowany.")
+        else:
+            print("Brak zapisanego wykresu strat LoRA; nie jest to wynik zerowy.")
+        '''),
+        markdown("""
         ## Replikacje treningu LoRA
 
         Dla formatów JSON, formalnego i kontrolowanego angielskiego plan obejmuje
