@@ -8,6 +8,7 @@ import pytest
 
 from carl.icl import intent_assessment
 from carl.icl import intent_fence_audit
+from carl.icl import intent_fence_feasibility
 from carl.icl.intent_assessment import AssessmentStatus
 from carl.icl.intent_assessment import Method
 from carl.icl.intent_assessment import SearchStatus
@@ -175,6 +176,63 @@ def test_rejects_mismatched_model_settings():
     compare_metadata({Method.BASE: common, Method.ADAPTED: dict(common)})
     with pytest.raises(ValueError, match="revision"):
         compare_metadata({Method.BASE: common, Method.ADAPTED: dict(common, revision="different")})
+    with pytest.raises(ValueError, match="decoding"):
+        compare_metadata({Method.BASE: common, Method.IN_CONTEXT: dict(common, decoding="sampling")})
+    with pytest.raises(ValueError, match="dtype"):
+        compare_metadata({
+            Method.BASE: common,
+            Method.ADAPTED: dict(common, dtype="bfloat16"),
+            Method.IN_CONTEXT: dict(common, dtype="float16"),
+        })
+
+
+def test_in_context_assessment_and_fence_normalisation_keep_method_identity(tmp_path, monkeypatch):
+    data, ids = tmp_path / "dataset.jsonl", tmp_path / "frozen.json"
+    record = {
+        "record_id": "r1", "layout_id": "board-1", "split": "test",
+        "start_observation": BOARD, "later_observation": BOARD,
+    }
+    data.write_text(json.dumps(record) + "\n")
+    ids.write_text(json.dumps({"record_ids": ["r1"], "dataset_sha256": file_hash(data)}))
+    answer = intent(1, 4)
+    paths = {method: tmp_path / f"{method}.jsonl" for method in (Method.BASE, Method.ADAPTED, Method.IN_CONTEXT)}
+    for method, path in paths.items():
+        raw = json.dumps(answer)
+        if method == Method.IN_CONTEXT:
+            raw = f"```json\n{raw}\n```"
+        valid = method != Method.IN_CONTEXT
+        path.write_text(json.dumps({
+            "record_id": "r1", "layout_id": "board-1", "split": "test", "method": method,
+            "raw_output": raw, "json_valid": valid, "parsed": answer if valid else None,
+        }) + "\n")
+        path.with_suffix(".summary.json").write_text(json.dumps({
+            "status": "complete", "n": 1, "model": "model", "revision": "rev", "seed": 1,
+            "decoding": "greedy", "enable_thinking": False, "max_new_tokens": 128,
+            "adapter": "adapter" if method == Method.ADAPTED else None,
+            "data_sha256": file_hash(data), "test_ids_sha256": file_hash(ids),
+        }))
+    arguments = [
+        "--data", str(data), "--test-ids", str(ids), "--base", str(paths[Method.BASE]),
+        "--adapted", str(paths[Method.ADAPTED]), "--in-context", str(paths[Method.IN_CONTEXT]),
+    ]
+    strict = tmp_path / "strict"
+    monkeypatch.setattr(sys, "argv", ["assessment", "assess", *arguments, "--output", str(strict)])
+    intent_assessment.main()
+    result = json.loads((strict / "summary.json").read_text())
+    by_method = {row["method"]: row for row in result["results"]}
+    assert by_method["in_context"]["valid_json"] == 0
+    assert result["paired_in_context_minus_base"]["contexts"] == 1
+    assert result["paired_in_context_minus_base"]["valid_delta"] == -1
+    assert result["comparison_metadata_missing"]["base"] == ["dtype", "prompt_sha256"]
+
+    posthoc = tmp_path / "posthoc"
+    monkeypatch.setattr(sys, "argv", ["fence_feasibility", *arguments, "--output", str(posthoc)])
+    intent_fence_feasibility.main()
+    result = json.loads((posthoc / "summary.json").read_text())
+    by_method = {row["method"]: row for row in result["results"]}
+    assert by_method["in_context"]["single_outer_fence_removed"] == 1
+    assert by_method["in_context"]["witness_found"] == 1
+    assert result["paired_in_context_minus_base"]["valid_delta"] == 0
 
 
 def test_resume_preserves_partial_measurements_and_interrupted_bytes(tmp_path):

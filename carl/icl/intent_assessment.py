@@ -27,6 +27,7 @@ DIRECTIONS = ((-1, 0), (1, 0), (0, -1), (0, 1))
 class Method(StrEnum):
     BASE = "base"
     ADAPTED = "adapted"
+    IN_CONTEXT = "in_context"
     LOCAL_RULE = "local_rule"
 
 
@@ -311,25 +312,34 @@ def predictions_for(
     if (summary.get("status") != "complete" or summary.get("n") != len(predictions)
             or summary.get("data_sha256") != data_hash or summary.get("test_ids_sha256") != ids_hash):
         raise ValueError(f"Prediction summary does not match data or frozen IDs: {summary_path}")
-    if (method == Method.BASE) != (summary.get("adapter") is None):
+    if (summary.get("adapter") is not None) != (method == Method.ADAPTED):
         raise ValueError(f"Adapter metadata does not match {method}: {summary_path}")
     return predictions, summary
 
 
 def compare_metadata(metadata: dict[Method, Record | None]) -> None:
-    base, adapted = metadata[Method.BASE], metadata[Method.ADAPTED]
-    if base is None or adapted is None:
+    available = [(method, metadata.get(method)) for method in (Method.BASE, Method.ADAPTED, Method.IN_CONTEXT)]
+    available = [(method, value) for method, value in available if value is not None]
+    if len(available) < 2:
         return
-    for key in (
-            "model",
-            "revision",
-            "seed",
-            "decoding",
-            "enable_thinking",
-            "max_new_tokens",
-    ):
-        if key not in base or base[key] != adapted.get(key):
-            raise ValueError(f"Base and adapted inference settings disagree: {key}")
+    reference_method, reference = available[0]
+    assert reference is not None
+    for method, candidate in available[1:]:
+        assert candidate is not None
+        for key in ("model", "revision", "seed", "decoding", "enable_thinking", "max_new_tokens"):
+            if key not in reference or reference[key] != candidate.get(key):
+                raise ValueError(f"Inference settings disagree for {reference_method} and {method}: {key}")
+    for key in ("dtype", "prompt_sha256"):
+        present = [(method, value[key]) for method, value in available if value is not None and key in value]
+        if present and any(value != present[0][1] for _, value in present[1:]):
+            raise ValueError(f"Inference settings disagree for {key}: {[method for method, _ in present]}")
+
+
+def missing_comparison_metadata(metadata: dict[Method, Record | None]) -> dict[Method, list[str]]:
+    """Record historical settings that were not captured rather than guessing."""
+    fields = ("dtype", "prompt_sha256")
+    return {method: [field for field in fields if value is None or field not in value]
+            for method, value in metadata.items()}
 
 
 def bootstrap(values: list[float], rng: random.Random, count: int = 2000) -> list[float] | None:
@@ -463,9 +473,43 @@ def has_witness(row: Record) -> bool:
     return bool(row.get("solver") and row["solver"]["witness_found"])
 
 
+def paired_comparison(results: list[Record], reference: Method, candidate: Method) -> Record:
+    """Compare the same contexts and bootstrap their independent boards."""
+    by_method = {
+        method: {
+            row["record_id"]: row
+            for row in results
+            if row["method"] == method and row["status"] == AssessmentStatus.EVALUATED
+        } for method in (reference, candidate)
+    }
+    paired = []
+    for record_id in sorted(by_method[reference].keys() & by_method[candidate].keys()):
+        before, after = by_method[reference][record_id], by_method[candidate][record_id]
+        if before["layout_id"] != after["layout_id"]:
+            raise ValueError(f"Paired context has inconsistent layouts: {record_id}")
+        paired.append({
+            "layout_id": before["layout_id"],
+            "valid_delta": int(after["valid_nontrivial"]) - int(before["valid_nontrivial"]),
+            "witness_delta": int(has_witness(after)) - int(has_witness(before)),
+        })
+    comparison: Record = {
+        "contexts": len(paired),
+        "boards": len({row["layout_id"] for row in paired}),
+    }
+    for metric in ("valid_delta", "witness_delta"):
+        values = board_means(paired, lambda row: row[metric])
+        comparison[metric] = sum(values) / len(values) if values else None
+        comparison[f"{metric}_95_board_bootstrap"] = bootstrap(values, random.Random(20261114))
+    return comparison
+
+
 def summarise(results: list[Record]) -> tuple[list[Record], Record]:
     summary = []
-    for method in Method:
+    methods = [Method.BASE, Method.ADAPTED]
+    if any(row["method"] == Method.IN_CONTEXT for row in results):
+        methods.append(Method.IN_CONTEXT)
+    methods.append(Method.LOCAL_RULE)
+    for method in methods:
         planned = [row for row in results if row["method"] == method]
         available = [row for row in planned if row["status"] == AssessmentStatus.EVALUATED]
         good = [row for row in available if row["valid_nontrivial"]]
@@ -498,33 +542,7 @@ def summarise(results: list[Record]) -> tuple[list[Record], Record]:
             "solver_expanded_nodes": sum(row["solver"]["expanded_nodes"] for row in good),
             "solver_seconds": sum(row["solver"]["elapsed_seconds"] for row in good),
         })
-    by_method = {
-        method: {
-            row["record_id"]: row
-            for row in results
-            if row["method"] == method and row["status"] == AssessmentStatus.EVALUATED
-        } for method in (Method.BASE, Method.ADAPTED)
-    }
-    paired = []
-    for record_id in sorted(by_method[Method.BASE].keys() & by_method[Method.ADAPTED].keys()):
-        base, adapted = (
-            by_method[Method.BASE][record_id],
-            by_method[Method.ADAPTED][record_id],
-        )
-        paired.append({
-            "layout_id": base["layout_id"],
-            "valid_delta": int(adapted["valid_nontrivial"]) - int(base["valid_nontrivial"]),
-            "witness_delta": int(has_witness(adapted)) - int(has_witness(base)),
-        })
-    comparison: Record = {
-        "contexts": len(paired),
-        "boards": len({row["layout_id"] for row in paired}),
-    }
-    for metric in ("valid_delta", "witness_delta"):
-        values = board_means(paired, lambda row: row[metric])
-        comparison[metric] = sum(values) / len(values) if values else None
-        comparison[f"{metric}_95_board_bootstrap"] = bootstrap(values, random.Random(20261114))
-    return summary, comparison
+    return summary, paired_comparison(results, Method.BASE, Method.ADAPTED)
 
 
 def write_examples(results: list[Record], output: Path) -> None:
@@ -642,6 +660,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--base", type=Path)
     parser.add_argument("--adapted", type=Path)
+    parser.add_argument("--in-context", type=Path)
     parser.add_argument("--test-ids", type=Path)
     parser.add_argument("--max-depth", type=int, default=24)
     parser.add_argument("--max-nodes", type=int, default=10000)
@@ -671,19 +690,17 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     predictions: dict[Method, dict[str, Record]] = {}
     metadata: dict[Method, Record | None] = {}
-    for method, path in ((Method.BASE, args.base), (Method.ADAPTED, args.adapted)):
+    inputs = [(Method.BASE, args.base), (Method.ADAPTED, args.adapted)]
+    if args.in_context is not None:
+        inputs.append((Method.IN_CONTEXT, args.in_context))
+    for method, path in inputs:
         predictions[method], metadata[method] = predictions_for(path, method, contexts, args.data, args.test_ids)
     compare_metadata(metadata)
     config = {
         "schema_version": 1,
         "data_sha256": file_hash(args.data),
         "test_ids_sha256": file_hash(args.test_ids) if args.test_ids else None,
-        "prediction_sha256": {
-            method: file_hash(path) if path and path.exists() else None for method, path in (
-                (Method.BASE, args.base),
-                (Method.ADAPTED, args.adapted),
-            )
-        },
+        "prediction_sha256": {method: file_hash(path) if path and path.exists() else None for method, path in inputs},
         "max_depth": args.max_depth,
         "max_nodes": args.max_nodes,
         "seconds": args.seconds,
@@ -692,7 +709,8 @@ def main() -> None:
     results = recover_progress(output_jsonl, config, contexts, args.resume)
     seen = {(row["method"], row["record_id"]) for row in results}
     with output_jsonl.open("a", encoding="utf-8", buffering=1) as stream:
-        for method in Method:
+        methods = [method for method, _ in inputs] + [Method.LOCAL_RULE]
+        for method in methods:
             for record in contexts:
                 if (method, record["record_id"]) in seen:
                     continue
@@ -727,6 +745,10 @@ def main() -> None:
             "meaning": "bounded solver witness; not controller reachability",
         },
     }
+    if args.in_context is not None:
+        result["paired_in_context_minus_base"] = paired_comparison(results, Method.BASE, Method.IN_CONTEXT)
+        result["paired_in_context_minus_adapted"] = paired_comparison(results, Method.ADAPTED, Method.IN_CONTEXT)
+        result["comparison_metadata_missing"] = missing_comparison_metadata(metadata)
     write_examples(results, args.output)
     columns = [
         "method",

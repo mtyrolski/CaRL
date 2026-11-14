@@ -48,6 +48,7 @@ class DataSplit(StrEnum):
 class GeneratorMethod(StrEnum):
     BASE = "base"
     ADAPTED = "adapted"
+    IN_CONTEXT = "in_context"
 
 
 class RunMode(StrEnum):
@@ -305,9 +306,15 @@ def validation_loss(torch: Any, model: Any, tokenizer: Any, records: list[dict[s
     return sum(sum(board) / len(board) for board in losses.values()) / len(losses)
 
 
-def generate(torch: Any, model: Any, tokenizer: Any, record: dict[str, Any], args: argparse.Namespace, device: str):
+def generate(torch: Any,
+             model: Any,
+             tokenizer: Any,
+             record: dict[str, Any],
+             args: argparse.Namespace,
+             device: str,
+             messages: list[dict[str, str]] | None = None):
     ids = tokenizer.apply_chat_template(
-        prompt_messages(record),
+        prompt_messages(record) if messages is None else messages,
         tokenize=True,
         add_generation_prompt=True,
         enable_thinking=False,
@@ -528,7 +535,8 @@ def prepare_evaluation_output(output: Path, configuration: dict[str, Any], recor
         temporary.write_bytes(raw)
         os.replace(temporary, output)
     rows = read_records(output)
-    method = GeneratorMethod.ADAPTED if configuration["adapter"] else GeneratorMethod.BASE
+    method = configuration.get("method") or (GeneratorMethod.ADAPTED
+                                             if configuration["adapter"] else GeneratorMethod.BASE)
     if len(rows) > len(records):
         raise ValueError("Output contains more contexts than the frozen selection")
     for row, record in zip(rows, records, strict=False):

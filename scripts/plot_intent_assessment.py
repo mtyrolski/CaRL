@@ -21,6 +21,7 @@ def main():
     labels = {
         "base": "Base model",
         "adapted": "LoRA adapter",
+        "in_context": "In-context",
         "local_rule": "Local rule",
     }
     plt.rcParams.update({
@@ -110,11 +111,14 @@ def main():
         ncol=2,
         fontsize=9,
     )
+    comparison_note = ("Intents differ in difficulty; the local rule searches legal moves."
+                       if any(row["method"] == "local_rule" for row in summaries) else
+                       "Intents differ in difficulty; found paths satisfy their proposed intents.")
     fig.text(
         0.5,
         -0.045,
         "Counts: proposals. Whiskers: 95% board bootstrap.\n"
-        "Paths satisfy the intents; controller and full-puzzle success are not measured.",
+        f"{comparison_note}\nNo controller or full-puzzle success is measured.",
         ha="center",
         fontsize=8,
     )

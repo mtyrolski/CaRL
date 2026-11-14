@@ -1,6 +1,6 @@
 """Post-hoc bounded feasibility after removing one complete outer fence.
 
-Both generators use the same normalisation, frozen contexts and search budget.
+All generators use the same normalisation, frozen contexts and search budget.
 The primary strict-JSON comparison is unchanged. A found path is a bounded
 solver witness, not an action sequence executed by a learned controller.
 """
@@ -16,6 +16,8 @@ from carl.icl.intent_assessment import assess_context
 from carl.icl.intent_assessment import atomic_write
 from carl.icl.intent_assessment import compare_metadata
 from carl.icl.intent_assessment import file_hash
+from carl.icl.intent_assessment import missing_comparison_metadata
+from carl.icl.intent_assessment import paired_comparison
 from carl.icl.intent_assessment import predictions_for
 from carl.icl.intent_assessment import read_jsonl
 from carl.icl.intent_assessment import recover_progress
@@ -49,6 +51,7 @@ def main() -> None:
     parser.add_argument("--test-ids", type=Path, required=True)
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--adapted", type=Path, required=True)
+    parser.add_argument("--in-context", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-depth", type=int, default=24)
     parser.add_argument("--max-nodes", type=int, default=10000)
@@ -66,12 +69,15 @@ def main() -> None:
 
     predictions: dict[Method, dict[str, Record]] = {}
     metadata: dict[Method, Record | None] = {}
-    for method, path in ((Method.BASE, args.base), (Method.ADAPTED, args.adapted)):
+    inputs = [(Method.BASE, args.base), (Method.ADAPTED, args.adapted)]
+    if args.in_context is not None:
+        inputs.append((Method.IN_CONTEXT, args.in_context))
+    for method, path in inputs:
         predictions[method], metadata[method] = predictions_for(path, method, contexts, args.data, args.test_ids)
     compare_metadata(metadata)
-    normalised: dict[Method, dict[str, Record]] = {Method.BASE: {}, Method.ADAPTED: {}}
+    normalised: dict[Method, dict[str, Record]] = {method: {} for method, _ in inputs}
     provenance: dict[tuple[Method, str], Record] = {}
-    for method in (Method.BASE, Method.ADAPTED):
+    for method, _ in inputs:
         for record in contexts:
             record_id = record["record_id"]
             prediction = predictions[method].get(record_id)
@@ -85,10 +91,7 @@ def main() -> None:
         "analysis": "posthoc_one_outer_fence_bounded_feasibility",
         "data_sha256": file_hash(args.data),
         "test_ids_sha256": file_hash(args.test_ids),
-        "prediction_sha256": {
-            method: file_hash(path) if path.exists() else None
-            for method, path in ((Method.BASE, args.base), (Method.ADAPTED, args.adapted))
-        },
+        "prediction_sha256": {method: file_hash(path) if path.exists() else None for method, path in inputs},
         "max_depth": args.max_depth,
         "max_nodes": args.max_nodes,
         "seconds": args.seconds,
@@ -97,7 +100,7 @@ def main() -> None:
     results = recover_progress(output_jsonl, config, contexts, args.resume, "feasibility_config.json")
     seen = {(row["method"], row["record_id"]) for row in results}
     with output_jsonl.open("a", encoding="utf-8", buffering=1) as stream:
-        for method in (Method.BASE, Method.ADAPTED):
+        for method, _ in inputs:
             for record in contexts:
                 key = method, record["record_id"]
                 if key in seen:
@@ -123,7 +126,7 @@ def main() -> None:
         row["strict_valid_json"] = sum(result["strict_json_valid"] for result in selected)
         row["single_outer_fence_removed"] = sum(result["fence_removed"] for result in selected)
     result = {
-        "analysis": "post-hoc: remove at most one full outer Markdown fence, symmetrically for both models",
+        "analysis": "post-hoc: remove at most one full outer Markdown fence, symmetrically for all models",
         "results": summary,
         "paired_adapted_minus_base": comparison,
         "prediction_metadata": metadata,
@@ -134,6 +137,10 @@ def main() -> None:
             "meaning": "bounded solver witness replayed in the environment; not controller reachability"
         },
     }
+    if args.in_context is not None:
+        result["paired_in_context_minus_base"] = paired_comparison(results, Method.BASE, Method.IN_CONTEXT)
+        result["paired_in_context_minus_adapted"] = paired_comparison(results, Method.ADAPTED, Method.IN_CONTEXT)
+        result["comparison_metadata_missing"] = missing_comparison_metadata(metadata)
     write_examples(results, args.output)
     columns = [
         "method", "planned_contexts", "planned_boards", "outputs", "boards_with_outputs",
