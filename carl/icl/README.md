@@ -30,3 +30,25 @@ while retaining the simulator's full-task success condition.
 
 Run `make lint`, `make pylint-icl` and `make test` from the repository root.
 The campaign launch guide describes execution, cost limits and resume behavior.
+
+## Sokoban intent generator experiment
+
+The intent experiment learns structured, exactly checkable effects from
+replayed trajectories. Generator inputs contain the current observation and
+task only; later observations are used to construct and check annotations.
+Its data sources and resource limits are configured in
+`configs/icl/intent_generator_data.json` and
+`configs/icl/intent_generator_experiment.json`.
+
+From the repository root, start a new run in the ignored `analysis/` directory:
+
+```bash
+uv run --no-sync python scripts/run_intent_generator_experiment.py --run-dir analysis/intent_experiment_new
+```
+
+Continue an interrupted run with the same command and `--resume`. The original
+deadline remains in force. Outputs include the checked dataset, model and
+adapter metadata, held-out comparisons, bounded-search witnesses, figures and
+an atomic report. The bounded search checks for witnesses; it is not a
+measurement of a learned or language-model controller. Model weights, datasets
+and run outputs are not intended for version control.
