@@ -74,8 +74,8 @@ pylint-icl: ## Check the ICL implementation and primary CLI with the repository 
 icl-check: ruff pyright pylint-icl test ## Verify ICL style, types and the full regression suite
 
 pyright: ## Run Pyright on source, scripts and ICL tests
-	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl pyright $(SRC_DIR) scripts
-	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl pyright --project pyrightconfig-icl-tests.json
+	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl --extra lora pyright $(SRC_DIR) scripts
+	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl --extra lora pyright --project pyrightconfig-icl-tests.json
 
 mypy: ## Run Mypy on source tree only
 	$(PYTHONPATH_PREFIX) $(UV_LINT_RUN) mypy $(SRC_DIR)

@@ -1,10 +1,10 @@
 import json
-from types import SimpleNamespace
+from argparse import Namespace
 
 import pytest
 
-from carl.icl.intent_generator_experiment import prepare_evaluation_output
 from carl.icl.intent_generator_experiment import file_sha256
+from carl.icl.intent_generator_experiment import prepare_evaluation_output
 from carl.icl.intent_in_context import build_prompts
 from carl.icl.intent_in_context import freeze_support
 from carl.icl.intent_in_context import in_context_messages
@@ -45,6 +45,8 @@ def record(record_id, layout, effect_type, split="train"):
 
 
 class TestTokenizer:
+    chat_template: str
+
     def apply_chat_template(self, messages, tokenize, add_generation_prompt, enable_thinking):
         assert add_generation_prompt and enable_thinking is False
         rendered = json.dumps(messages)
@@ -117,7 +119,7 @@ def test_support_can_come_from_original_train_dataset_when_test_data_is_separate
     tokenizer = TestTokenizer()
     tokenizer.chat_template = "available"
     monkeypatch.setattr("transformers.AutoTokenizer.from_pretrained", lambda *args, **kwargs: tokenizer)
-    args = SimpleNamespace(data=str(extended),
+    args = Namespace(data=str(extended),
                            support_data=str(original),
                            support=str(support_path),
                            test_ids=str(test_ids),
@@ -172,7 +174,7 @@ def test_expired_deadline_fails_stage_before_model_loading_and_records_progress(
         raise AssertionError("The model must not be loaded after the deadline")
 
     monkeypatch.setattr("carl.icl.intent_in_context.initialise", unexpected_initialise)
-    args = SimpleNamespace(mode="evaluate",
+    args = Namespace(mode="evaluate",
                            data="data.jsonl",
                            support="support.json",
                            support_data=None,

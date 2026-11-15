@@ -10,6 +10,7 @@ import pytest
 from carl.icl.budget_sweep import load_sweep
 from carl.icl.token_estimate import Assumptions
 from carl.icl.token_estimate import estimate
+from carl.utils.aliases import State
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -28,7 +29,7 @@ def synthetic_token_estimate_data(monkeypatch):
     rows = ['############', *(f'#{row}#' for row in interior), '############']
     initial = from_rows(rows)
     env = environment(initial)
-    states = [initial]
+    states: list[State] = [initial]
     for _ in range(8):
         states.append(env.next_state(states[-1], 3))
     candidates = [

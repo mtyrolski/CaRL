@@ -18,5 +18,7 @@
 
   // your other settings...
   "reportMissingImports": true,
-  "pythonVersion": "3.11"
+  "pythonVersion": "3.11",
+  "venvPath": ".",
+  "venv": ".venv"
 }

@@ -7,11 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 from carl.icl.api import request_cache_digest
-from carl.icl.boards import from_rows, to_rows
+from carl.icl.boards import from_rows
+from carl.icl.boards import to_rows
 from carl.icl.components import ICLComponents
 from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
 from carl.icl.luna import LunaComponents
+from carl.icl.types import TrainingData
 
 
 class RecordingClient:
@@ -20,7 +22,7 @@ class RecordingClient:
     provider = "mock"
 
     def __init__(self):
-        self.metrics = {"cache_hits": 0}
+        self.metrics: dict[str, int | float] = {"cache_hits": 0}
         self.requests = []
 
     def call(self, endpoint, payload, mock=None):
@@ -40,7 +42,8 @@ def test_model_and_policy_settings_change_fingerprints_and_cache_keys():
     board = from_rows(["#####", "#---#", "#@$.#", "#---#", "#####"])
     env = environment(board)
     target = env.next_state(board, 3)
-    training = {"contexts": [{"id": "train", "state": to_rows(board), "remaining_actions": 1,
+    assert isinstance(target, np.ndarray)
+    training: TrainingData = {"contexts": [{"id": "train", "state": to_rows(board), "remaining_actions": 1,
                              "candidates": [{"k": 1, "actions": [3], "subgoal": to_rows(target)}],
                              "calibration_indices": [0]}]}
     models = ["model-luna", "model-terra", "model-astra"]

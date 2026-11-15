@@ -1,6 +1,7 @@
 """Test the intent controller contract against the real Sokoban environment."""
 import json
 from dataclasses import asdict
+from typing import cast
 
 import pytest
 
@@ -98,10 +99,11 @@ def test_memory_accepts_only_actions_and_flags_without_future_observations():
     question = json.loads(prompt.split("\n\n")[-1])
     assert question["attempt_history"] == [{"action": "UP", "no_op": True}]
     with pytest.raises(ValueError):
-        build_prompt(state, BOX_INTENT, "all boxes on goals", [{"action": "UP", "no_op": True,
-                                                                 "later_observation": "SECRET-FUTURE"}])
+        invalid_memory = cast(list[ActionAttempt], [{"action": "UP", "no_op": True,
+                                                     "later_observation": "SECRET-FUTURE"}])
+        build_prompt(state, BOX_INTENT, "all boxes on goals", invalid_memory)
     with pytest.raises(ValueError):
-        build_prompt(state, BOX_INTENT, "all boxes on goals", [ActionAttempt(Action.UP, "SECRET-FUTURE")])
+        build_prompt(state, BOX_INTENT, "all boxes on goals", [ActionAttempt(Action.UP, cast(bool, "SECRET-FUTURE"))])
 
 
 def test_memory_is_reset_for_every_attempt():
@@ -140,7 +142,7 @@ def test_transport_failure_keeps_prior_steps_and_terminal_status():
     assert result.actions == [0]
     assert result.model_calls == 2
     assert result.endpoint == ROWS
-    assert "transport failed" in result.error
+    assert result.error is not None and "transport failed" in result.error
 
 
 def test_invalid_intent_never_calls_policy():

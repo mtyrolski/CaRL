@@ -1,6 +1,7 @@
 """Check frozen local policy decoding and the controller input contract."""
 
 import json
+from typing import Any
 
 import pytest
 import torch
@@ -45,8 +46,9 @@ class FakeModel:
         return torch.cat((kwargs["input_ids"], torch.tensor([[4, 5]])), dim=1)
 
 
-def config(**overrides):
-    return PolicyConfig(**({"model": "local", "revision": "revision", "device": "cpu"} | overrides))
+def config(**overrides: Any) -> PolicyConfig:
+    values: dict[str, Any] = {"model": "local", "revision": "revision", "device": "cpu"} | overrides
+    return PolicyConfig(**values)
 
 
 def test_local_policy_uses_frozen_weights_and_greedy_generation():
@@ -54,6 +56,7 @@ def test_local_policy_uses_frozen_weights_and_greedy_generation():
     policy = LocalIntentPolicy(tokenizer, model, torch, config())
     assert policy("current state and intent") == '{"action":"RIGHT"}'
     assert model.is_eval and not model.parameter.requires_grad
+    assert model.options is not None
     assert model.options["do_sample"] is False
     assert model.options["pad_token_id"] == 7
     assert tokenizer.messages == [{"role": "user", "content": "current state and intent"}]

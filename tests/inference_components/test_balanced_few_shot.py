@@ -2,15 +2,21 @@
 import copy
 import json
 from collections import Counter
+from typing import cast
 
 import numpy as np
 import pytest
 
-from carl.icl.boards import canonical_layout_id, from_rows, state_hash, to_rows
+from carl.icl.boards import canonical_layout_id
+from carl.icl.boards import from_rows
+from carl.icl.boards import state_hash
+from carl.icl.boards import to_rows
 from carl.icl.components import ICLComponents
 from carl.icl.config import ExperimentConfig
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.few_shot_selection import diverse_training_examples
+from carl.icl.types import InferenceClient
+
 
 @pytest.fixture(scope="module")
 def training():
@@ -94,7 +100,7 @@ def test_balanced_policy_sends_same_examples_to_both_models(training, count):
     source = from_rows(training["contexts"][0]["state"])
     target = from_rows(training["contexts"][0]["candidates"][0]["subgoal"])
     env = environment(source)
-    client = type("MockClient", (), {"provider": "mock"})()
+    client = cast(InferenceClient, type("MockClient", (), {"provider": "mock"})())
     payloads = []
     for model in ("gpt-6-luna", "gpt-6.1-terra"):
         config = ExperimentConfig(model=model, few_shot=count, policy_demo_selection="diverse_training_v2",

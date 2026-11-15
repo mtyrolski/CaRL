@@ -78,6 +78,7 @@ def test_format_is_hashed_and_audited_and_plain_mode_is_unchanged(config):
     assert "text" not in sent[0]
     assert sent[1]["text"] == action_text_format()
     assert {key: value for key, value in sent[1].items() if key != "text"} == sent[0]
+    assert client.options is not None
     assert client.options["max_retries"] == 0
     audits = [json.loads(path.read_text()) for path in (config.parent / "luna_requests").glob("*.json")]
     by_tag = {record["tag"]: record for record in audits}
