@@ -6,14 +6,18 @@ from typing import cast
 import numpy as np
 import pytest
 
-from carl.icl.boards import from_rows, to_rows
+from carl.icl.boards import from_rows
+from carl.icl.boards import to_rows
 from carl.icl.calibration import calibrate
-from carl.icl.config import Calibration, ExperimentConfig
+from carl.icl.config import Calibration
+from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
-from carl.icl.experiment import calibration_path, components_for_run
+from carl.icl.experiment import calibration_path
+from carl.icl.experiment import components_for_run
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
-from carl.icl.types import Board, TrainingData
+from carl.icl.types import Board
+from carl.icl.types import TrainingData
 
 
 def prepared_calibration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ExperimentConfig, TrainingData, Board, dict]:
@@ -35,6 +39,7 @@ def prepared_calibration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     return config, training, board, result
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_valid_calibration_is_accepted_without_api_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config, training, board, result = prepared_calibration(tmp_path, monkeypatch)
     monkeypatch.setattr(ExperimentAPI, 'call', lambda *_args, **_kwargs: pytest.fail('Unexpected inference call'))
@@ -43,6 +48,7 @@ def test_valid_calibration_is_accepted_without_api_calls(tmp_path: Path, monkeyp
     assert components.api.metrics['requests'] == components.api.metrics['logical_requests'] == 0
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 @pytest.mark.parametrize('tamper, message', [
     ('signature', 'signature'), ('state', 'differs from its training trajectory'),
     ('subgoal', 'differs from its training trajectory'), ('context', 'unknown training context'),

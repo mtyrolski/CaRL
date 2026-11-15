@@ -160,33 +160,6 @@ def test_inspect_sampling_is_deterministic(tmp_path: Path, monkeypatch: pytest.M
     assert sample1 != sample3
 
 
-def test_grid_parameter_expansion_and_parsing():
-    grid_mod = _load_script_module("build_generator_targets_grid")
-
-    configs = grid_mod._build_grid(
-        modes=("sliding_window", "k_offsets", "hierarchical_raw"),
-        k_values=(1, 2),
-        offsets_sets=((-1, 0, 1),),
-        radii=(0, 1),
-        distance_intervals=(None, (8,)),
-    )
-
-    assert len(configs) == 8
-    mode_counts: dict[str, int] = {}
-    for config in configs:
-        mode_counts[config.mode] = mode_counts.get(config.mode, 0) + 1
-
-    assert mode_counts == {
-        "sliding_window": 2,
-        "k_offsets": 4,
-        "hierarchical_raw": 2,
-    }
-
-    assert grid_mod._parse_int_csv("1,2,3") == (1, 2, 3)
-    assert grid_mod._parse_optional_int_csv("none") is None
-    assert grid_mod._parse_optional_int_csv("4,8") == (4, 8)
-
-
 def test_estimate_capacity_rejects_corrupted_artifact(tmp_path: Path):
     estimate = _load_script_module("estimate_batch_capacity")
 

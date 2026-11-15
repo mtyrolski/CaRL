@@ -24,3 +24,15 @@ def isolate_campaign_ledger(monkeypatch):
     import carl.icl.api as api
 
     monkeypatch.setattr(api, "_campaign_ledger", OfflineLedger)
+
+
+@pytest.fixture
+def deterministic_token_estimates(monkeypatch):
+    """Provide repeatable token counts when tokenisation itself is not under test."""
+    from carl.icl import experiment_api
+
+    class ByteEncoding:
+        def encode(self, text, **_kwargs):
+            return list(text.encode("utf-8"))
+
+    monkeypatch.setattr(experiment_api.tiktoken, "get_encoding", lambda _name: ByteEncoding())

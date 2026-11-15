@@ -7,14 +7,22 @@ import numpy as np
 import pytest
 
 import carl.icl.calibration as calibration
-from carl.icl.boards import from_rows, state_hash, to_rows
-from carl.icl.calibration import _candidate_trials, calibrate, target_indices, weighted_median, weighted_percentiles
-from carl.icl.config import Calibration, ExperimentConfig
+from carl.icl.boards import from_rows
+from carl.icl.boards import state_hash
+from carl.icl.boards import to_rows
+from carl.icl.calibration import _candidate_trials
+from carl.icl.calibration import calibrate
+from carl.icl.calibration import target_indices
+from carl.icl.calibration import weighted_median
+from carl.icl.calibration import weighted_percentiles
+from carl.icl.config import Calibration
+from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
 from carl.icl.search import Attempt
-from carl.icl.types import Board, TrainingData
+from carl.icl.types import Board
+from carl.icl.types import TrainingData
 
 
 def board_with_player(column: int) -> Board:
@@ -53,6 +61,7 @@ def test_manual_unequal_weights_ties_and_weighted_median() -> None:
         weighted_percentiles([2, 4], [0, 1])
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_calibration_excludes_zero_hits_and_preserves_target_statistics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = board_with_player(1)
     targets = [board_with_player(index) for index in (2, 3, 4, 5)]
@@ -100,6 +109,7 @@ def test_calibration_excludes_zero_hits_and_preserves_target_statistics(tmp_path
     assert all(row['solved_before_target'] and not row['exact_hit'] for row in all_trials if row['k'] == 4)
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_real_rollout_terminal_before_target_is_not_a_hit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = from_rows(['#####', '#---#', '#@$.#', '#---#', '#####'])
     env = environment(source)
@@ -131,6 +141,7 @@ def test_distinct_candidates_are_sampled_reproducibly_without_replacement() -> N
     assert len(set(digests)) == 3 and state_hash(source) not in digests
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_cache_reuses_policy_distribution_but_not_sampled_rollout(tmp_path: Path) -> None:
     source = board_with_player(1)
     target = board_with_player(2)
@@ -155,6 +166,7 @@ def test_cache_reuses_policy_distribution_but_not_sampled_rollout(tmp_path: Path
         assert record['actions'] == [int(rng.choice(4, p=distribution))]
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_exact_target_hit_can_also_solve_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = from_rows(['#####', '#---#', '#@$.#', '#---#', '#####'])
     target = np.asarray(environment(source).next_state(source, 3))
@@ -170,6 +182,7 @@ def test_exact_target_hit_can_also_solve_task(tmp_path: Path, monkeypatch: pytes
     assert all(row['exact_hit'] and row['task_solved'] and not row['solved_before_target'] for row in trials)
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_interrupted_target_recovery_and_resume_do_not_double_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from carl.icl.api import BudgetExceeded
 
@@ -205,6 +218,7 @@ def test_interrupted_target_recovery_and_resume_do_not_double_count(tmp_path: Pa
     assert calibrate(config, components, tmp_path / 'labels') == resumed
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_calibration_signature_tracks_policy_sampling_and_data(tmp_path: Path) -> None:
     from carl.icl.calibration import calibration_id
 
@@ -228,8 +242,10 @@ def test_calibration_signature_tracks_policy_sampling_and_data(tmp_path: Path) -
     assert calibration_id(accounting, make_components(tmp_path, accounting, training)) == fingerprint
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_concurrent_calibration_is_rejected_before_trials(tmp_path: Path) -> None:
     from filelock import FileLock
+
     from carl.icl.api import BudgetExceeded
     from carl.icl.calibration import calibration_id
 

@@ -1,21 +1,29 @@
 """Exercise the verbal judge boundary, budgets and semantic calibration offline."""
-from pathlib import Path
 import json
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
 from carl.icl.api import RequestFailed
-from carl.icl.boards import from_rows, to_rows
-from carl.icl.config import Calibration, ExperimentConfig
+from carl.icl.boards import from_rows
+from carl.icl.boards import to_rows
+from carl.icl.config import Calibration
+from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
-from carl.icl.types import Board, TrainingData
-from scripts.verbal_icl.calibration import calibrate, signature
-from scripts.verbal_icl.components import Example, VerbalComponents, describe_transition
-from scripts.verbal_icl.search import RolloutFailure, rollout, search
+from carl.icl.types import Board
+from carl.icl.types import TrainingData
+from scripts.verbal_icl.calibration import calibrate
+from scripts.verbal_icl.calibration import signature
+from scripts.verbal_icl.components import Example
+from scripts.verbal_icl.components import VerbalComponents
+from scripts.verbal_icl.components import describe_transition
+from scripts.verbal_icl.search import RolloutFailure
+from scripts.verbal_icl.search import rollout
+from scripts.verbal_icl.search import search
 from scripts.verbal_icl.types import Judgment
 
 
@@ -193,17 +201,46 @@ def test_placement_goal_uses_box_on_goal_channel() -> None:
         placement_goal(source, source)
 
 
-def test_tiny_profile_constructs_original_reference_offline(tmp_path: Path) -> None:
+@pytest.mark.usefixtures('deterministic_token_estimates')
+def test_tiny_profile_constructs_original_reference_offline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from carl.icl.config import ROOT
+    from carl.icl.config import load_config
+    from scripts.verbal_icl.reference import build_reference
+    from scripts.verbal_icl.reference import reference_data
     from scripts.verbal_icl.runner import configured
-    from scripts.verbal_icl.reference import reference_data, build_reference
+
     config, _prompts, spec = configured(ROOT / 'configs/icl/verbal/tiny.json')
     assert config.locked_policy_fingerprint is None and config.few_shot == 3
-    original, training = reference_data(spec, config.model)
+    state = from_rows(['#####', '#---#', '#@$.#', '#---#', '#####'])
+    later = environment(state).next_state(state, 3)
+    training: TrainingData = {
+        'contexts': [
+            {'id': f'train-{i}', 'state': to_rows(state), 'remaining_actions': 1,
+             'candidates': [{'k': 1, 'actions': [3], 'subgoal': to_rows(later)}],
+             'calibration_indices': [0]}
+            for i in range(8)
+        ],
+        'value_examples': [
+            {'context': f'train-{i}', 'state': to_rows(state), 'remaining_actions': 1}
+            for i in range(8)
+        ],
+    }
+    monkeypatch.setattr('scripts.verbal_icl.reference.load_data', lambda _config: (training, []))
+    reference_config = load_config(spec['reference_config'])
+    assert reference_config.locked_policy_fingerprint is not None
+    reference_config = reference_config.model_copy(update={'locked_policy_fingerprint': None})
     api = ExperimentAPI(tmp_path / 'cache', 'mock', config.limits)
+    fingerprint = build_reference(reference_config, training, api).fingerprint()
+    reference_config.locked_policy_fingerprint = fingerprint
+    config_path = tmp_path / 'reference.json'
+    config_path.write_text(reference_config.model_dump_json())
+    spec = {**spec, 'reference_config': str(config_path)}
+    original, training = reference_data(spec, config.model)
     reference = build_reference(original, training, api)
-    assert reference.fingerprint() == original.locked_policy_fingerprint
+    assert reference.fingerprint() == original.locked_policy_fingerprint == fingerprint
     assert original.few_shot == 4 and len(training['contexts']) == 8
     assert original.value_examples == 'trajectory'
     assert reference.value_payload(from_rows(training['contexts'][0]['state']))
     assert api.metrics['logical_requests'] == 0
+    with pytest.raises(ValueError, match='fingerprint'):
+        build_reference(original.model_copy(update={'locked_policy_fingerprint': '0' * 64}), training, api)

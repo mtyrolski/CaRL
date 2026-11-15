@@ -8,17 +8,25 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from carl.icl.boards import from_rows, to_rows
-from carl.icl.calibration import calibrate, calibration_result_digest
-from carl.icl.checkpoints import export_generator_checkpoint, load_generator_checkpoint
+from carl.icl.boards import from_rows
+from carl.icl.boards import to_rows
+from carl.icl.calibration import calibrate
+from carl.icl.calibration import calibration_result_digest
+from carl.icl.checkpoints import export_generator_checkpoint
+from carl.icl.checkpoints import load_generator_checkpoint
 from carl.icl.checkpoints.io import checkpoint_digest
 from carl.icl.checkpoints.types import GeneratorCheckpoint
-from carl.icl.config import Calibration, ExperimentConfig
+from carl.icl.config import Calibration
+from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
 from carl.icl.experiment import components_for_run
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
-from carl.icl.types import Board, Candidate, JSONObject, Probabilities, TrainingData
+from carl.icl.types import Board
+from carl.icl.types import Candidate
+from carl.icl.types import JSONObject
+from carl.icl.types import Probabilities
+from carl.icl.types import TrainingData
 
 
 @dataclass
@@ -69,6 +77,7 @@ def checkpoint_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Checkpoi
     return CheckpointCase(config, state, training, summary, components.fingerprint(), source_hashes, tmp_path / "checkpoint.json")
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_reload_is_immutable_and_keeps_multiple_targets_per_context(checkpoint_case: CheckpointCase) -> None:
     case = checkpoint_case
     original = case.export()
@@ -84,6 +93,7 @@ def test_reload_is_immutable_and_keeps_multiple_targets_per_context(checkpoint_c
     assert case.export() == original
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 @pytest.mark.parametrize("expected", [
     {"model": "different-model"}, {"policy_fingerprint": "f" * 64}, {"action_cap": 3}, {"provider": "openai"},
 ])
@@ -93,6 +103,7 @@ def test_reload_rejects_incompatible_contract(checkpoint_case: CheckpointCase, e
         load_generator_checkpoint(checkpoint_case.path, **expected)
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_corruption_and_recomputed_forgery_fail(checkpoint_case: CheckpointCase) -> None:
     case = checkpoint_case
     checkpoint = case.export()
@@ -108,6 +119,7 @@ def test_corruption_and_recomputed_forgery_fail(checkpoint_case: CheckpointCase)
         load_generator_checkpoint(case.path)
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_corrupted_evidence_and_source_hashes_fail(checkpoint_case: CheckpointCase) -> None:
     case = checkpoint_case
     checkpoint = case.export()
@@ -123,6 +135,7 @@ def test_corrupted_evidence_and_source_hashes_fail(checkpoint_case: CheckpointCa
         load_generator_checkpoint(case.path)
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 @pytest.mark.parametrize("mutation", ["copy", "duplicate", "labels", "witness", "incomplete"])
 def test_export_rejects_invalid_calibration(checkpoint_case: CheckpointCase, mutation: str) -> None:
     case = checkpoint_case
@@ -143,6 +156,7 @@ def test_export_rejects_invalid_calibration(checkpoint_case: CheckpointCase, mut
     assert not case.path.exists()
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_checkpoint_cannot_be_overwritten_with_other_defaults(checkpoint_case: CheckpointCase) -> None:
     case = checkpoint_case
     case.export()
@@ -153,6 +167,7 @@ def test_checkpoint_cannot_be_overwritten_with_other_defaults(checkpoint_case: C
     assert case.path.read_bytes() == saved
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_counts_are_independent_and_labels_match_across_methods(checkpoint_case: CheckpointCase) -> None:
     case = checkpoint_case
     checkpoint = case.export()
@@ -181,6 +196,7 @@ def test_counts_are_independent_and_labels_match_across_methods(checkpoint_case:
     assert "Explicit variant" in components.generator_payload(case.board, 0.8)["input"][0]["content"][0]["text"]
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_limit_overflow_and_missing_checkpoint_fail(checkpoint_case: CheckpointCase) -> None:
     case = checkpoint_case
     case.export()

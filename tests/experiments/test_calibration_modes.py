@@ -6,12 +6,15 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from carl.icl.boards import from_rows, to_rows
-from carl.icl.config import ExperimentConfig, load_config
+from carl.icl.boards import from_rows
+from carl.icl.boards import to_rows
+from carl.icl.config import ExperimentConfig
+from carl.icl.config import load_config
 from carl.icl.datasets import environment
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
-from carl.icl.types import BoardEnvironment, TrainingData
+from carl.icl.types import BoardEnvironment
+from carl.icl.types import TrainingData
 
 METHODS = ("relative_u", "absolute_d", "ratio_d_over_ac", "normalized_offset")
 FIELDS = {"relative_u": "u", "absolute_d": "d", "ratio_d_over_ac": "ratio_d_over_ac",
@@ -49,6 +52,7 @@ def components(tmp_path: Path, method: str, *, denominator: float = 16.0) -> tup
     return agent, board
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_matched_modes_use_saved_ids_and_change_only_label_and_instruction(tmp_path: Path) -> None:
     questions = []
     answers = []
@@ -68,6 +72,7 @@ def test_matched_modes_use_saved_ids_and_change_only_label_and_instruction(tmp_p
         0.05, 1.0, 0.5, 1 / 16]
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_offset_denominator_is_fixed_config_not_a_test_board_statistic(tmp_path: Path) -> None:
     first, board = components(tmp_path, "normalized_offset", denominator=16)
     second, _ = components(tmp_path, "normalized_offset", denominator=8)
@@ -88,6 +93,7 @@ def test_offset_denominator_is_fixed_config_not_a_test_board_statistic(tmp_path:
     assert "16" in a["input"][0]["content"][0]["text"]
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_fixed_k_keeps_trajectory_offset_and_needs_no_calibration(tmp_path: Path) -> None:
     board, training, _ = fixture_data()
     config = ExperimentConfig(method="fixed", scales=[2, 1], few_shot=2)
@@ -104,6 +110,7 @@ def test_campaign_mode_configs_share_frozen_policy_and_calibration() -> None:
     assert all(config.data_dir == "data/icl/campaign_dataset_v2" for config in configs)
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_saved_selection_cannot_reference_missing_or_duplicate_targets(tmp_path: Path) -> None:
     agent, board = components(tmp_path, "relative_u")
     assert agent.calibrated is not None
