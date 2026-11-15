@@ -92,6 +92,7 @@ def test_campaign_split_summary_and_explicit_history_exclusions() -> None:
     assert {199, 434, 732}.issubset(history["observed_legacy_trajectory_indices"])
 
 
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_validation_diagnostics_require_explicit_private_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from carl.icl.api import CachedOpenAI
     from scripts.evaluate_trajectory_components import parser, run

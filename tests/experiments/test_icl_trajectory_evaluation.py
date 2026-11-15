@@ -29,6 +29,7 @@ def test_value_demonstrations_are_training_layouts_only():
 
 
 @pytest.mark.parametrize("component", ["policy", "generator", "value"])
+@pytest.mark.usefixtures("deterministic_token_estimates")
 def test_trajectory_diagnostic_runs_from_verified_data(tmp_path, monkeypatch, component):
     if not (ROOT / "data/icl/value_examples.json").exists():
         pytest.skip("Run prepare-value to create the trajectory training examples")
