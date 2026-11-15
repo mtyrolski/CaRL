@@ -57,6 +57,11 @@ class RunMode(StrEnum):
     EVALUATE = "evaluate"
 
 
+class TrainingAugmentation(StrEnum):
+    NONE = "none"
+    D4 = "d4"
+
+
 def prompt_messages(record: dict[str, Any]) -> list[dict[str, str]]:
     """Whitelist permitted input fields; do not serialise the record itself."""
     board = record["start_observation"]
@@ -140,6 +145,21 @@ def board_balanced(records: list[dict[str, Any]], seed: int) -> Iterator[dict[st
             if not pools[key]:
                 pools[key] = rng.sample(groups[key], len(groups[key]))
             yield pools[key].pop()
+
+
+def augmented_training_samples(records: list[dict[str, Any]], seed: int,
+                               augmentation: TrainingAugmentation | str) -> Iterator[tuple[dict[str, Any], str]]:
+    """Keep board sampling unchanged while drawing symmetries from a separate RNG."""
+    from carl.icl.intent_augmentation import SYMMETRIES
+    from carl.icl.intent_augmentation import BoardSymmetry
+    from carl.icl.intent_augmentation import transform_training_record
+
+    mode = TrainingAugmentation(augmentation)
+    rng = random.Random(seed ^ 0x5D4A7A)
+    for record in board_balanced(records, seed):
+        symmetry = rng.choice(SYMMETRIES) if mode == TrainingAugmentation.D4 else BoardSymmetry.IDENTITY
+        yield (transform_training_record(record, symmetry) if mode == TrainingAugmentation.D4 else record,
+               symmetry.value)
 
 
 def one_per_board(records: list[dict[str, Any]], limit: int = 0) -> list[dict[str, Any]]:
@@ -262,8 +282,19 @@ def initialise(args: argparse.Namespace, adapter: str | None = None, train: bool
     return torch, tokenizer, model, device
 
 
-def tensor_example(torch: Any, example: dict[str, list[int]], device: str) -> dict[str, Any]:
-    return {key: torch.tensor([value], device=device) for key, value in example.items()}
+def tensor_example(torch: Any, example: dict[str, list[int]], device: str, *, pad_to_length: int = 0,
+                   pad_token_id: int | None = None) -> dict[str, Any]:
+    """Optionally equalise model token budgets without supervising padding."""
+    length = len(example["input_ids"])
+    if pad_to_length and length > pad_to_length:
+        raise ValueError(f"complete example needs {length} tokens; padding limit is {pad_to_length}")
+    padding = pad_to_length - length if pad_to_length else 0
+    if padding and pad_token_id is None:
+        raise ValueError("a pad token is required for fixed-length training")
+    values = {"input_ids": example["input_ids"] + [pad_token_id] * padding,
+              "attention_mask": example["attention_mask"] + [0] * padding,
+              "labels": example["labels"] + [-100] * padding}
+    return {key: torch.tensor([value], device=device) for key, value in values.items()}
 
 
 def lengths(tokenizer: Any, records: list[dict[str, Any]], max_length: int) -> dict[str, Any]:
@@ -280,6 +311,27 @@ def lengths(tokenizer: Any, records: list[dict[str, Any]], max_length: int) -> d
         "limit": max_length,
         "truncated": 0
     }
+
+
+def training_lengths(tokenizer: Any, training: list[dict[str, Any]], validation: list[dict[str, Any]],
+                     args: argparse.Namespace) -> dict[str, Any]:
+    """Verify complete examples in every train orientation and original validation."""
+    from carl.icl.intent_augmentation import SYMMETRIES
+    from carl.icl.intent_augmentation import transform_training_record
+
+    mode = TrainingAugmentation(getattr(args, "augmentation", TrainingAugmentation.NONE))
+    if mode == TrainingAugmentation.D4:
+        records = [transform_training_record(row, symmetry) for row in training for symmetry in SYMMETRIES]
+        records.extend(validation)
+    else:
+        records = training + validation
+    summary = lengths(tokenizer, records, args.max_length)
+    summary["training_orientations_per_record"] = len(SYMMETRIES) if mode == TrainingAugmentation.D4 else 1
+    padding = getattr(args, "pad_to_length", 0)
+    if padding and summary["max"] > padding:
+        raise ValueError(f"complete example needs {summary['max']} tokens; padding limit is {padding}")
+    summary["pad_to_length"] = padding or None
+    return summary
 
 
 def memory(torch: Any) -> dict[str, Any]:
@@ -349,15 +401,21 @@ def benchmark(args: argparse.Namespace) -> None:
     started = time.monotonic()
     torch, tokenizer, model, device = initialise(args, train=True)
     # Held-out targets must not affect the training resource check.
-    token_lengths = lengths(tokenizer, training + validation, args.max_length)
+    token_lengths = training_lengths(tokenizer, training, validation, args)
     optimizer = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=args.lr)
     model.train()
     sync_gpu(torch)
     start_step = time.monotonic()
     losses = []
     tokens_processed = 0
-    for record in training[:args.accumulation]:
-        x = tensor_example(torch, encode_example(tokenizer, record, args.max_length), device)
+    effective_tokens = 0
+    samples = augmented_training_samples(training, args.seed, getattr(args, "augmentation", TrainingAugmentation.NONE))
+    for _ in range(args.accumulation):
+        record, _symmetry = next(samples)
+        encoded = encode_example(tokenizer, record, args.max_length)
+        effective_tokens += len(encoded["input_ids"])
+        x = tensor_example(torch, encoded, device, pad_to_length=getattr(args, "pad_to_length", 0),
+                           pad_token_id=tokenizer.pad_token_id)
         tokens_processed += int(x["input_ids"].numel())
         loss = model(**x).loss / args.accumulation
         losses.append(float(loss.detach().cpu()) * args.accumulation)
@@ -384,6 +442,7 @@ def benchmark(args: argparse.Namespace) -> None:
         "complete_step_seconds": step_seconds,
         "step_losses": losses,
         "training_tokens": tokens_processed,
+        "effective_training_tokens": effective_tokens,
         "training_tokens_per_second": tokens_processed / step_seconds,
         "generation_seconds": generation_seconds,
         "generation_tokens": tokens,
@@ -400,18 +459,21 @@ def benchmark(args: argparse.Namespace) -> None:
 def train(args: argparse.Namespace) -> None:
     rows = read_records(args.data)
     training = [row for row in rows if row["split"] == DataSplit.TRAIN]
+    validation_records = [row for row in rows if row["split"] == DataSplit.VALIDATION]
     validation = validation_contexts(
-        [row for row in rows if row["split"] == DataSplit.VALIDATION],
+        validation_records,
         args.validation_boards,
         args.validation_contexts_per_board,
     )
     if not training or not validation:
         raise ValueError("train and validation splits must both contain boards")
+    if {row["layout_id"] for row in training} & {row["layout_id"] for row in validation_records}:
+        raise ValueError("training and validation layouts overlap")
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     torch, tokenizer, model, device = initialise(args, train=True)
     # Inspect only examples actually used for fitting or validation.
-    token_lengths = lengths(tokenizer, training + validation, args.max_length)
+    token_lengths = training_lengths(tokenizer, training, validation, args)
     atomic_json(
         output / "configuration.json", {
             "args": vars(args),
@@ -425,7 +487,7 @@ def train(args: argparse.Namespace) -> None:
         })
     tokenizer.save_pretrained(output / "tokenizer")
     optimizer = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=args.lr)
-    samples = board_balanced(training, args.seed)
+    samples = augmented_training_samples(training, args.seed, getattr(args, "augmentation", TrainingAugmentation.NONE))
     stop = {"requested": False}
 
     def request_stop(_signum: int, _frame: Any) -> None:
@@ -443,9 +505,18 @@ def train(args: argparse.Namespace) -> None:
                 break
             started = time.monotonic()
             total_loss = 0.0
+            model_tokens = effective_tokens = supervised_tokens = 0
+            sampled = []
             for _ in range(args.accumulation):
-                record = next(samples)
-                x = tensor_example(torch, encode_example(tokenizer, record, args.max_length), device)
+                record, symmetry = next(samples)
+                encoded = encode_example(tokenizer, record, args.max_length)
+                effective_tokens += len(encoded["input_ids"])
+                supervised_tokens += sum(label != -100 for label in encoded["labels"])
+                x = tensor_example(torch, encoded, device, pad_to_length=getattr(args, "pad_to_length", 0),
+                                   pad_token_id=tokenizer.pad_token_id)
+                model_tokens += int(x["input_ids"].numel())
+                sampled.append({"record_id": record["record_id"], "layout_id": record["layout_id"],
+                                "symmetry": symmetry})
                 loss = model(**x).loss / args.accumulation
                 total_loss += float(loss.detach().cpu())
                 if not math.isfinite(total_loss):
@@ -454,7 +525,9 @@ def train(args: argparse.Namespace) -> None:
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
             completed = step
-            row = {"step": step, "train_loss": total_loss, "seconds": time.monotonic() - started}
+            row = {"step": step, "train_loss": total_loss, "seconds": time.monotonic() - started,
+                   "model_tokens": model_tokens, "effective_tokens": effective_tokens,
+                   "supervised_tokens": supervised_tokens, "samples": sampled}
             if step % args.eval_every == 0 or step == args.max_steps:
                 val = validation_loss(torch, model, tokenizer, validation, args, device)
                 row["validation_loss"] = val
@@ -621,6 +694,9 @@ def main() -> None:
     parser.add_argument("--max-length", type=int, default=1024)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--gradient-checkpointing", action="store_true")
+    parser.add_argument("--augmentation", choices=tuple(TrainingAugmentation), default=TrainingAugmentation.NONE)
+    parser.add_argument("--pad-to-length", type=int, default=0,
+                        help="pad complete training examples to this common token budget; never truncate")
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--eval-every", type=int, default=10)
     parser.add_argument("--validation-boards", type=int, default=12)
@@ -639,6 +715,8 @@ def main() -> None:
         args.revision = DEFAULT_REVISION
     if args.accumulation < 1 or args.max_length < 1 or args.eval_every < 1 or args.validation_contexts_per_board < 1:
         parser.error("accumulation, max-length, eval-every and validation-contexts-per-board must be positive")
+    if args.pad_to_length < 0 or args.pad_to_length > args.max_length:
+        parser.error("pad-to-length must be between zero and max-length")
     {RunMode.BENCHMARK: benchmark, RunMode.TRAIN: train, RunMode.EVALUATE: evaluate}[args.mode](args)
 
 
