@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from carl.icl.intent_fence_audit import remove_one_outer_fence
+from carl.icl.intents.representation.normalization import remove_one_outer_fence
 from carl.icl.local_intent_policy import LocalIntentPolicy
 from carl.icl.local_intent_policy import PolicyConfig
 from carl.icl.local_intent_policy import config_hash
@@ -83,7 +83,7 @@ def main() -> None:
                           for path in (Path(__file__).resolve(),
                                        Path(__file__).resolve().parents[1] / "carl/icl/local_intent_policy.py",
                                        Path(__file__).resolve().parents[1] / "carl/icl/luna_intent_rollout.py",
-                                       Path(__file__).resolve().parents[1] / "carl/icl/intent_fence_audit.py")},
+                                       Path(__file__).resolve().parents[1] / "carl/icl/intents/representation/normalization.py")},
         "config": asdict(config),
         "policy_config_sha256": config_hash(config),
         "action_parser": "Remove at most one complete outer plain or json Markdown fence, then require strict action JSON.",
