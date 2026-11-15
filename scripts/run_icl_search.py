@@ -1,4 +1,4 @@
-"""All-Luna explicit-state ICL: no trained generator, policy or value weights."""
+"""Prepare, calibrate and evaluate in-context explicit-state search."""
 import argparse
 from pathlib import Path
 from typing import Final

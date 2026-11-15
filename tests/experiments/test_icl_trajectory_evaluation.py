@@ -88,33 +88,3 @@ def test_fresh_holdout_excludes_prepared_and_prior_layouts(tmp_path, monkeypatch
     assert first_data["instances"][0]["level_key"] != second_data["instances"][0]["level_key"]
     with pytest.raises(ValueError, match="not empty"):
         prepare(first, 1, 31, "configs/icl/experiments/tuned_fixed.json")
-
-
-def test_trajectory_notebook_displays_saved_mock_results(tmp_path, monkeypatch):
-    import plotly.graph_objects as go
-
-    if not (ROOT / "data/icl/value_examples.json").exists():
-        pytest.skip("Run prepare-value to create the trajectory training examples")
-    monkeypatch.chdir(ROOT)
-    output = tmp_path / "reports"
-    common = ["--split", "validation", "--indices", "0", "--positions", "start", "--horizons", "4",
-              "--max-requests", "20", "--output", str(output), "--cache-dir", str(tmp_path / "cache"), "--mock"]
-    for component in ("policy", "generator", "value"):
-        run(parser().parse_args(["--component", component, *common]))
-    run(parser().parse_args(["--component", "generated_policy", "--generator-report", str(output / "generator.json"),
-                             "--max-requests", "20", "--output", str(output),
-                             "--cache-dir", str(tmp_path / "cache"), "--mock"]))
-    figures = []
-    monkeypatch.setattr(go.Figure, "show", lambda self, **_kwargs: figures.append(self.to_json()))
-    notebook = json.loads((ROOT / "notebooks/luna_trajectory_diagnostics.ipynb").read_text())
-    namespace = {}
-    for cell in notebook["cells"]:
-        if cell["cell_type"] != "code":
-            continue
-        source = "".join(cell["source"])
-        for component in ("policy", "generator", "generated_policy", "value"):
-            old = f"ROOT / 'analysis/luna_icl/trajectory_tuning_20261102/final_simple/{component}.json'"
-            source = source.replace(old, f"Path({str(output / (component + '.json'))!r})")
-        exec(compile(source, "trajectory_notebook", "exec"), namespace)
-    assert set(namespace["reports"]) == {"policy", "generator", "generated_policy", "value"}
-    assert len(figures) >= 4

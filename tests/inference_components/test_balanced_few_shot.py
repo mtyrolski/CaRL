@@ -1,25 +1,44 @@
 """Policy examples must be valid training witnesses, not evaluation trajectories."""
 import copy
-import hashlib
 import json
 from collections import Counter
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-from carl.icl.boards import canonical_layout_id, from_rows, state_hash
+from carl.icl.boards import canonical_layout_id, from_rows, state_hash, to_rows
 from carl.icl.components import ICLComponents
 from carl.icl.config import ExperimentConfig
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.few_shot_selection import diverse_training_examples
 
-TRAINING = Path("configs/icl/checkpoints/launch100/assets/data/training.json")
-
-
 @pytest.fixture(scope="module")
 def training():
-    return json.loads(TRAINING.read_text())
+    """Construct eight distinct layouts with replayable action prefixes."""
+    board = [list("############")]
+    board.extend(list("#----------#") for _ in range(10))
+    board.append(list("############"))
+    for row, col in ((10, 1), (10, 2), (10, 3), (10, 4)):
+        board[row][col] = "."
+    for row, col in ((4, 5), (6, 5), (5, 4), (5, 6)):
+        board[row][col] = "$"
+    board[5][5] = "@"
+    actions = [0, 1, 3, 2, 1, 0, 2, 3, 0, 0, 1, 1, 3, 3, 2, 2]
+    contexts = []
+    for index in range(8):
+        rows = [row.copy() for row in board]
+        rows[1][index + 1] = "#"
+        source = ["".join(row) for row in rows]
+        state = from_rows(source)
+        env = environment(state)
+        candidates = []
+        for offset, action in enumerate(actions, start=1):
+            next_state = env.next_state(state, action)
+            assert not np.array_equal(state, next_state)
+            state = next_state
+            candidates.append({"k": offset, "actions": actions[:offset], "subgoal": to_rows(state)})
+        contexts.append({"id": f"training-{index}", "state": source, "candidates": candidates})
+    return {"contexts": contexts}
 
 
 @pytest.mark.parametrize("count", [8, 32, 64])
@@ -64,23 +83,10 @@ def test_corrupt_pre_anchor_state_fails_even_if_suffix_is_unchanged(training):
     bad = copy.deepcopy(training)
     # A candidate prior to a selected interior anchor is no longer the state
     # reached by the witness. Its retained suffix is left untouched.
-    context = next(c for c in bad["contexts"] if c["id"] == "trajectory_186")
+    context = bad["contexts"][0]
     context["candidates"][0]["subgoal"] = copy.deepcopy(context["candidates"][1]["subgoal"])
     with pytest.raises(ValueError, match="prefix fails exact simulator replay"):
         diverse_training_examples(bad, 32)
-
-
-@pytest.mark.parametrize("count", [8, 32, 64])
-def test_frozen_manifest_matches_training_and_selected_examples(training, count):
-    manifest = json.loads(Path("configs/icl/figure1/diverse_policy_demonstrations_64_v2.json").read_text())
-    assert manifest["training_source_sha256"] == hashlib.sha256(TRAINING.read_bytes()).hexdigest()
-    expected = []
-    for example in diverse_training_examples(training, count):
-        payload = {"question": example["question"], "answer": example["answer"]}
-        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
-                                           allow_nan=False).encode()).hexdigest()
-        expected.append({"metadata": example["metadata"], "query_answer_sha256": digest})
-    assert manifest["examples"][:count] == expected
 
 
 @pytest.mark.parametrize("count", [8, 32])

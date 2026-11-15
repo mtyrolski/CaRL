@@ -7,10 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from carl.icl.api import BudgetExceeded, CachedOpenAI, RequestFailed
-from carl.icl.campaign_budget import CampaignLedger, CampaignLimitExceeded
-
-ROOT = Path(__file__).resolve().parents[2]
+from carl.icl.api import BudgetExceeded
+from carl.icl.api import CachedOpenAI
+from carl.icl.api import RequestFailed
+from carl.icl.campaign_budget import CampaignLedger
+from carl.icl.campaign_budget import CampaignLimitExceeded
 
 
 @pytest.fixture
@@ -18,8 +19,25 @@ def ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CampaignLedger:
     import carl.icl.campaign_budget as campaign_budget
     monkeypatch.setattr(campaign_budget, "dotenv_values", lambda _path: {})
     monkeypatch.delenv("CARL_CAMPAIGN_MAX_USD", raising=False)
-    config = json.loads((ROOT / "configs/icl/campaign_budget.json").read_text())
-    config["ledger_path"] = str(tmp_path / "budget.sqlite3")
+    config = {
+        "campaign_id": "test",
+        "ledger_path": str(tmp_path / "budget.sqlite3"),
+        "limit_usd": "40.00",
+        "stage_limits_usd": {"policy_validation": "2.00", "unassigned": "0.00"},
+        "models": {
+            "gpt-6-luna": {
+                "input_usd_per_million": "0.10",
+                "cached_input_usd_per_million": "0.01",
+                "cache_write_30m_usd_per_million": "0.125",
+                "cache_write_12h_usd_per_million": "0.25",
+                "output_usd_per_million": "0.50",
+                "max_input_tokens": 1050000,
+                "max_output_tokens": 128000,
+                "long_context_threshold": 272000,
+                "regional_multiplier": "1.10",
+            }
+        },
+    }
     path = tmp_path / "budget.json"
     path.write_text(json.dumps(config))
     return CampaignLedger(path)
@@ -27,6 +45,30 @@ def ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CampaignLedger:
 
 def payload() -> dict:
     return {"model": "gpt-6-luna", "input": "board", "max_output_tokens": 128, "tools": []}
+
+
+def test_missing_config_does_not_create_a_new_ledger(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        CampaignLedger(tmp_path / "missing-budget.json")
+    assert not list(tmp_path.glob("*.sqlite3"))
+
+
+def test_copied_config_retains_unknown_reservations_and_rejects_changes(
+    ledger: CampaignLedger, tmp_path: Path
+) -> None:
+    reservation = ledger.reserve("policy_validation", "responses", payload(), "a")
+    ledger.mark_unknown(reservation)
+    original = tmp_path / "budget.json"
+    copied = tmp_path / "copied-budget.json"
+    copied.write_bytes(original.read_bytes())
+
+    reopened = CampaignLedger(copied)
+    assert reopened.path == ledger.path
+    assert reopened.summary()["attempts"][0]["status"] == "unknown"
+    copied.write_bytes(copied.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match="configuration changed"):
+        CampaignLedger(copied)
+    assert CampaignLedger(original).summary()["attempts"][0]["status"] == "unknown"
 
 
 def _reserve_in_process(config_path: str, index: int) -> bool:

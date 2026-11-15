@@ -15,9 +15,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--output", help="Override the output directory")
-    parser.add_argument("--pilot-freeze", help="Use the freeze-gated small-board pilot runner")
-    parser.add_argument("--workers", type=int, choices=(1, 2, 3), default=2,
-                        help="Frozen pilot: maximum concurrent independent runs (default: 2)")
     parser.add_argument("--cache-dir", help="Use a shared or restored local query cache")
     parser.add_argument(
         "--resume", action="store_true", help="Resume a matching existing sweep"
@@ -36,16 +33,10 @@ def main() -> int:
         "--execute", action="store_true", help="Use OpenAI; incurs charges"
     )
     args = parser.parse_args()
-    if args.pilot_freeze:
-        if args.mock or args.replay or args.cache_dir or args.config != DEFAULT_CONFIG:
-            parser.error("The frozen pilot supports only --plan or --execute and its frozen configuration")
-        from scripts.archive.campaign_20261102.campaign_pilot_runner import main as run_frozen_pilot  # pylint: disable=import-outside-toplevel
-
-        return run_frozen_pilot(args.pilot_freeze, args.output, plan_only=args.plan, resume=args.resume, workers=args.workers)
     config_path = Path(args.config).expanduser()
     config_path = (config_path if config_path.is_absolute() else ROOT / config_path).resolve()
     if args.execute and config_path == (ROOT / DEFAULT_CONFIG).resolve():
-        parser.error("The legacy default pilot cannot run live; use --pilot-freeze with an audited freeze.json")
+        parser.error("The default configuration cannot run live; supply an explicit experiment configuration")
     spec, configs = load_sweep(args.config)
     if args.cache_dir:
         configs = [

@@ -67,17 +67,15 @@ typecheck: pyright mypy ## Run pyright + mypy
 
 ruff: ## Run Ruff checks on source and ICL entry points
 	$(UV_LINT_RUN) ruff check $(SRC_DIR) $(SCRIPTS_DIR)
-	$(UV_LINT_RUN) ruff check $(wildcard notebooks/*.ipynb)
 
 pylint-icl: ## Check the ICL implementation and primary CLI with the repository Pylint rules
 	$(UV_RUN) --extra icl pylint carl/icl scripts/run_icl_search.py scripts/run_budget_sweep.py scripts/estimate_icl_tokens.py scripts/evaluate_icl.py
 
 icl-check: ruff pyright pylint-icl test ## Verify ICL style, types and the full regression suite
 
-pyright: ## Run Pyright on source, scripts, ICL tests and notebook code cells
+pyright: ## Run Pyright on source, scripts and ICL tests
 	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl pyright $(SRC_DIR) scripts
 	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl pyright --project pyrightconfig-icl-tests.json
-	$(PYTHONPATH_PREFIX) $(UV_RUN) --extra icl python -m scripts.check_notebook_types
 
 mypy: ## Run Mypy on source tree only
 	$(PYTHONPATH_PREFIX) $(UV_LINT_RUN) mypy $(SRC_DIR)

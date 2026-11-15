@@ -37,6 +37,7 @@ out*
 /analysis/*
 !/analysis/README.md
 /local/experiments/
+/configs/icl/campaign_budget.json
 
 # Credentials and generated notebook/tool state.
 .env.*

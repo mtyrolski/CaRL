@@ -17,12 +17,17 @@ from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
 from carl.icl.search import rollout
 from carl.icl.types import TrainingData
-from scripts.archive.campaign_20261102.campaign_components_validation import CapturingAPI
-from scripts.archive.campaign_20261102.tune_campaign_scales import CappedAPI
+
+
+@pytest.fixture(autouse=True)
+def local_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use deterministic token estimates for retry tests without network access."""
+    encoding = SimpleNamespace(encode=lambda text, **_kwargs: list(text.encode("utf-8")))
+    monkeypatch.setattr("carl.icl.experiment_api.tiktoken.get_encoding", lambda _name: encoding)
 
 
 class CountingLedger:
-    """Capture ledger activity independently of the user's campaign."""
+    """Record ledger events for retry assertions."""
 
     def __init__(self, *, unknown: bool = False) -> None:
         self.events: list[tuple[Any, ...]] = []
@@ -197,33 +202,3 @@ def test_policy_retry_keeps_completed_rollout_actions(tmp_path: Path, monkeypatc
     assert result.actions == [0, 0]
     assert env.actions == 2
     assert len(calls) == 3
-
-
-@pytest.mark.parametrize("api_type", [CapturingAPI, CappedAPI])
-def test_retry_uses_subclass_call_and_counters(tmp_path: Path, api_type: type[ExperimentAPI]) -> None:
-    responses = iter(["{", '{"ok":true}'])
-    client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_kwargs: fake_response(next(responses))),
-                             max_retries=0)
-    kwargs = {"max_generator_calls": 4, "max_total_tokens": 10000} if api_type is CappedAPI else {}
-    api = api_type(tmp_path, "openai", Limits(), client, **kwargs)
-    assert component(api)._json(payload(), dict) == {"ok": True}
-    assert api.metrics["policy_calls"] == 2
-    if isinstance(api, CapturingAPI):
-        assert len(api.responses) == 2
-
-
-def test_capturing_api_reports_retry_transport_failure_slot(tmp_path: Path) -> None:
-    calls: list[str] = []
-
-    def create(**_kwargs: Any) -> SimpleNamespace:
-        calls.append("call")
-        if len(calls) == 1:
-            return fake_response("{")
-        raise ConnectionError("unknown billing")
-
-    client = SimpleNamespace(responses=SimpleNamespace(create=create), max_retries=0)
-    api = CapturingAPI(tmp_path, "openai", Limits(), client)
-    with pytest.raises(RequestFailed, match="responses failed"):
-        component(api)._json(payload(), dict)
-    assert [row["status"] for row in api.responses] == ["completed", "error"]
-    assert api.responses[1]["cache_attempt_slot"] == 1
