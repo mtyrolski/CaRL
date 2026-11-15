@@ -56,6 +56,8 @@ The hybrid full-state runner accepts `--prepare-data` to build its local
 demonstrations and evaluation inputs from configured trajectory data. The
 structured-intent generator exposes training and evaluation commands via
 `python -m carl.icl.intent_generator_experiment --help`.
+LoRA training also needs the optional `lora` dependencies; install them with
+`uv sync --extra icl --extra lora` before running training commands.
 
 ## Inputs and results
 

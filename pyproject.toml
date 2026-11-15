@@ -43,6 +43,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+lora = ["peft==0.21.3", "transformers>=4.57.6,<5"]
 icl = [
     "openai>=2,<3",
     "pydantic>=2,<3",
