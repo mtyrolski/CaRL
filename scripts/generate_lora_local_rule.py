@@ -12,6 +12,9 @@ from carl.icl.intent_generator_experiment import DataSplit
 from carl.icl.intent_generator_experiment import evaluation_records
 from carl.icl.intent_generator_experiment import file_sha256
 from carl.icl.intent_generator_experiment import read_records
+from carl.icl.intents.provenance import ASSESSMENT_COMPONENTS
+from carl.icl.intents.provenance import GENERATION_COMPONENTS
+from carl.icl.intents.provenance import component_hashes
 
 
 def generate(data: Path, ids: Path, output: Path) -> dict[str, Any]:
@@ -32,6 +35,9 @@ def generate(data: Path, ids: Path, output: Path) -> dict[str, Any]:
                "input_fields": ["start_observation"], "data_sha256": file_sha256(data),
                "test_ids_sha256": file_sha256(ids),
                "algorithm_sha256": file_sha256(Path(__file__).resolve().parents[1] / "carl/icl/intent_assessment.py"),
+               "algorithm_components_sha256": component_hashes(ASSESSMENT_COMPONENTS),
+               "input_pipeline_components_sha256": component_hashes(
+                   ("intent_generator_experiment.py", *GENERATION_COMPONENTS)),
                "generated_tokens": None,
                "description": "Local graph search for an accessible push, not a language model."}
     summary_path = output.with_suffix(".summary.json")
@@ -39,7 +45,8 @@ def generate(data: Path, ids: Path, output: Path) -> dict[str, Any]:
     output.parent.mkdir(parents=True, exist_ok=True)
     for path, contents in files.items():
         if path.exists() and path.read_text(encoding="utf-8") != contents:
-            raise FileExistsError(f"Refusing to overwrite a different result: {path}")
+            raise FileExistsError(f"Refusing to overwrite a different result: {path}; "
+                                  "the code or provenance may have changed, so use a new output path")
     for path, contents in files.items():
         temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         temporary.write_text(contents, encoding="utf-8")

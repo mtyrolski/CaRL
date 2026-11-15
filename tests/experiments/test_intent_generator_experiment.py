@@ -1,7 +1,9 @@
 import json
+import sys
 
 import pytest
 
+from carl.icl import intent_generator_experiment
 from carl.icl.intent_generator_experiment import board_balanced
 from carl.icl.intent_generator_experiment import encode_example
 from carl.icl.intent_generator_experiment import evaluation_records
@@ -18,13 +20,9 @@ def example(layout="board-a"):
         "start_observation": ["#####", "#@$.#", "#####"],
         "task_goal": "Put every box on a goal.",
         "intent": {
-            "effects": [{
-                "predicate": "box_at",
-                "row": 1,
-                "col": 3
-            }],
+            "effects": [{"predicate": "box_at", "row": 1, "col": 3}],
             "preserve": [],
-            "instruction": None
+            "instruction": None,
         },
         "later_observation": ["SECRET-FUTURE"],
         "fragment_actions": ["SECRET-ACTIONS"],
@@ -38,7 +36,9 @@ def example(layout="board-a"):
 class CharTokenizer:
     eos_token = "!"
 
-    def apply_chat_template(self, messages, tokenize, add_generation_prompt, enable_thinking):
+    def apply_chat_template(
+        self, messages, tokenize, add_generation_prompt, enable_thinking
+    ):
         assert tokenize and add_generation_prompt and enable_thinking is False
         return [ord(c) for c in json.dumps(messages)]
 
@@ -57,13 +57,15 @@ def test_generator_whitelist_excludes_future_actions_and_metadata():
 def test_response_only_loss_and_no_implicit_truncation():
     tokenizer = CharTokenizer()
     record = example()
-    prefix = tokenizer.apply_chat_template(prompt_messages(record),
-                                           tokenize=True,
-                                           add_generation_prompt=True,
-                                           enable_thinking=False)
+    prefix = tokenizer.apply_chat_template(
+        prompt_messages(record),
+        tokenize=True,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
     encoded = encode_example(tokenizer, record, max_length=5000)
-    assert encoded["labels"][:len(prefix)] == [-100] * len(prefix)
-    assert encoded["labels"][len(prefix):] == encoded["input_ids"][len(prefix):]
+    assert encoded["labels"][: len(prefix)] == [-100] * len(prefix)
+    assert encoded["labels"][len(prefix) :] == encoded["input_ids"][len(prefix) :]
     assert encoded["labels"][-1] == ord("!")
     with pytest.raises(ValueError, match="no truncation"):
         encode_example(tokenizer, record, max_length=20)
@@ -82,7 +84,10 @@ def test_frozen_evaluation_selection_is_enforced(tmp_path):
     a["record_id"], b["record_id"] = "a0", "b0"
     frozen = tmp_path / "frozen.json"
     frozen.write_text(json.dumps({"record_ids": ["b0", "a0"]}))
-    assert [r["record_id"] for r in evaluation_records([a, b], str(frozen), 0)] == ["b0", "a0"]
+    assert [r["record_id"] for r in evaluation_records([a, b], str(frozen), 0)] == [
+        "b0",
+        "a0",
+    ]
     frozen.write_text(json.dumps({"record_ids": ["b0", "missing"]}))
     with pytest.raises(ValueError, match="absent"):
         evaluation_records([a, b], str(frozen), 0)
@@ -101,7 +106,11 @@ def test_validation_contexts_are_fixed_and_diverse():
     selected = validation_contexts(records, max_boards=2, per_board=3)
     assert len(selected) == 6
     for layout in ("a", "b"):
-        assert {r["effect_type"] for r in selected if r["layout_id"] == layout} == {"goal", "box", "walk"}
+        assert {r["effect_type"] for r in selected if r["layout_id"] == layout} == {
+            "goal",
+            "box",
+            "walk",
+        }
 
 
 def test_json_parsing_rejects_python_only_nonfinite_constants():
@@ -122,9 +131,7 @@ def test_evaluation_resume_preserves_valid_rows_and_interrupted_tail(tmp_path):
         "method": "base",
         "raw_output": '{"x":1}',
         "json_valid": True,
-        "parsed": {
-            "x": 1
-        }
+        "parsed": {"x": 1},
     }
     output.write_text(json.dumps(row) + '\n{"incomplete":', encoding="utf-8")
     assert prepare_evaluation_output(output, config, records, resume=True) == [row]
@@ -137,7 +144,7 @@ def test_evaluation_resume_preserves_valid_rows_and_interrupted_tail(tmp_path):
 
 def test_evaluation_resume_rejects_unidentified_or_mismatched_outputs(tmp_path):
     output = tmp_path / "predictions.jsonl"
-    output.write_text('{}\n', encoding="utf-8")
+    output.write_text("{}\n", encoding="utf-8")
     config = {"model": "fixed-model", "adapter": None}
     records = [dict(example("a"), record_id="a0")]
     with pytest.raises(ValueError, match="without its original configuration"):
@@ -145,3 +152,45 @@ def test_evaluation_resume_rejects_unidentified_or_mismatched_outputs(tmp_path):
     output.with_suffix(".run.json").write_text(json.dumps(config), encoding="utf-8")
     with pytest.raises(ValueError, match="ordered frozen"):
         prepare_evaluation_output(output, config, records, resume=True)
+
+
+def test_cli_dispatches_to_the_public_training_function(monkeypatch):
+    calls = []
+    monkeypatch.setattr(intent_generator_experiment, "train", calls.append)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["generator", "train", "--data", "data.jsonl", "--output", "adapter"],
+    )
+
+    intent_generator_experiment.main()
+
+    assert len(calls) == 1
+    assert calls[0].data == "data.jsonl"
+    assert calls[0].output == "adapter"
+    assert calls[0].revision == intent_generator_experiment.DEFAULT_REVISION
+
+
+def test_cli_requires_a_revision_for_a_nondefault_model(monkeypatch):
+    calls = []
+    monkeypatch.setattr(intent_generator_experiment, "train", calls.append)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generator",
+            "train",
+            "--data",
+            "data.jsonl",
+            "--output",
+            "adapter",
+            "--model",
+            "other/model",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as error:
+        intent_generator_experiment.main()
+
+    assert error.value.code == 2
+    assert not calls

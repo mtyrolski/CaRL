@@ -32,6 +32,9 @@ from carl.icl.intent_generator_experiment import validation_contexts
 from carl.icl.intent_representation_experiment import Representation
 from carl.icl.intent_representation_experiment import messages_for
 from carl.icl.intent_representation_experiment import render_representation
+from carl.icl.intents.provenance import GENERATION_COMPONENTS
+from carl.icl.intents.provenance import REPRESENTATION_COMPONENTS
+from carl.icl.intents.provenance import component_hashes
 
 
 class Mode(StrEnum):
@@ -118,8 +121,10 @@ def configuration(args: argparse.Namespace, training: list[dict[str, Any]], vali
               "train_layouts": sorted({row["layout_id"] for row in training}),
               "validation_layouts": sorted({row["layout_id"] for row in validation}),
               "protocol_sha256": file_sha256(Path(__file__).with_name("intent_representation_experiment.py")),
+              "protocol_components_sha256": component_hashes(REPRESENTATION_COMPONENTS),
               "training_code_sha256": file_sha256(__file__),
               "initialiser_code_sha256": file_sha256(Path(__file__).with_name("intent_generator_experiment.py")),
+              "generator_components_sha256": component_hashes(GENERATION_COMPONENTS),
               "dtype": args.dtype, "seed": args.seed, "threads": args.threads, "device": device,
               "rank": args.rank, "lora_alpha": 2 * args.rank, "lora_targets": ["q_proj", "v_proj"],
               "microbatch": 1, "accumulation": args.accumulation, "learning_rate": args.lr,

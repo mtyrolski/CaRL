@@ -1,9 +1,15 @@
 """A local-rule baseline sees the current board and no future demonstration."""
 
+import hashlib
 import json
+from pathlib import Path
+
+import pytest
 
 from carl.icl.intent_assessment import check_raw_prediction
 from carl.icl.intent_data import validate_prediction
+from carl.icl.intents.assessment import search
+from carl.icl.intents.generation import data as generation_data
 from scripts import generate_lora_local_rule as generator
 
 
@@ -30,6 +36,20 @@ def test_rule_receives_only_current_board_and_records_provenance(tmp_path, monke
     check_raw_prediction(row)
     assert summary["input_fields"] == ["start_observation"] and summary["model"] is None
     assert generator.generate(data, ids, output) == summary
+    assert summary["algorithm_components_sha256"]["intents/assessment/search.py"] == hashlib.sha256(
+        Path(search.__file__).read_bytes()).hexdigest()
+    assert summary["input_pipeline_components_sha256"]["intents/generation/data.py"] == hashlib.sha256(
+        Path(generation_data.__file__).read_bytes()).hexdigest()
+
+    legacy = {key: value for key, value in summary.items()
+              if key not in {"algorithm_components_sha256", "input_pipeline_components_sha256"}}
+    summary_path = output.with_suffix(".summary.json")
+    summary_path.write_text(json.dumps(legacy, ensure_ascii=False, indent=2) + "\n")
+    old_output, old_summary = output.read_bytes(), summary_path.read_bytes()
+    with pytest.raises(FileExistsError, match="code or provenance may have changed"):
+        generator.generate(data, ids, output)
+    assert output.read_bytes() == old_output
+    assert summary_path.read_bytes() == old_summary
 
 
 def test_no_available_intent_is_not_invented(tmp_path):

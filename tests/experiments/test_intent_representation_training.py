@@ -2,18 +2,24 @@
 
 import json
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
 from carl.icl.intent_generator_experiment import board_balanced
+from carl.icl.intent_generator_experiment import file_sha256
 from carl.icl.intent_representation_experiment import Representation
 from carl.icl.intent_representation_training import completion_status
+from carl.icl.intent_representation_training import configuration
 from carl.icl.intent_representation_training import encode_example
 from carl.icl.intent_representation_training import expired
 from carl.icl.intent_representation_training import save_adapter
 from carl.icl.intent_representation_training import token_lengths
 from carl.icl.intent_representation_training import train
 from carl.icl.intent_representation_training import training_splits
+from carl.icl.intents.provenance import GENERATION_COMPONENTS
+from carl.icl.intents.provenance import REPRESENTATION_COMPONENTS
+from carl.icl.intents.provenance import component_hashes
 
 
 class FakeTokenizer:
@@ -126,3 +132,25 @@ def test_missing_final_validation_is_not_reported_as_finished():
     assert completion_status(100, 100, 100) == ("finished", None)
     assert completion_status(100, 100, 80) == ("stopped", "final_validation_missing")
     assert completion_status(99, 100, 80) == ("stopped", "signal_or_deadline")
+
+
+def test_configuration_records_original_and_split_source_hashes(tmp_path):
+    model = tmp_path / "model"
+    model.mkdir()
+    for name in ("model.safetensors", "config.json", "tokenizer.json"):
+        (model / name).write_text(name)
+    (model / "experiment_revision.json").write_text(json.dumps({"revision": "fixed"}))
+    data = tmp_path / "data.jsonl"
+    data.write_text("fixture")
+    args = Namespace(mode="train", representation="json", model=str(model), revision="fixed", data=str(data),
+                     dtype="bfloat16", seed=1729, threads=2, rank=4, accumulation=4, lr=0.0002,
+                     gradient_checkpointing=True, max_steps=100, eval_every=10, max_length=512, max_new_tokens=128)
+    metadata = configuration(args, [row("t", "train", "train")], [row("v", "validation", "validation")], {}, "cpu")
+    package = Path(__file__).resolve().parents[2] / "carl" / "icl"
+    assert metadata["protocol_sha256"] == file_sha256(package / "intent_representation_experiment.py")
+    assert metadata["training_code_sha256"] == file_sha256(package / "intent_representation_training.py")
+    assert metadata["initialiser_code_sha256"] == file_sha256(package / "intent_generator_experiment.py")
+    assert metadata["protocol_components_sha256"] == component_hashes(REPRESENTATION_COMPONENTS)
+    assert metadata["generator_components_sha256"] == component_hashes(GENERATION_COMPONENTS)
+    assert {"intents/representation/formats.py", "intent_data.py"} <= metadata["protocol_components_sha256"].keys()
+    assert {"intents/generation/backend.py", "intent_augmentation.py"} <= metadata["generator_components_sha256"].keys()
