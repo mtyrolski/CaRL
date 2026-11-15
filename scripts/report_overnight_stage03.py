@@ -539,8 +539,11 @@ def report_text(history_summary: list[Record], fresh_summary: list[Record], mode
         lines.append('Checker errors: ' + json.dumps(row.get('validation_errors', []), ensure_ascii=False))
         search = row.get('bfs_search')
         if isinstance(search, dict):
-            lines.append(f"BFS expanded {search['expanded_nodes']} nodes; action path: "
-                         f"`{search.get('witness_actions')}`. This is a solver path, not a controller rollout.")
+            actions = search.get('witness_actions')
+            outcome = (f"action path: `{actions}`" if actions is not None else
+                       'no action path found within the search limit')
+            lines.append(f"BFS expanded {search['expanded_nodes']} nodes; {outcome}. "
+                         'This is a solver result, not a controller rollout.')
     lines += ['', 'The machine-readable `stage_03_mode_diagnostics.csv` additionally records ties, '
               'parseable responses without a structural signature, and the number with coordinate effects. '
               'The figure reports board-level valid-intent rates and source composition; paired bootstrap '
