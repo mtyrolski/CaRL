@@ -23,7 +23,7 @@ def notebook(run_dir: Path, root: Path = ROOT):
         import json
         from collections import Counter
         import matplotlib
-        from IPython.display import Image, Markdown, display
+        from IPython.display import HTML, Image, Markdown, display
 
         matplotlib.use('Agg', force=True)
         root = Path({str(root.resolve())!r})
@@ -177,6 +177,73 @@ def notebook(run_dir: Path, root: Path = ROOT):
                   '| powód zatrzymania:', row['stop_reason'])
             print('Akcje:', ' '.join(names[action] for action in row['actions']))
             print('Osiągnięty stan:\\n' + '\\n'.join(to_rows(state)))
+        """),
+        markdown("""
+        ## Rzeczywiste prompty dla tej pary
+
+        Poniżej są pełne, zapisane wcześniej wiadomości wejściowe pierwszego
+        wywołania Luny i Terry dla pary pokazanej wyżej. Sekcje można rozwinąć.
+        Odczytujemy pole `request.payload.input` z oryginalnego cache; nie
+        rekonstruujemy promptów i nie wysyłamy nowych zapytań. Wcześniejsze
+        przykłady, role wiadomości oraz dwie plansze są częścią tych danych.
+
+        Każdy kolejny krok mógł mieć inne wejście i osobny zapis w śladzie;
+        nie należy traktować pierwszego promptu jako całej historii próby.
+        CLLP otrzymuje tokeny dwóch pełnych plansz, a nie prompt tekstowy.
+        Temperatura losowania **akcji** wynosiła 1; temperatura generowania
+        tekstu przez usługę nie była jawnie ustawiona w tych żądaniach.
+        """),
+        code("""
+        import hashlib
+        from html import escape
+        from carl.icl.reachability_data import canonical_bytes
+
+        pilot = root / 'analysis/icl_reachability/figure1_proposal_hard_recovery_v5'
+        pilot_rows = read_csv(pilot / 'pilot20_export/trials.csv')
+        manifest = read_json(pilot / 'campaign/study_12/manifest.json')
+        for arm, label in (('luna', 'Luna'), ('terra_6_1', 'Terra')):
+            matches = [row for row in pilot_rows if row['family'] == '12' and row['arm'] == arm
+                       and row['context'] == example['context_id'] and row['k'] == example['k']]
+            if len(matches) != 1:
+                raise RuntimeError(f'Brak jednoznacznego historycznego śladu: {arm}')
+            record = matches[0]
+            trace_path = Path(record['trace_path'])
+            trace = read_json(trace_path if trace_path.is_absolute() else root / trace_path)
+            identity = trace['identity']
+            for key, value in (('key', record['trial_key']), ('arm', arm), ('pair', example['pair_id']),
+                               ('context', example['context_id']), ('layout', example['layout_id']),
+                               ('source_hash', example['source_hash']), ('target_hash', example['target_hash']),
+                               ('k', int(example['k']))):
+                if identity[key] != value:
+                    raise RuntimeError(f'Niezgodna para lub ślad {arm}: {key}')
+            first = trace['requests'][0]
+            if first['step'] != 0:
+                raise RuntimeError(f'Pierwsze wywołanie nie dotyczy kroku 0: {arm}')
+            request_hash = first['request_hash']
+            cache_path = pilot / 'campaign/cache_12/live' / f'{request_hash}.json'
+            cached = read_json(cache_path)
+            request = cached['request']
+            if hashlib.sha256(canonical_bytes(request)).hexdigest() != request_hash:
+                raise RuntimeError(f'Hash zapisanego żądania nie pasuje do śladu: {arm}')
+            payload = request['payload']
+            if (trace['status'] != 'complete' or cached['status'] != 'completed'
+                    or payload['model'] != identity['model'] or cached['requested_model'] != identity['model']
+                    or cached['model'] != first['returned_model'] or request['slot'] != first['slot']):
+                raise RuntimeError(f'Niezgodny model lub slot zapisanego wywołania: {arm}')
+            config = manifest['study']['arms'][arm]
+            print(label, '| para:', identity['pair'], '| request hash:', request_hash)
+            print('Model żądany:', payload['model'], '| zwrócony:', cached['model'],
+                  '| liczba przykładów:', manifest['study']['few_shot'],
+                  '| temperatura akcji:', manifest['study']['policy_temperature'])
+            print('Temperatura tekstu:', payload.get('temperature', 'nie ustawiono'),
+                  '| reasoning:', payload.get('reasoning'), '| max_output_tokens:', payload['max_output_tokens'],
+                  '| format:', payload['text']['format'], '| liczba zapisanych wywołań w śladzie:',
+                  len(trace['requests']))
+            print('Zamrożony profil modelu:', config['model_id'], '| źródło:', cache_path)
+            messages = json.dumps(payload['input'], ensure_ascii=False, indent=2)
+            display(HTML(f'<details><summary>Pełne zapisane request.payload.input — {escape(label)}</summary>'
+                         '<pre style="white-space:pre-wrap;max-height:36em;overflow:auto">'
+                         + escape(messages) + '</pre></details>'))
         """),
         markdown("""
         ## Kontrola śladów i pochodzenie
