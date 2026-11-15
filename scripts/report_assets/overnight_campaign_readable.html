@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Policy-relative intents: an annotated guide to the Sokoban experiments</title>
+<style>
+  :root { color-scheme: light; --ink:#172b38; --muted:#4b606d; --line:#d4dedf; --blue:#1e5367;
+          --pale:#eef5f3; --paper:#fbfcfa; --warm:#fcf7ed; }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:#f1f4f1; color:var(--ink); font:17px/1.65 Georgia, "Times New Roman", serif; }
+  a { color:#145a75; text-decoration-thickness:1px; text-underline-offset:3px; }
+  a:focus-visible, summary:focus-visible { outline:3px solid #c47e28; outline-offset:3px; }
+  .page { max-width:1510px; margin:auto; display:-webkit-box; display:flex; display:grid;
+          grid-template-columns:265px minmax(0,1fr); }
+  nav { position:sticky; top:0; width:265px; flex:0 0 265px; height:100vh; overflow-y:auto; padding:44px 25px 35px 32px;
+        border-right:1px solid var(--line); font:14px/1.5 Arial, sans-serif; }
+  nav .nav-title { font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); font-size:11px; }
+  nav a { display:block; padding:7px 0; text-decoration:none; }
+  main { background:var(--paper); min-width:0; -webkit-box-flex:1; flex:1; padding:70px 70px 100px;
+         padding:70px clamp(24px, 6vw, 90px) 100px; }
+  article { max-width:1000px; margin:auto; }
+  h1,h2,h3,h4 { line-height:1.2; letter-spacing:-.025em; color:#102b3a; }
+  h1 { font-size:55px; font-size:clamp(37px,5vw,59px); max-width:820px; margin:12px 0 22px; }
+  h2 { font-size:36px; font-size:clamp(29px,3vw,39px); margin:0 0 18px; }
+  h3 { font-size:24px; margin:39px 0 12px; }
+  h4 { font-size:19px; margin:26px 0 8px; }
+  p { max-width:78ch; margin:0 0 17px; }
+  .eyebrow,.kicker { color:var(--blue); text-transform:uppercase; font:700 12px/1.4 Arial,sans-serif; letter-spacing:.12em; }
+  .lead { color:#344f5a; font-size:21px; line-height:1.55; max-width:70ch; }
+  .meta { color:var(--muted); font:13px/1.6 Arial,sans-serif; margin:24px 0 0; }
+  .hero { padding-bottom:42px; border-bottom:2px solid #adc2c1; }
+  section { scroll-margin-top:30px; padding-top:59px; }
+  .section-number { display:block; color:var(--blue); font:700 12px Arial,sans-serif; letter-spacing:.11em;
+                    text-transform:uppercase; margin-bottom:12px; }
+  .callout { margin:25px 0; padding:20px 24px; background:var(--pale); border-left:4px solid #508c89; }
+  .callout.warning { background:var(--warm); border-color:#c59047; }
+  .callout p:last-child { margin-bottom:0; }
+  .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:25px 0; }
+  .card { padding:20px; background:#f4f7f5; border:1px solid #d9e4df; }
+  .card strong { display:block; font-size:20px; margin-bottom:7px; }
+  .card p { font-size:15px; line-height:1.52; margin:0; }
+  .flow { display:flex; flex-wrap:wrap; gap:8px; margin:25px 0; align-items:center; font:14px/1.4 Arial,sans-serif; }
+  .flow span { border:1px solid #cbd9d7; background:#f6faf8; padding:10px 13px; }
+  .flow b { color:#68868b; }
+  .table-wrap { max-width:100%; overflow-x:auto; margin:20px 0 26px; border-top:1px solid #b8c9c8; }
+  table.data { border-collapse:collapse; width:100%; font:15px/1.5 Arial,sans-serif; text-align:left; }
+  table.data th, table.data td { padding:12px 11px; border-bottom:1px solid #dbe4e2; vertical-align:top; }
+  table.data thead th { color:#274b59; background:#edf4f2; font-size:13px; }
+  table.data th[scope=row] { min-width:110px; }
+  table.data pre { min-width:220px; margin:0; font-size:12px; }
+  .caption,figcaption,.small { color:var(--muted); font:14px/1.55 Arial,sans-serif; }
+  .caption { margin-top:-12px; }
+  figure { margin:32px 0; }
+  figure img { display:block; width:100%; height:auto; border:1px solid #e0e6e2; background:white; }
+  figcaption { margin-top:12px; }
+  .boards { display:flex; flex-wrap:wrap; align-items:flex-start; gap:22px; margin:20px 0 25px; }
+  .board-panel { min-width:0; }
+  .board-panel h4 { margin:0 0 11px; }
+  table.board { border-collapse:separate; border-spacing:1px; margin:0; font:12px/1 Arial,sans-serif; }
+  .board th { width:22px; height:22px; text-align:center; color:#5f727c; font-weight:400; }
+  .board td { width:22px; height:22px; text-align:center; font:16px/1 Arial,sans-serif; }
+  .tile.wall { background:#334653; }
+  .tile.floor { background:#eff2ed; }
+  .tile.goal { background:#ebf1e3; color:#637d3e; font-weight:bold; }
+  .tile.box { background:#f0dcb1; color:#82500d; }
+  .tile.box-goal { background:#d6e8b9; color:#536d27; }
+  .tile.player { background:#cce2ef; color:#19567d; }
+  .tile.player-goal { background:#cce4d5; color:#19567d; }
+  .tile.target { outline:2px solid #c46d16; outline-offset:-2px; }
+  .legend { display:flex; gap:9px 20px; flex-wrap:wrap; font:13px Arial,sans-serif; color:#405763; margin:8px 0 20px; }
+  .legend span { white-space:nowrap; }
+  .legend i { display:inline-block; width:15px; height:15px; margin-right:6px; vertical-align:-2px; border:1px solid #aab7b5; }
+  .legend .wall { background:#334653; }.legend .goal { background:#ebf1e3; }.legend .box { background:#f0dcb1; }
+  .legend .player { background:#cce2ef; }.legend .target { border:2px solid #c46d16; }
+  pre { padding:15px 17px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f2f5f3;
+        border:1px solid #dbe4de; font:13px/1.55 ui-monospace,Consolas,monospace; color:#183641; }
+  code { font-family:ui-monospace,Consolas,monospace; font-size:.91em; }
+  pre code { font-size:inherit; }
+  details { margin:17px 0; border:1px solid #ccdad6; background:white; }
+  summary { cursor:pointer; padding:14px 18px; color:#194d60; font:700 15px/1.45 Arial,sans-serif; }
+  .details-content { padding:0 18px 18px; }
+  .prompt-role { margin:18px 0 3px; font:700 12px/1.4 Arial,sans-serif; text-transform:uppercase; color:#4b6874; }
+  .prompt-role + pre { margin-top:5px; }
+  .math { font-size:18px; overflow-x:auto; white-space:nowrap; padding:14px 0; }
+  .source { border-top:1px solid #d5dfdc; margin-top:38px; padding-top:18px; color:var(--muted); font:14px/1.6 Arial,sans-serif; }
+  .tight li { margin:8px 0; }
+  .compact-code { font-size:13px; }
+  @media(max-width:900px) { .page { display:block; } nav { position:static; width:auto; height:auto; padding:20px 24px;
+       border-right:0; border-bottom:1px solid var(--line); } nav a { display:inline-block; margin-right:15px; }
+       main { padding-top:42px; } .cards { grid-template-columns:1fr; } }
+  @media print { body,main { background:white; } .page { display:block; } nav { display:none; } main { padding:0; }
+       section { break-inside:auto; } details { display:block; } }
+</style>
+</head>
+<body><div class="page">
+<nav aria-label="Contents">
+<div class="nav-title">Contents</div>
+<a href="#overview">Overview and scope</a>
+<a href="#vocabulary">The intent vocabulary</a>
+<a href="#data">Boards and annotations</a>
+<a href="#examples">What models actually proposed</a>
+<a href="#prompts">Complete prompt templates</a>
+<a href="#controllers">Full-state controller</a>
+<a href="#scale">Relative temporal scale</a>
+<a href="#grounding">Does Qwen use the board?</a>
+<a href="#lora">LoRA and augmentation</a>
+<a href="#planning">Complete-puzzle baselines</a>
+<a href="#earlier">Earlier experiments</a>
+<a href="#conclusions">Conclusions and evidence</a>
+</nav>
+<main><article>
+<header class="hero" id="overview">
+<div class="eyebrow">CaRL · Sokoban · explanatory research report</div>
+<h1>Learning policy-relative intents: what the experiments actually show</h1>
+<p class="lead">A guided account of the five-stage local campaign, with the actual boards, intent formats, model outputs and prompts needed to interpret its results.</p>
+<p class="meta">Campaign: 15 November 2026 · Exploratory evaluation · Proposal source: <a href="@@PROPOSAL_LINK@@">15 November pre-second-review ZIP</a> · <a href="OVERNIGHT_REPORT_compact_original.html">Original compact report</a></p>
+</header>
+
+<section>
+<span class="section-number">Reading guide</span>
+<h2>The main distinction</h2>
+<p>The proposal studies an <strong>intent generator</strong> that requests an intermediate outcome from a fixed <strong>controller</strong>. The interesting question is whether controller measurements help the generator select requests, and whether a relative temporal scale adds value beyond simpler alternatives.</p>
+<p>The campaign contains useful pieces of that question, but it does not yet join them into the proposed system. Qwen generated structured intents and was checked with a local solver. Separately, older full-state controllers and planners were evaluated using complete target boards.</p>
+<div class="cards">
+<div class="card"><strong>1 · An intent</strong><p>“Put a box at row 2, column 4”, possibly together with other desired conditions and conditions to preserve.</p></div>
+<div class="card"><strong>2 · A controller</strong><p>Acts for a request. The CLLP in these experiments receives an entire target board; it is not an intent-conditioned controller.</p></div>
+<div class="card"><strong>3 · A planner</strong><p>Combines intermediate requests. The complete-task comparison uses older full-state AdaSubS, not the proposal’s learnt relative-scale planner.</p></div>
+</div>
+<div class="callout warning"><p><strong>What is still open:</strong> these results do not establish that controller-conditioned training, relative scale <em>u</em>, or predicate intents improve complete-task planning. The evaluation boards were previously inspected, and the earlier checkpoints’ training exposure is unknown.</p></div>
+<p>The report follows the terminology in the latest proposal. <em>Intent</em> is the structured request; its desired effects and any preservation conditions are parts of that intent. A demonstration offset <em>k</em>, the controller’s measured duration <em>d</em>, and the relative scale <em>u</em> are three different quantities.</p>
+</section>
+
+<section id="vocabulary">
+<span class="section-number">01 · Representation</span>
+<h2>What does an intent look like?</h2>
+<p>The Sokoban implementation represents one intent as a JSON object with an array of desired effects, an array of preservation conditions and an optional instruction. The controller is supposed to achieve the requested effects <em>together</em>, while preserving any conditions throughout the attempt. There is no persistent box identity: <code>box_at</code> means that any box occupies the tile.</p>
+<div class="table-wrap"><table class="data"><thead><tr><th>Field or predicate</th><th>Meaning</th><th>Example</th></tr></thead><tbody>
+<tr><th scope="row"><code>effects</code></th><td>Non-empty array of desired predicates. Every desired predicate must initially be false for this experiment’s non-triviality check.</td><td><code>[{…}, {…}]</code> requests both at once.</td></tr>
+<tr><th scope="row"><code>box_at</code></th><td>Any box occupies the specified tile.</td><td><code>{"predicate":"box_at","row":2,"col":4}</code></td></tr>
+<tr><th scope="row"><code>player_at</code></th><td>The player occupies the specified tile.</td><td><code>{"predicate":"player_at","row":3,"col":5}</code></td></tr>
+<tr><th scope="row"><code>boxes_on_goals_at_least</code></th><td>At least the specified number of boxes simultaneously occupy goal tiles.</td><td><code>{"predicate":"boxes_on_goals_at_least","count":2}</code></td></tr>
+<tr><th scope="row"><code>preserve</code></th><td>Conditions that must remain true; an empty array is legitimate. The demonstration checker verifies them over the recorded fragment.</td><td><code>[]</code></td></tr>
+<tr><th scope="row"><code>instruction</code></th><td>Optional natural-language rendering. In many saved examples it is <code>null</code>.</td><td><code>null</code></td></tr>
+</tbody></table></div>
+<p>Coordinates are <strong>zero-based</strong>: row counts from the top, column from the left. A box on a goal still satisfies <code>box_at</code>. A valid JSON object may nevertheless be invalid as an intent: a coordinate can be a wall, a requested count can exceed the number of boxes, or an effect can already hold.</p>
+<div class="callout"><p><strong>Three different outcomes.</strong> <em>Valid</em> means the syntax and initial predicate checks pass. <em>Path found by bounded search</em> means a separate solver found and replayed a sequence satisfying the intent within its limits. <em>Controller achievement</em> means the fixed controller itself achieved the intent. These are not interchangeable, and none alone means that the whole puzzle was solved.</p></div>
+</section>
+
+<section id="data">
+<span class="section-number">02 · Data</span>
+<h2>Where the training intents came from</h2>
+<p>A recorded trajectory is a sequence of observations and primitive actions. For annotation, the pipeline compares an initial observation with a later one and constructs predicates that were false before and true afterwards. It checks the recorded fragment and retains provenance. The later observation and recorded actions are evidence used for annotation: <strong>they are not inputs to the generator at test time.</strong></p>
+<p>The examples below are actual records, selected in file order to illustrate one single-predicate intent and one conjunction. They are not estimates of how frequently a model succeeds.</p>
+<div class="legend" aria-label="Board legend"><span><i class="wall"></i>wall</span><span><i class="goal"></i>○ goal</span><span><i class="box"></i>■ box</span><span><i class="box"></i>◆ box on goal</span><span><i class="player"></i>● player</span><span><i class="target"></i>requested tile</span></div>
+<h3>One box at a particular tile</h3>
+<p>The orange outline marks row 6, column 3. Initially it is empty; the later observation has a box there. The saved fragment contains @@SINGLE_K@@ primitive actions: @@SINGLE_ACTIONS@@. This is a recorded demonstration, not a rollout by the Qwen or CLLP controller.</p>
+<div class="boards"><div class="board-panel"><h4>Initial observation</h4>@@SINGLE_START@@</div><div class="board-panel"><h4>Recorded later observation</h4>@@SINGLE_LATER@@</div></div>
+@@SINGLE_INTENT@@
+<p class="small">Training record <code>@@SINGLE_RECORD@@</code> · exact local trajectory difference · preservation array empty.</p>
+<h3>A conjunction</h3>
+<p>Here the intent requests a box at row 2, column 9 <em>and</em> at least two boxes on goals. Initially one box is on a goal and the outlined target is empty. After the recorded @@COMBINED_K@@ actions both conditions hold simultaneously. Satisfying just one would not satisfy the complete intent.</p>
+<div class="boards"><div class="board-panel"><h4>Initial observation</h4>@@COMBINED_START@@</div><div class="board-panel"><h4>Recorded later observation</h4>@@COMBINED_LATER@@</div></div>
+@@COMBINED_INTENT@@
+<p class="small">Training record <code>@@COMBINED_RECORD@@</code> · exact local trajectory difference · preservation array empty.</p>
+<h3>What is an independent board?</h3>
+<p>A <strong>layout</strong> describes the fixed walls and goal positions. A trajectory through one layout can supply many overlapping fragments. Rotating or reflecting it creates another view, not a new independent puzzle. The campaign groups layouts and their symmetries before assigning splits; uncertainty is calculated over original boards, not over fragments or transformed views.</p>
+<p>For example, the initial 14 November generator study had 100 test contexts from 20 boards. That means five contexts per board on average, not 100 unrelated puzzles. In the newer LoRA study, NARROW used 256 training examples from 9 layouts; WIDE used 256 from 64 layouts. Its validation set had 100 examples from 10 separate layouts. The evaluation used 24 original boards per family, each also examined in two transformed orientations.</p>
+<p>The 4-box evaluation boards come from RL validation data; the 10-box set mixes gamma2 and reverse-generated sources. These sources differ in more than box count. Their comparison is therefore not an isolated measurement of the effect of adding boxes. The reported validation/test roles describe the campaign’s split; old-model pretraining exposure cannot be verified.</p>
+</section>
+
+<section id="examples">
+<span class="section-number">03 · Actual model outputs</span>
+<h2>Different answers for the same board</h2>
+<p>The following board was the first preselected 4-box evaluation layout. The models receive this current board and the task “Put every box on a goal.” Each row shows the saved raw answer, the same semantic check, and the subsequent solver result when applicable. One complete Markdown fence was removed consistently before parsing; raw answers below are unchanged.</p>
+<div class="boards"><div class="board-panel"><h4>Current 4-box board</h4>@@X4_BOARD@@</div><div class="board-panel"><h4>One state reached by bounded search</h4>@@X4_REACHED@@</div></div>
+<p>The outlined tile is row 2, column 4. The earlier LoRA requested a box there. The solver found a sequence of 10 primitive actions after expanding 680 nodes: @@X4_ACTIONS@@. The second board is the resulting state from that solver, not a controller execution or a completed puzzle.</p>
+<div class="table-wrap"><table class="data"><thead><tr><th>Generator</th><th>Actual response</th><th>Initial check</th><th>Bounded search</th></tr></thead><tbody>@@X4_TABLE@@</tbody></table></div>
+<p>For example, WIDE requested both <code>box_at(1,3)</code> and at least two boxes on goals. Its request passes initial checks, but search exhausted its node limit. That is <em>unresolved</em>, not proof that the request is impossible. WIDE + D4 asked for a box on a wall, so its intent was rejected before search.</p>
+<details><summary>A second example: the first 10-box evaluation board and all saved answers</summary><div class="details-content">
+<p>This board comes from the gamma2 source. Its selection was based on the frozen board order, not on model outcomes.</p><div class="boards"><div class="board-panel">@@X10_BOARD@@</div></div>
+<div class="table-wrap"><table class="data"><thead><tr><th>Generator</th><th>Actual response</th><th>Initial check</th><th>Bounded search</th></tr></thead><tbody>@@X10_TABLE@@</tbody></table></div>
+<p class="small">Layout ID: <code>@@X10_LAYOUT@@</code></p></div></details>
+<p class="small">4-box layout ID: <code>@@X4_LAYOUT@@</code>. The complete examples and search traces are in <a href="stage_04_examples.json">stage_04_examples.json</a>.</p>
+</section>
+
+<section id="prompts">
+<span class="section-number">04 · Prompt templates</span>
+<h2>What each Qwen model was actually shown</h2>
+<p>The base model and LoRA models used the same system message and current-board user message for a given evaluation case. LoRA changes model weights; it does not add a demonstrated future board to the prompt. The task is to return a single JSON intent. The next block is copied from a saved WIDE evaluation case on the 4-box board above, including the exact system and user messages.</p>
+<details open><summary>Base / LoRA: complete saved messages and actual answer</summary><div class="details-content">
+@@PROMPT_MESSAGES@@
+<div class="prompt-role">actual WIDE response</div>@@PROMPT_OUTPUT@@
+<p class="small">Saved rendered-prompt SHA-256: <code>@@PROMPT_HASH@@</code>.</p>
+<details><summary>Exact rendered Qwen chat template, including special markers</summary><div class="details-content">@@PROMPT_RENDERED@@</div></details>
+</div></details>
+<h3>What supervised LoRA training sees</h3>
+<p>For training, the same system message is combined with a current-board user message and the checked intent is appended as the target assistant response. The later observation establishes the label but is not serialised into the input. Loss is applied to the response tokens only; a full example that exceeds the configured length is rejected rather than silently truncated. The following user message and target come from the first training example illustrated above.</p>
+<details><summary>Training example: full current-board message and target response</summary><div class="details-content">
+<div class="prompt-role">user · same system message as above</div>@@TRAIN_USER@@
+<div class="prompt-role">target assistant response · from the checked intent</div>@@TRAIN_TARGET@@
+<p class="small">The target is appended using the model’s chat/tokenizer convention. It is not an extra ICL example in the test prompt.</p></div></details>
+<h3>In-context learning: two demonstrations in the prompt</h3>
+<p>In-context learning (ICL) leaves the base weights unchanged and adds two fixed example conversations before the current query. Each example contains its own board and an example intent. They are support examples, not the future state of the queried puzzle. Below is the complete saved ICL prompt for a 10-box evaluation case, followed by its actual response. The examples can influence the model’s chosen coordinates or request types; this is one reason they must be visible when interpreting the results.</p>
+<details><summary>ICL: complete system message, two examples, query and answer</summary><div class="details-content">
+@@ICL_MESSAGES@@
+<div class="prompt-role">actual ICL response</div>@@ICL_OUTPUT@@
+<p class="small">Saved rendered-prompt SHA-256: <code>@@ICL_HASH@@</code>.</p>
+<details><summary>Exact rendered Qwen chat template</summary><div class="details-content">@@ICL_RENDERED@@</div></details>
+</div></details>
+<p>The Qwen3-0.6B revision was <code>c1899de289a04d12100db370d81485cdf75e47ca</code>. Stage 4 used greedy CPU inference, FP32 and a maximum output length under the frozen evaluation contract. Non-thinking mode is reflected in the rendered template. The saved prompt contains only current-state information and, for ICL, the fixed support examples.</p>
+<p>CLLP and the older state generators are different models with tokenised board inputs, not natural-language prompt templates. CLLP receives the current board <em>and a complete target board</em> (291 input tokens per call in this setup); the direct policy receives only the current board (146 tokens). These are not Qwen predicate intents disguised as target boards.</p>
+<p class="source">All saved prompts: <a href="stage_04/evaluation/prompts.jsonl">stage 4 prompts</a> · <a href="stage_03/fresh_evaluation/prompts.jsonl">stage 3 prompts, including ICL</a> · <a href="stage_04/evaluation/predictions.jsonl">raw stage 4 outputs</a>.</p>
+</section>
+
+<section id="controllers">
+<span class="section-number">05 · Stage 1</span>
+<h2>Can a frozen controller reach a demonstrated target board?</h2>
+<p>For each selected trajectory context, the experiment supplied CLLP with the current board and a <em>complete board</em> recorded <em>k</em> primitive actions later. It then allowed at most 32 controller actions and recorded whether the exact target board was reached. The target board came from the demonstration and was explicitly provided to CLLP. A push is one kind of primitive action; <em>k</em> is not a push count, a shortest-path distance or the proposal’s relative scale.</p>
+<p>The campaign completed 11,760/11,760 planned trials across five CLLP checkpoints and the separate direct policy. The selected results below concern CLLP-8 and CLLP-32. A trajectory too short to provide a given offset is absent from that offset’s denominator, not counted as a failure.</p>
+<div class="table-wrap"><table class="data"><thead><tr><th>Family</th><th>Target offset</th><th>CLLP-8 target reached</th><th>CLLP-32 target reached</th></tr></thead><tbody>
+<tr><td>12×12×4</td><td>16 actions</td><td>163/205</td><td>158/205</td></tr><tr><td>12×12×4</td><td>32 actions</td><td>50/183</td><td>54/183</td></tr>
+<tr><td>12×12×10</td><td>16 actions</td><td>84/99</td><td>60/99</td></tr><tr><td>12×12×10</td><td>32 actions</td><td>49/100</td><td>28/100</td></tr>
+</tbody></table></div>
+<figure><img src="stage_01/assessment/frozen_policy_reachability.png" alt="Full-state target reachability of frozen controllers across demonstration offsets"><figcaption>Frozen full-state controllers on recorded target boards. The outcomes are target-board hits, not complete-puzzle success. <a href="stage_01/assessment/summary.csv">Underlying data</a> · <a href="stage_01/assessment/frozen_policy_reachability.svg">Vector figure</a>.</figcaption></figure>
+<p>The longer targets are harder in these samples, and the two controllers do not behave identically. The observed 4-box versus 10-box difference also reflects different board sources, so it should not be attributed to box count alone. <a href="stage_01_report.md">Full stage 1 methods and measurements</a>.</p>
+</section>
+
+<section id="scale">
+<span class="section-number">06 · Stage 2</span>
+<h2>What is policy-relative temporal scale?</h2>
+<p>The proposal defines scale within a single context: start from the same restored state and controller memory, try several candidate intents, and describe their durations relative to the other successful candidates in that context. It is an empirical property of this controller, candidate pool and action limit, not an intrinsic label attached to a board or a synonym for demonstration offset.</p>
+<div class="flow"><span>Same context, candidate intents</span><b>→</b><span>Controller attempts</span><b>→</b><span>Success fractions p and durations d</span><b>→</b><span>Weighted relative scale u</span></div>
+<p>For candidate <em>j</em>, let <em>p<sub>j</sub></em> be its observed success fraction and <em>d<sub>j</sub></em> the mean number of actions on successful attempts. For candidates with at least one success, weights are proportional to <em>p<sub>j</sub></em>. Their weighted duration distribution gives the midpoint percentile, including ties:</p>
+<div class="math"><em>w</em><sub>j</sub> = <em>p</em><sub>j</sub> / Σ<sub>k</sub> <em>p</em><sub>k</sub>;&nbsp; <em>F</em><sub>c</sub>(<em>t</em>) = Σ<sub>j</sub> <em>w</em><sub>j</sub> 1[<em>d</em><sub>j</sub> ≤ <em>t</em>];&nbsp; <em>u</em><sub>j</sub> = [<em>F</em><sub>c</sub>(<em>d</em><sub>j</sub><sup>−</sup>) + <em>F</em><sub>c</sub>(<em>d</em><sub>j</sub>)] / 2.</div>
+<p>As a hypothetical illustration, three equally reliable candidates with successful durations 2, 8 and 12 actions receive scales 1/6, 1/2 and 5/6. If two durations tie, they receive the same midpoint. A candidate with no success gets no duration or scale label; its failed attempts still count in reliability and cost. One successful candidate alone gives <em>u</em> = 0.5 and cannot establish a short-versus-long distinction.</p>
+<div class="callout warning"><p><strong>What was actually measured here:</strong> stage 2 used complete target boards with the frozen CLLP, not predicate intents with an intent-conditioned controller. It computed analogous profiles to investigate the measurement, not to train or evaluate the proposal’s scale-conditioned generator.</p></div>
+<p>There were 8,576 evaluation attempts and 438 training-role attempts. Of the evaluation attempts, 950 did not reach their target within 32 actions. On the narrower subset of demonstration targets reached by <em>both</em> controllers, ranks based on measured duration and demonstration offset were very close: mean absolute differences were 0.003–0.005 across the four family/controller combinations. Strict inversions ranged from 2/894 to 10/2,035 comparable pairs.</p>
+<p>That near-agreement is conditional on controller-selected successes. It does not say that failures carry no information, nor that the same agreement holds for arbitrary generated intents. Changing the candidate pool or action limit also changed the empirical scales. With deterministic CLLP and one attempt per candidate, observed success is a hit or miss, not a precise estimate of stochastic reliability.</p>
+<figure><img src="stage_02/analysis_evaluation/pool_budget_sensitivity.png" alt="Sensitivity of empirical controller scale to candidate pool and action budget"><figcaption>Changing the candidate pool and action budget changes the measured profile. <a href="stage_02/analysis_evaluation/sensitivity_summary.csv">Underlying sensitivity measurements</a> · <a href="stage_02_report.md">Full stage 2 report</a>.</figcaption></figure>
+</section>
+
+<section id="grounding">
+<span class="section-number">07 · Stage 3</span>
+<h2>Does Qwen use the current board?</h2>
+<p>The concern was that a model might output a familiar coordinate regardless of the current state. Two checks probe that association. First, saved intents were reassigned to other boards within the same source family; this preserves the frequency of model outputs while changing which board they accompany. Second, the same layouts were rotated or reflected and the generated coordinates mapped back. Many different intents can be valid on one board, so disagreement after transformation is a diagnostic rather than proof that the model has no understanding of the state.</p>
+<p>Fresh generation produced 432/432 planned responses across 48 original boards, three orientations and three methods. On the 24 original 4-box boards, the earlier LoRA produced 17 valid intents in the original orientation, 10 after rotation and 5 after reflection. These are paired views of the same layouts, not 72 independent boards.</p>
+<p>On those same 4-box boards, the earlier LoRA’s original outputs were valid in 17/24 cases. After reassigning them to other boards in the same source, 24/72 checks were valid across three fixed permutations of those same 24 layouts. This decrease is consistent with some dependence on the paired board in this cohort. The 72 checks reuse the original responses and are not 72 new model calls or independent boards. Results differ by source: for example, on the 12 gamma2 10-box boards the corresponding counts were 9/12 original and 23/36 permuted. These observations do not by themselves establish useful planning.</p>
+<p>The two-example ICL run on the 24 mixed-source 10-box boards produced 24/24 valid non-trivial intents, but all 24 requested the entire puzzle goal. Bounded BFS found a path for 0/24 under its fixed limit. A syntactically valid request can thus be too broad for the intended intermediate role; a cutoff remains unresolved.</p>
+<figure><img src="stage_03_figure.png" alt="Board-conditioning and source-composition diagnostics for Qwen generators"><figcaption>Board-conditioning diagnostic. The exact matching after rotation is only one possible response among many reasonable intents. <a href="stage_03_figure_data.csv">Underlying data</a> · <a href="stage_03_report.md">Full stage 3 report</a>.</figcaption></figure>
+</section>
+
+<section id="lora">
+<span class="section-number">08 · Stage 4</span>
+<h2>More layouts and coordinate transformations</h2>
+<p>All new adapters start from the same Qwen3-0.6B and use the same training seed, LoRA setup, update budget and validation procedure. They were trained on checked 4-box demonstration annotations, not controller outcomes. <strong>NARROW</strong> uses 256 examples from 9 layouts. <strong>WIDE</strong> uses 256 examples from 64 layouts. <strong>WIDE + D4</strong> uses the same original examples as WIDE, with board and intent rotated or reflected consistently during training.</p>
+<p>The models completed 150 updates; validation selected step 100 for NARROW and step 150 for WIDE and WIDE + D4. These are one-seed pilots. NARROW and WIDE share only 19 record IDs, so their comparison changes examples as well as layout count. The historical LoRA is useful context but was not trained under the matched new protocol.</p>
+<p>The new adapters used rank-4 LoRA on the attention <code>q_proj</code> and <code>v_proj</code> modules, learning rate 0.0002, microbatch 1 and gradient accumulation 4. Fitting used the local RTX 3050 Ti laptop GPU in BF16; evaluation used the CPU. No low-level controller was retrained.</p>
+<h3>Results on original orientations</h3>
+<p>Each method produced one output per board. “Valid” requires a parseable, non-trivial intent. “Path found” means the separate bounded solver found a sequence, with a limit of 16 primitive actions, 2,500 expanded nodes and a five-second safety timeout. Invalid outputs stay in the denominator.</p>
+<div class="table-wrap"><table class="data"><thead><tr><th>Family</th><th>Generator</th><th>Valid intents / requested</th><th>Solver paths / requested</th></tr></thead><tbody>@@GENERATOR_ROWS@@</tbody></table></div>
+<p>For example, 14/24 valid for WIDE means 14 of its 24 proposed intents passed the initial checks; it does not mean that 14 puzzles were solved. Of its 24 4-box requests, bounded search found paths for 13. A generator can improve this number by proposing easier intents, so the result does not by itself measure task progress.</p>
+<p>Adding D4 transformations produced more conjunctions, but every parseable WIDE + D4 output still contained a <code>box_at</code> predicate. On 4-box boards, WIDE versus WIDE + D4 produced a single <code>box_at</code> in 22/24 versus 15/24 outputs; on 10-box boards the counts were 24/24 versus 11/24. Some added predicates were already true initially, making the conjunction invalid under the experiment’s rule: 5/9 augmented conjunctions on 4-box and 8/13 on 10-box boards. Validity intervals for WIDE + D4 minus WIDE included zero in both families.</p>
+<figure><img src="stage_04_figure.png" alt="Intent validity and bounded-solver paths for five generators under original and transformed boards"><figcaption>Top: valid intents; bottom: paths found by bounded BFS. Colours indicate orientation and whiskers show 95% board-bootstrap intervals. <a href="stage_04_figure_data.csv">Underlying data</a> · <a href="stage_04_figure.svg">Vector figure</a>.</figcaption></figure>
+<figure><img src="stage_04_training.png" alt="Training and validation losses for three LoRA adapters"><figcaption>Training and validation losses, with validation-selected checkpoints. A lower loss is not itself evidence of more useful planning. <a href="stage_04_report.md">Full stage 4 report and training data audit</a>.</figcaption></figure>
+</section>
+
+<section id="planning">
+<span class="section-number">09 · Stage 5</span>
+<h2>Can existing components solve complete puzzles?</h2>
+<p>This experiment begins from full puzzle starts, rather than intermediate demonstration fragments. It compares existing full-state components under the same per-board cap of 512 simulator transitions and 180 seconds. Each of the 20 selected boards per family was paired across all four methods. The direct policy receives the current board only. AdaSubS and fixed-<em>k</em> kSubS propose complete target boards and use the same frozen CLLP and value model; primitive A* is a secondary baseline.</p>
+<div class="table-wrap"><table class="data"><thead><tr><th>Family</th><th>Method</th><th>Full puzzles solved / 20</th><th>Timeouts</th><th>Total transitions</th><th>Generator calls</th></tr></thead><tbody>@@PLANNER_ROWS@@</tbody></table></div>
+<p>On the 20 ten-box boards, AdaSubS solved 18 and fixed-<em>k</em> kSubS solved 7. The paired difference is +55 percentage points, with a 95% board-bootstrap interval of +35 to +75 points for this exploratory cohort. AdaSubS used 5,456 transitions and 369 generator calls across the 20 boards; kSubS used 2,977 transitions and 179 calls. Equal transition caps do not equalise neural computation. The saved comparison includes two kSubS timeouts.</p>
+<p>To show where work went, AdaSubS proposed 1,476 target boards on the ten-box set, of which 936 passed target validation. Its CLLP reached 613 targets in 753 completed controller attempts; 84 no-ops were recorded. Fixed-<em>k</em> kSubS had 505 valid targets among 716 proposals, 326 hits among 400 completed attempts and 46 no-ops. These denominators differ because invalid targets are not controller attempts, and truncated attempts are not completed attempts.</p>
+<p>The ten-box source breakdown also matters: AdaSubS solved 8/10 gamma2 and 10/10 reverse-generated boards; kSubS solved 5/10 and 2/10. Reverse-generated starts had differing numbers of boxes already on goals, whereas these gamma2 starts had none. All selected starting puzzles were unsolved. This is a descriptive baseline on different source distributions, not a clean causal test of box count.</p>
+<figure><img src="stage_05/stage_05_success.png" alt="Complete puzzle success versus simulator transitions and wall-clock budget"><figcaption>Complete-task success under the recorded transition and time limits. Curves can overlap. The old horizon bank is not the proposed relative scale <em>u</em>. <a href="stage_05/stage_05_curves.csv">Underlying curves</a> · <a href="stage_05/stage_05_success.svg">Vector figure</a>.</figcaption></figure>
+<p>The proposal’s planner instead orders entries by the requested <em>next</em> expansion scale and value, <em>key(n,u) = (u,V<sub>ψ</sub>(x<sub>n</sub>,g))</em>, then tries intents from restored states and returns a full plan on task success. Stage 5 does not implement that learnt-scale mechanism, and its fixed demonstration horizons must not be renamed <em>u</em>.</p>
+<p class="source"><a href="stage_05_report.md">Full stage 5 report</a> · <a href="stage_05/stage_05_summary.csv">Per-method costs</a> · <a href="stage_05/stage_05_paired.csv">Paired board estimates</a> · <a href="stage_05/evaluation_freeze.json">Frozen configuration</a>.</p>
+</section>
+
+<section id="earlier">
+<span class="section-number">10 · Earlier work</span>
+<h2>How the previous runs fit in</h2>
+<p>This HTML explains the five-stage local campaign and links to selected earlier work. It is not a comprehensive account of every experiment from the preceding days. In particular, the earlier Luna pilot had a different controller and protocol and must not be pooled with the local CLLP runs.</p>
+<h3>The first Qwen generator comparison</h3>
+<p>The 14 November study trained a local Qwen3-0.6B LoRA for 300 updates and selected checkpoint 220 on validation. Its test set contained 100 contexts from 20 boards. The initial strict-JSON table reported 0/100 valid base outputs because the base model wrapped its JSON in Markdown fences, while the adapter did not. A later, <em>post-hoc</em> symmetric fence-removal check gave 66/100 valid intents for both base and adapter. Using the same bounded search, paths were found for 7/100 base proposals and 44/100 adapter proposals; the base frequently requested the full puzzle goal, so the requests were not matched in difficulty.</p>
+<p>That older study also used <strong>local_rule</strong>, a hand-written current-state baseline. It computes where the player can walk without moving boxes, then selects a legal push, preferring a destination on a goal; if necessary it falls back to a reachable player position. It does not inspect the later demonstration. Its 100/100 valid and solver-reachable proposals mainly show that deliberately choosing a locally feasible request is easy for this rule; they do not show that it plans the complete puzzle. Its graph work should be considered when comparing costs.</p>
+<div class="table-wrap"><table class="data"><thead><tr><th>Earlier run</th><th>What it contains</th><th>Saved report</th></tr></thead><tbody>
+<tr><th scope="row">Initial generator</th><td>Training, prompts, examples, parser sensitivity and local-rule baseline.</td><td><a href="../intent_generator_20261114T032232Z/intent_generator_report.ipynb">Notebook</a> · <a href="../intent_generator_20261114T032232Z/REPORT.md">Report</a></td></tr>
+<tr><th scope="row">LoRA matrix</th><td>Additional small adapter configurations and their evaluations.</td><td><a href="../lora_matrix_20261114T065804Z/lora_matrix_report.ipynb">Notebook</a></td></tr>
+<tr><th scope="row">Representations</th><td>Alternative intent representations and output diagnostics.</td><td><a href="../intent_representations_20261114T075324Z/representation_report.ipynb">Notebook</a></td></tr>
+<tr><th scope="row">Luna pilot</th><td>Earlier limited predicate-intent controller attempts with a separate protocol.</td><td><a href="../luna_intent_20261114T060730Z/luna_intent_report.ipynb">Notebook</a></td></tr>
+<tr><th scope="row">Luna follow-up</th><td>A later D-only local adapter ran; the controller calibration was interrupted by provider rejection, so the intended D/N/T/U scale comparison was not completed.</td><td><a href="../luna_policy_relative_resume_20261115T0416Z/luna_policy_followup_report.ipynb">Notebook</a> · <a href="../luna_policy_relative_resume_20261115T0416Z/REPORT.md">Report</a></td></tr>
+<tr><th scope="row">Earlier scale study</th><td>7 November full-state controller diagnostics, including success-conditioned offset-rank comparisons.</td><td><a href="../overnight_relative_scale_2026-11-07/REPORT.md">Report</a></td></tr>
+</tbody></table></div>
+</section>
+
+<section id="conclusions">
+<span class="section-number">11 · Interpretation</span>
+<h2>What the evidence supports</h2>
+<ul class="tight">
+<li><strong>Feasibility:</strong> small local models can be fine-tuned to output checked Sokoban intent structures, but the learned proposals remain sensitive to formatting, coordinates and board orientation.</li>
+<li><strong>Controller measurements:</strong> the full-state CLLP results show non-trivial reachability failures and dependency on the target pool. They do not establish how well an intent-conditioned controller would execute Qwen’s proposals.</li>
+<li><strong>Relative scale:</strong> the saved analyses describe empirical profiles and their sensitivity. They do not compare a relative-scale-conditioned generator with otherwise matched unscaled or absolute-duration models.</li>
+<li><strong>Planning:</strong> the completed task results are a useful full-state baseline. They do not validate the proposal’s policy-relative intent search or demonstrate transfer to unseen checkpoint training distributions.</li>
+</ul>
+<p>A direct next measurement would evaluate the generator’s own proposals with a fixed, verified intent-conditioned controller, first establishing enough repeated successful candidates per context to estimate scale. Only then can a matched comparison separate demonstration supervision, controller-informed selection, absolute duration and relative scale.</p>
+<div class="callout"><p><strong>Uncertainty and scope.</strong> Results use previously examined boards, different board-source distributions and, for the new LoRAs, one training seed. Board-bootstrap intervals account for clustering by original board within the reported cohort; they do not remove those limitations.</p></div>
+<h3>Reproducing this readable edition</h3>
+<p>This edition only reads the saved artifacts: it starts no model, training job or API call. It preserves the original compact HTML and its manifest, verifies the prior artifact hashes and records the presentation revision separately. Run from the CaRL checkout:</p>
+<pre><code>python -m scripts.render_overnight_readable --campaign analysis/overnight_cpu_20261115T061352Z</code></pre>
+<p class="source"><a href="readable_report_audit.json">Presentation audit and source hashes</a> · <a href="overnight_report_manifest.json">Updated report manifest</a> · <a href="campaign_summary.json">Machine-readable campaign summary</a> · <a href="OVERNIGHT_REPORT.md">Original Markdown report</a> · <a href="OVERNIGHT_REPORT_compact_original.html">Original compact HTML</a>.</p>
+</section>
+</article></main></div></body></html>
