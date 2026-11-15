@@ -33,15 +33,10 @@ out*
 /models_weights
 /validation
 
-# Keep experiment records, request caches, ledgers and weights on disk.
-# Only the artifact index and campaign journal belong in source control.
+# Keep local experiment inputs and outputs out of source control.
 /analysis/*
 !/analysis/README.md
-!/analysis/luna_icl/
-/analysis/luna_icl/*
-!/analysis/luna_icl/campaign_100/
-/analysis/luna_icl/campaign_100/*
-!/analysis/luna_icl/campaign_100/campaign.md
+/local/experiments/
 
 # Credentials and generated notebook/tool state.
 .env.*
@@ -51,7 +46,3 @@ out*
 .ruff_cache/
 .mypy_cache/
 __pycache__/
-
-# Small public initial boards and train-only demonstrations required by launch100.
-!/configs/icl/checkpoints/launch100/assets/data/
-!/configs/icl/checkpoints/launch100/assets/data/**
