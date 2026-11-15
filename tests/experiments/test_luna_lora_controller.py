@@ -1,18 +1,51 @@
 """Offline tests for the future budgeted Luna controller runner."""
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+from openai.types.responses import Response
 
+from carl.icl.luna_intent_rollout import OutputLimitError
 from carl.icl.luna_intent_rollout import RolloutStatus
+from carl.icl.luna_intent_transport import LunaIntentTransport
 from carl.icl.luna_intent_transport import LunaRequestUncertain
 from scripts import run_luna_lora_controller as runner
 
 ROWS = ["#######", "#@$-.-#", "#-$-.-#", "#-----#", "#-----#", "#-----#", "#######"]
 INTENT = {"effects": [{"predicate": "box_at", "row": 1, "col": 3}], "preserve": []}
+
+
+@pytest.fixture(autouse=True)
+def historical_ledger(tmp_path, monkeypatch):
+    """A small local ledger makes the accounting tests independent of user data."""
+    root = tmp_path / "historical"
+    root.mkdir()
+    audits = root / "luna_requests"
+    audits.mkdir()
+    config = root / "luna_intent_budget.json"
+    config.write_text('{"purpose":"test"}\n', encoding="utf-8")
+    ledger = root / "luna_intent_ledger.sqlite3"
+    with sqlite3.connect(ledger) as database:
+        database.execute("CREATE TABLE metadata(key TEXT,value TEXT)")
+        database.execute("INSERT INTO metadata VALUES (?,?)", ("config_hash", runner.digest(config)))
+        database.execute("CREATE TABLE attempts(id TEXT,status TEXT,reserved_nanos INTEGER, "
+                         "charged_nanos INTEGER,request_hash TEXT)")
+        for index, reserved in enumerate((3, 5), start=1):
+            identifier = f"{index:032x}"
+            payload = {"model": "gpt-6-luna", "input": f"synthetic-{index}"}
+            request_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            database.execute("INSERT INTO attempts VALUES (?,?,?,?,?)", (identifier, "unknown", reserved, None,
+                                                                          request_hash))
+            audit = {"reservation_id": identifier, "status": "unknown", "request": payload,
+                     "request_sha256": request_hash}
+            (audits / f"{identifier}.json").write_text(json.dumps(audit), encoding="utf-8")
+    monkeypatch.setattr(runner, "HISTORICAL_LEDGER", ledger)
+    return ledger
 
 
 def record(identifier: str, context: str = "context", intent: dict | None = None) -> dict:
@@ -45,6 +78,22 @@ def test_plan_only_does_not_make_transport_or_create_run(tmp_path, monkeypatch, 
     assert json.loads(capsys.readouterr().out)["mode"] == "plan_only"
     assert not (tmp_path / "output").exists()
     assert not (tmp_path / "budget").exists()
+
+
+def test_historical_unknowns_are_held_against_ceiling_without_modification(tmp_path, historical_ledger):
+    before = historical_ledger.read_bytes()
+    plan = make_plan(tmp_path, [record("a")])
+    assert plan["campaign_ceiling_usd"] == "2"
+    assert plan["budget_usd"] == "1.999999992"
+    assert plan["historical_reservations"]["reserved_nanos"] == 8
+    assert len(plan["historical_reservations"]["outstanding"]) == 2
+    assert historical_ledger.read_bytes() == before
+
+
+def test_bad_historical_audit_blocks_plan(tmp_path, historical_ledger):
+    (historical_ledger.parent / "luna_requests" / f'{1:032x}.json').write_text('{}', encoding="utf-8")
+    with pytest.raises(ValueError, match="audit differ"):
+        make_plan(tmp_path, [record("a")])
 
 
 def test_controller_hash_covers_prompt_environment_and_runner_sources():
@@ -87,6 +136,18 @@ def test_incomplete_context_does_not_assign_partial_labels(tmp_path):
     assert all(row["u"] is None and row["weight"] is None and row["success_fraction"] is None
                and row["mean_success_actions"] is None for row in values)
     assert [len(row["attempts"]) for row in values] == [2, 1]
+
+
+def test_output_limit_never_contributes_a_partial_context_label(tmp_path):
+    records = [record("a"), record("b")]
+    plan = make_plan(tmp_path, records, attempts=2)
+    results = [result("a", 1, RolloutStatus.ACHIEVED, 1), result("a", 2, RolloutStatus.OUTPUT_LIMIT, 2),
+               result("b", 1, RolloutStatus.ACHIEVED, 3), result("b", 2, RolloutStatus.ACHIEVED, 4)]
+    values = [row["policy_measurements"] for row in runner.calibrated_records(records, results, plan)]
+    assert [row["status"] for row in values] == ["output_limit", "complete"]
+    assert [len(row["attempts"]) for row in values] == [1, 2]
+    assert all(not row["complete"] and row["success_fraction"] is None and row["mean_success_actions"] is None
+               and row["u"] is None and row["weight"] is None for row in values)
 
 
 def test_zero_success_has_no_scale_or_duration(tmp_path):
@@ -137,6 +198,189 @@ class FakeTransport:
         if self.fail_after is not None and self.calls > self.fail_after:
             raise RuntimeError("synthetic infrastructure failure")
         return SimpleNamespace(output_text='{"action":"RIGHT"}')
+
+
+def sdk_response(text: str, *, status: str = "completed", reason: str | None = None) -> Response:
+    """Build a local Responses object with enough information for the final-message parser."""
+    return Response.model_validate({
+        "id": "response", "created_at": 1.0, "model": "gpt-6-luna", "object": "response",
+        "parallel_tool_calls": False, "tool_choice": "none", "tools": [], "status": status,
+        "incomplete_details": {"reason": reason} if reason else None,
+        "service_tier": "default",
+        "usage": {"input_tokens": 100, "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+                  "output_tokens": 5,
+                  "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 105},
+        "output": [{"type": "message", "id": "message", "role": "assistant", "status": status,
+                    "phase": "final_answer", "content": [{"type": "output_text", "text": text,
+                                                             "annotations": []}]}],
+    })
+
+
+@pytest.mark.parametrize(("response", "expected_rollout", "expected_measurement", "exit_code"), [
+    (sdk_response("partial", status="incomplete", reason="max_output_tokens"),
+     RolloutStatus.OUTPUT_LIMIT, "output_limit", 0),
+    (sdk_response("partial", status="incomplete", reason="content_filter"),
+     RolloutStatus.API_ERROR, "infrastructure_error", 1),
+    (sdk_response("not JSON"), RolloutStatus.INVALID_RESPONSE, "complete", 0),
+])
+def test_response_cutoffs_are_not_completed_behavioural_attempts(
+        tmp_path, response, expected_rollout, expected_measurement, exit_code):
+    class Responses:
+        def __init__(self):
+            self.responses = iter([sdk_response('{"action":"UP"}'), response])
+
+        def create(self, _prompt, *, tag):
+            return next(self.responses)
+
+    records = [record("a")]
+    plan = make_plan(tmp_path, records)
+    output = tmp_path / "output"
+    output.mkdir()
+    transport = runner.FinalMessageTransport(cast(LunaIntentTransport, Responses()), output, classify_incomplete=True)
+    assert runner.execute(records, plan, transport, output) == exit_code
+    saved = runner.read_jsonl(output / "results.jsonl")[0]["result"]
+    measurement = runner.read_jsonl(output / "calibrated.jsonl")[0]["policy_measurements"]
+    assert saved["status"] == expected_rollout
+    assert saved["actions"] == [0] and saved["model_calls"] == 2 and saved["steps"][0]["no_op"]
+    assert saved["steps"][-1]["action"] is None
+    assert measurement["status"] == expected_measurement
+    if expected_rollout == RolloutStatus.INVALID_RESPONSE:
+        assert measurement["complete"] and measurement["success_fraction"] == 0
+    else:
+        assert measurement["attempts"] == [] and not measurement["complete"]
+        assert all(measurement[key] is None for key in ("success_fraction", "mean_success_actions", "weight", "u"))
+
+
+def test_output_limit_preserves_response_and_usage_in_ledger_audit(tmp_path, monkeypatch):
+    import carl.icl.campaign_budget as campaign_budget
+    import carl.icl.luna_intent_transport as luna_transport
+
+    monkeypatch.setattr(campaign_budget, "dotenv_values", lambda _path: {})
+    monkeypatch.delenv("CARL_CAMPAIGN_MAX_USD", raising=False)
+    monkeypatch.setattr(luna_transport, "_pace_requests", lambda _path: None)
+    client = SimpleNamespace()
+    client.with_options = lambda **_options: client
+    client.responses = SimpleNamespace(create=lambda **_payload: sdk_response(
+        "partial", status="incomplete", reason="max_output_tokens"))
+    config = runner.create_luna_budget_config(tmp_path / "budget")
+    underlying = runner.LunaIntentTransport(config, client=client, structured_actions=True)
+    adapter = runner.FinalMessageTransport(underlying, tmp_path / "run", classify_incomplete=True)
+
+    with pytest.raises(OutputLimitError):
+        adapter.create("current board", tag="case")
+    audits = list((config.parent / "luna_requests").glob("*.json"))
+    assert len(audits) == 1
+    audit = json.loads(audits[0].read_text())
+    assert audit["status"] == "settled" and audit["conservative_charge_usd"] > 0
+    assert audit["response"]["status"] == "incomplete"
+    assert audit["response"]["incomplete_details"]["reason"] == "max_output_tokens"
+    assert audit["response"]["usage"]["input_tokens"] == 100
+    assert audit["response"]["usage"]["output_tokens"] == 5
+
+
+def test_response_model_guard_stops_on_changed_model_and_retains_audit(tmp_path):
+    class LocalTransport:
+        def __init__(self):
+            self.run_dir = tmp_path / "budget"
+            self.run_dir.mkdir()
+            self.audit_dir = self.run_dir / "luna_requests"
+            self.audit_dir.mkdir()
+            self.ledger = object()
+            self.calls = 0
+
+        def create(self, _prompt, *, tag):
+            self.calls += 1
+            model = "gpt-6-luna-v1" if self.calls < 3 else "gpt-6-luna-v2"
+            audit = {"status": "settled", "response": {"model": model}}
+            (self.audit_dir / f"{self.calls}.json").write_text(json.dumps(audit), encoding="utf-8")
+            return SimpleNamespace(model=model)
+
+    local = LocalTransport()
+    guard = runner.ModelIdentityGuard(cast(LunaIntentTransport, local))
+    assert guard.create("first", tag="a").model == "gpt-6-luna-v1"
+    assert guard.create("second", tag="b").model == "gpt-6-luna-v1"
+    assert json.loads((local.run_dir / "response_model.json").read_text())["model"] == "gpt-6-luna-v1"
+    with pytest.raises(LunaRequestUncertain, match="identity changed"):
+        guard.create("third", tag="c")
+    assert (local.audit_dir / "3.json").exists()
+    with pytest.raises(LunaRequestUncertain, match="identity changed"):
+        guard.create("no further request", tag="d")
+    assert local.calls == 3
+
+
+def test_response_model_guard_recovers_identity_from_audits(tmp_path):
+    root = tmp_path / "budget"
+    root.mkdir()
+    audits = root / "luna_requests"
+    audits.mkdir()
+    (audits / "prior.json").write_text(json.dumps({"status": "settled", "response": {"model": "gpt-6-luna-v1"}}))
+    calls = []
+    transport = SimpleNamespace(run_dir=root, audit_dir=audits, ledger=object(),
+                                create=lambda *_args, **_kwargs: calls.append(1) or SimpleNamespace(model="gpt-6-luna-v2"))
+    with pytest.raises(LunaRequestUncertain, match="identity changed"):
+        runner.ModelIdentityGuard(cast(LunaIntentTransport, transport)).create("prompt", tag="test")
+    assert calls == [1]  # The changed identity is only known after the response.
+
+
+def test_response_model_guard_records_missing_fingerprint_and_stops_on_change(tmp_path):
+    class LocalTransport:
+        def __init__(self):
+            self.run_dir = tmp_path / "budget"
+            self.run_dir.mkdir()
+            self.audit_dir = self.run_dir / "luna_requests"
+            self.audit_dir.mkdir()
+            self.ledger = object()
+            self.fingerprints = [None, "fp-a", "fp-a", "fp-b"]
+            self.calls = 0
+
+        def create(self, _prompt, *, tag):
+            fingerprint = self.fingerprints[self.calls]
+            self.calls += 1
+            response = {"model": "gpt-6-luna"}
+            if fingerprint is not None:
+                response["system_fingerprint"] = fingerprint
+            (self.audit_dir / f"{self.calls}.json").write_text(
+                json.dumps({"status": "settled", "response": response}), encoding="utf-8")
+            return SimpleNamespace(model="gpt-6-luna", system_fingerprint=fingerprint)
+
+    local = LocalTransport()
+    guard = runner.ModelIdentityGuard(cast(LunaIntentTransport, local))
+    guard.create("first", tag="a")
+    identity = json.loads((local.run_dir / "response_model.json").read_text())
+    assert "system_fingerprint" in identity and identity["system_fingerprint"] is None
+    assert "does not prove" in identity["note"]
+    # Availability of a previously absent fingerprint is not evidence of a change.
+    guard.create("second", tag="b")
+    guard.create("third", tag="c")
+    with pytest.raises(LunaRequestUncertain, match="fingerprint changed"):
+        guard.create("changed", tag="d")
+    assert (local.audit_dir / "4.json").exists()
+    with pytest.raises(LunaRequestUncertain, match="fingerprint changed"):
+        guard.create("must not retry", tag="e")
+    assert local.calls == 4
+
+
+def test_response_model_guard_accepts_legacy_identity_without_rewriting_it(tmp_path):
+    root = tmp_path / "budget"
+    root.mkdir()
+    audits = root / "luna_requests"
+    audits.mkdir()
+    identity_path = root / "response_model.json"
+    identity_path.write_text('{"model":"gpt-6-luna","note":"legacy"}\n', encoding="utf-8")
+    before = identity_path.read_bytes()
+    (audits / "prior.json").write_text(json.dumps({"status": "settled", "response": {"model": "gpt-6-luna"}}))
+    calls = []
+
+    def create(_prompt, *, tag):
+        calls.append(tag)
+        response = {"model": "gpt-6-luna", "system_fingerprint": "fp-a"}
+        (audits / "new.json").write_text(json.dumps({"status": "settled", "response": response}))
+        return SimpleNamespace(**response)
+
+    transport = SimpleNamespace(run_dir=root, audit_dir=audits, ledger=object(), create=create)
+    assert runner.ModelIdentityGuard(cast(LunaIntentTransport, transport)).create(
+        "prompt", tag="test").system_fingerprint == "fp-a"
+    assert calls == ["test"] and identity_path.read_bytes() == before
 
 
 def test_distinct_replicates_make_distinct_transport_calls(tmp_path):

@@ -207,18 +207,23 @@ def bounded_witness(
     }
 
 
-def local_rule(rows: list[str]) -> Record | None:
-    """Pick a currently walk-accessible legal push, preferring goal tiles.
+def local_rule_with_stats(rows: list[str]) -> tuple[Record | None, Record]:
+    """Pick an accessible push and measure the rule's local graph work.
 
     The input is only the current board. Walking reachability is computed on
     the unchanged current arrangement; no demonstration state is consulted.
+    Edges count every tested direction, including blocked and repeated ones.
     """
+    started = time.perf_counter()
     height, width, walls, goals, boxes, player = board_parts(rows)
     paths = {player: 0}
     queue = deque([player])
+    expanded = edges = push_checks = goal_distance_checks = 0
     while queue:
         here = queue.popleft()
+        expanded += 1
         for dr, dc in DIRECTIONS:
+            edges += 1
             nxt = here[0] + dr, here[1] + dc
             if (0 <= nxt[0] < height and 0 <= nxt[1] < width and nxt not in walls and nxt not in boxes
                     and nxt not in paths):
@@ -227,9 +232,11 @@ def local_rule(rows: list[str]) -> Record | None:
     choices = []
     for r, c in sorted(boxes):
         for dr, dc in DIRECTIONS:
+            push_checks += 1
             stand, dest = (r - dr, c - dc), (r + dr, c + dc)
             if (stand in paths and 0 <= dest[0] < height and 0 <= dest[1] < width and dest not in walls
                     and dest not in boxes):
+                goal_distance_checks += len(goals)
                 nearest = min(
                     (abs(dest[0] - gr) + abs(dest[1] - gc) for gr, gc in goals),
                     default=0,
@@ -242,8 +249,17 @@ def local_rule(rows: list[str]) -> Record | None:
         r, c = min((p for p in paths if p != player), key=lambda p: (paths[p], p))
         effect = {"predicate": SokobanPredicate.PLAYER_AT, "row": r, "col": c}
     else:
-        return None
-    return {"effects": [effect], "preserve": [], "instruction": None}
+        effect = None
+    intent = {"effects": [effect], "preserve": [], "instruction": None} if effect is not None else None
+    stats = {"walk_graphs": 1, "walk_nodes_expanded": expanded, "walk_edges_examined": edges,
+             "reachable_tiles": len(paths), "push_checks": push_checks, "legal_pushes": len(choices),
+             "goal_distance_checks": goal_distance_checks, "elapsed_seconds": time.perf_counter() - started}
+    return intent, stats
+
+
+def local_rule(rows: list[str]) -> Record | None:
+    """Return the deterministic current-board proposal, preserving the original API."""
+    return local_rule_with_stats(rows)[0]
 
 
 def test_contexts(records: list[Record], ids_path: Path | None = None) -> list[Record]:

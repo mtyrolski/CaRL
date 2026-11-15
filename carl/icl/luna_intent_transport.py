@@ -13,6 +13,7 @@ import math
 import os
 import re
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
@@ -45,7 +46,7 @@ MODEL_PRICE = {
 }
 SAFE_ERROR_CODES = frozenset({
     "authentication_error", "billing_hard_limit_reached", "content_policy_violation", "insufficient_quota",
-    "invalid_api_key", "invalid_request_error", "model_not_found", "organization_deactivated",
+    "invalid_api_key", "invalid_prompt", "invalid_request_error", "model_not_found", "organization_deactivated",
     "permission_denied", "permission_error", "project_deactivated", "rate_limit_exceeded", "rate_limit_error",
     "server_error", "service_unavailable", "unsupported_model", "unsupported_parameter",
 })
@@ -141,6 +142,41 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _pace_requests(run_dir: Path) -> None:
+    """Space physical requests by one second under the campaign lock."""
+    path = run_dir / "last_generation.json"
+    try:
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+        if not boot:
+            raise ValueError("Missing boot identifier")
+        if path.exists():
+            previous = json.loads(path.read_text(encoding="utf-8"))
+            elapsed = time.time() - previous["epoch"]
+            if previous["boot_id"] == boot:
+                elapsed = min(elapsed, time.monotonic() - previous["monotonic"])
+            if not math.isfinite(elapsed) or elapsed < 0:
+                raise ValueError("Invalid request pacing clock")
+            delay = max(0.0, 1.0 - elapsed)
+        else:
+            # An older process may have used the campaign before pacing existed.
+            delay = 1.0
+        if delay:
+            time.sleep(delay)
+        _atomic_json(path, {"boot_id": boot, "epoch": time.time(), "monotonic": time.monotonic()})
+    except (OSError, KeyError, TypeError, ValueError) as error:
+        raise LunaRequestUncertain("Cannot verify request pacing; campaign stopped") from error
+
+
+def _record_request_finished(run_dir: Path) -> None:
+    """Persist the end of a physical call so the next call waits a full second."""
+    boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+    if not boot:
+        raise LunaRequestUncertain("Cannot verify boot identity for request pacing")
+    _atomic_json(run_dir / "last_generation.json", {
+        "boot_id": boot, "epoch": time.time(), "monotonic": time.monotonic()
+    })
+
+
 def _response_dict(response: Any) -> dict[str, Any]:
     raw = response.model_dump(mode="json")
     if not isinstance(raw, dict):
@@ -148,7 +184,7 @@ def _response_dict(response: Any) -> dict[str, Any]:
     return raw
 
 
-def _checked_usage(raw: dict[str, Any], maximum: int) -> dict[str, int]:
+def _checked_usage(raw: dict[str, Any], maximum: int, *, output_text: Any = None) -> dict[str, int]:
     model = raw.get("model")
     usage = raw.get("usage")
     if (not isinstance(model, str) or not (model == MODEL or model.startswith(MODEL + "-"))
@@ -159,12 +195,17 @@ def _checked_usage(raw: dict[str, Any], maximum: int) -> dict[str, int]:
             or isinstance(outgoing, bool) or not 0 <= incoming <= 1_050_000
             or not 0 <= outgoing <= maximum):
         raise ValueError("Response token counts are missing or outside the reservation")
+    # Every request constructed by this transport contains a non-empty prompt.
+    # Do not release a worst-case reservation when the usage counters are
+    # inconsistent with that prompt or with returned output content.
+    if incoming == 0 or (outgoing == 0 and (raw.get("output") or raw.get("output_text") or output_text)):
+        raise ValueError("Response token counts contradict the request or output")
     # Charge all input as 12-hour cache writes; the raw breakdown stays in the audit.
     return {"input_tokens": incoming, "output_tokens": outgoing}
 
 
 def _error_diagnostics(error: BaseException) -> dict[str, Any]:
-    """Retain recognised short service diagnostics, never exception messages."""
+    """Retain recognised diagnostics, scrubbing likely credentials from messages."""
     status = getattr(error, "status_code", None)
     result: dict[str, Any] = {"http_status": status if isinstance(status, int) and not isinstance(status, bool)
                               and 100 <= status <= 599 else None}
@@ -174,6 +215,20 @@ def _error_diagnostics(error: BaseException) -> dict[str, Any]:
     request_id = getattr(error, "request_id", None)
     result["request_id"] = (request_id if isinstance(request_id, str) and request_id.startswith("req_")
                             and len(request_id) <= 80 and request_id[4:].isalnum() else None)
+    parameter = getattr(error, "param", None)
+    allowed = {"model", "input", "temperature", "reasoning", "reasoning.effort", "text", "text.format",
+               "max_output_tokens", "service_tier", "tools", "store"}
+    if isinstance(parameter, str) and parameter in allowed:
+        result["service_param"] = parameter
+    message = getattr(error, "message", None)
+    if isinstance(message, str) and message:
+        message = re.sub(r"(?i)https?://\S+", "[redacted-url]", message)
+        message = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", message)
+        message = re.sub(r"(?i)sk-[A-Za-z0-9_-]+", "[redacted-key]", message)
+        message = re.sub(r"(?i)(api[_ -]?key|authorization|access[_ -]?token)\s*[:=]\s*[^\s,;}]+",
+                         r"\1=[redacted]", message)
+        message = re.sub(r"\b[A-Za-z0-9_/-]{24,}\b", "[redacted-token]", message)
+        result["service_message"] = " ".join(message.split())[:280]
     return result
 
 
@@ -316,12 +371,16 @@ class LunaIntentTransport:
             }
             try:
                 _atomic_json(path, record)
-                response = self.client.responses.create(**payload)
+                _pace_requests(self.run_dir)
+                try:
+                    response = self.client.responses.create(**payload)
+                finally:
+                    _record_request_finished(self.run_dir)
                 raw = _response_dict(response)
                 record.update(status="received", response=raw, request_id=getattr(response, "_request_id", None),
                               received_at_utc=_now())
                 _atomic_json(path, record)
-                usage = _checked_usage(raw, self.max_output_tokens)
+                usage = _checked_usage(raw, self.max_output_tokens, output_text=getattr(response, "output_text", None))
                 if not self.ledger.settle(identifier, usage, payload):
                     raise ValueError("The response could not be settled")
                 rows = [row for row in self.ledger.summary()["attempts"] if row["tag"] == audit_tag]

@@ -13,6 +13,7 @@ from dotenv import dotenv_values
 from openai import OpenAI
 
 from carl.icl.luna_intent_rollout import POLICY_PROMPT
+from carl.icl.luna_intent_rollout import OutputLimitError
 from carl.icl.luna_intent_rollout import RolloutStatus
 from carl.icl.luna_intent_transport import LunaIntentTransport
 from carl.icl.luna_response import LunaResponseError
@@ -35,18 +36,25 @@ TAG_PREFIX = "final:"
 class FinalMessageTransport:
     """Extract one final message while preserving the campaign-wide ledger."""
 
-    def __init__(self, transport: LunaIntentTransport, run_dir: Path) -> None:
+    def __init__(self, transport: LunaIntentTransport, run_dir: Path, *,
+                 classify_incomplete: bool = False) -> None:
         self.transport = transport
         self.run_dir = run_dir
+        self.classify_incomplete = classify_incomplete
 
     def create(self, prompt: str, *, tag: str) -> SimpleNamespace:
         response = self.transport.create(prompt, tag=TAG_PREFIX + tag)
         try:
             text = final_assistant_text(response)
         except LunaResponseError as error:
-            # The request is settled. Refusal or an incomplete/ambiguous model
-            # response ends this attempt, not the whole campaign.
+            # The request is settled. Legacy callers treat a refusal or an
+            # incomplete/ambiguous response as an invalid action output.
             append_jsonl(self.run_dir / "results/response_errors.jsonl", {"record_id": tag, "error": str(error)})
+            if self.classify_incomplete and response.status != "completed":
+                details = response.incomplete_details
+                if response.status == "incomplete" and details is not None and details.reason == "max_output_tokens":
+                    raise OutputLimitError("Response hit max_output_tokens before completing an action") from error
+                raise RuntimeError("The service returned an incomplete response") from error
             text = ""
         return SimpleNamespace(output_text=text)
 

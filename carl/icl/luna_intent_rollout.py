@@ -57,7 +57,12 @@ class RolloutStatus(StrEnum):
     ACTION_LIMIT = "action_limit"
     INVALID_INTENT = "invalid_intent"
     INVALID_RESPONSE = "invalid_response"
+    OUTPUT_LIMIT = "output_limit"
     API_ERROR = "api_error"
+
+
+class OutputLimitError(RuntimeError):
+    """A policy response was cut off before completing its action."""
 
 
 @dataclass
@@ -163,6 +168,11 @@ def rollout(
         emit({"type": "request", "index": index, "before": rows, "prompt": prompt})
         try:
             raw = decide(prompt)
+        except OutputLimitError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            step["error"] = error
+            emit({"type": "output_limit", "index": index, "error": error})
+            return finish(RolloutStatus.OUTPUT_LIMIT, error)
         except Exception as exc:  # Preserve earlier actions when a transport fails.
             error = f"{type(exc).__name__}: {exc}"
             step["error"] = error

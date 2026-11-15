@@ -10,6 +10,7 @@ import pytest
 from carl.icl.boards import canonical_layout_id
 from carl.icl.boards import from_rows
 from carl.icl.data_sources.sokoban import environment
+from carl.icl.luna_intent_rollout import OutputLimitError
 from carl.icl.luna_intent_rollout import rollout
 from scripts.assess_luna_lora import main
 from scripts.assess_luna_lora import prepare_cases
@@ -110,6 +111,8 @@ def test_invalid_missing_and_api_errors_have_explicit_denominators():
     assert by_arm["unscaled"]["all_saved_primitive_actions"] == 3
     assert by_arm["unscaled"]["all_saved_no_ops"] == 1
     assert by_arm["unscaled"]["all_saved_model_calls"] == 4
+    assert by_arm["unscaled"]["conditional_achievement_given_valid_completed"] == 1
+    assert by_arm["scaled"]["conditional_achievement_given_valid_completed"] is None
     curve = {row["budget"]: row for row in curves if row["arm"] == "unscaled"}
     assert [curve[i]["board_mean"] for i in range(4)] == [0, 0, 1, 1]
     assert paired[0]["paired_contexts"] == paired[0]["paired_boards"] == 1
@@ -218,6 +221,20 @@ def test_partial_repeats_do_not_become_failures():
     assert scaled["all_saved_model_calls"] == 2
 
 
+def test_output_limit_is_incomplete_not_a_behavioural_failure():
+    plan = [case(0, "scaled"), case(0, "unscaled", status="not_attempted")]
+    result = saved_rollout(plan[0], ["LEFT", OutputLimitError("output cut off")])
+    cases = prepare_cases(plan, [result], controller_hash=CONTROLLER_HASH, action_cap=3, expected_attempts=1)
+    summary, _, _ = summarise(cases, action_cap=3, bootstrap_samples=5)
+    scaled = next(row for row in summary if row["arm"] == "scaled")
+    assert cases[0]["case_status"] == "incomplete_attempts"
+    assert scaled["assessed_cases"] == 0 and scaled["board_mean"] is None
+    assert scaled["output_limit_attempts"] == 1
+    assert scaled["observed_endpoint_attempts"] == 0
+    assert scaled["all_saved_primitive_actions"] == 1 and scaled["all_saved_model_calls"] == 2
+    assert scaled["planned_fraction_lower_bound"] == 0 and scaled["planned_fraction_upper_bound"] == 1
+
+
 def test_plan_and_replay_fail_closed():
     plan = [case(0, "scaled"), case(0, "unscaled", status="not_attempted")]
     result = saved_rollout(plan[0], ["RIGHT", "RIGHT"])
@@ -250,6 +267,17 @@ def test_plot_and_tables_keep_unassessed_values_empty(tmp_path):
     assert data["summary"][0]["board_mean"] is None
     with pytest.raises(FileExistsError):
         write_results(output, cases, summary, curves, paired, {"test": True})
+
+
+def test_plot_keeps_an_unassessed_arm_in_the_legend(tmp_path):
+    plan = [case(0, "scaled", status="invalid_json"), case(0, "unscaled", status="not_attempted")]
+    cases = prepare_cases(plan, [], controller_hash=CONTROLLER_HASH, action_cap=3, expected_attempts=1)
+    summary, curves, paired = summarise(cases, action_cap=3, bootstrap_samples=5)
+    output = tmp_path / "assessment"
+    write_results(output, cases, summary, curves, paired, {"test": True})
+    svg = (output / "intent_achievement.svg").read_text()
+    assert "scaled, u=0.25 (1/1)" in svg
+    assert "unscaled, paired u=0.25 (0/1; unavailable)" in svg
 
 
 def test_missing_and_interrupted_rollout_file_are_reported(tmp_path):

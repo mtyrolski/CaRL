@@ -20,6 +20,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 
 from carl.icl.boards import canonical_layout_id
 from carl.icl.boards import from_rows
@@ -124,13 +125,32 @@ def validate_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     sources: dict[str, tuple[str, str, str, tuple[str, ...]]] = {}
     contexts: dict[str, tuple[str, str, tuple[str, ...]]] = {}
     grouped: dict[tuple[str, float | None], dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    requested_inputs: dict[tuple[str, float | None], float | None] = {}
     checked = []
     for row in rows:
         record_id, source_id = _text(row, "record_id"), _text(row, "source_record_id")
         context_id, layout_id, family = (_text(row, key) for key in ("context_id", "layout_id", "family"))
-        arm, scale = Arm(row.get("arm")), _scale(row.get("requested_scale"))
+        arm_value = _text(row, "arm")
+        arm = "R" if arm_value == "R" else Arm(arm_value).value
+        scale = _scale(row.get("requested_scale"))
         if arm == Arm.SCALED and scale is None:
             raise ValueError("The scaled arm requires an explicit requested scale")
+        if arm in {"B", "D", "N", "T", "U", "R"}:
+            if "requested_input" not in row or scale is None:
+                raise ValueError("Matrix cases require a declared input and pairing tier")
+            requested = row["requested_input"]
+            if arm in {"B", "D", "N", "R"}:
+                if requested is not None:
+                    raise ValueError("Unscaled arms must not receive a requested scale")
+            elif (isinstance(requested, bool) or not isinstance(requested, (int, float))
+                  or not math.isfinite(requested)
+                  or (arm == "T" and requested <= 0)
+                  or (arm == "U" and not 0 <= requested <= 1)):
+                raise ValueError("T requires a positive duration and U a relative scale in [0, 1]")
+            input_key = (arm, scale)
+            if input_key in requested_inputs and requested_inputs[input_key] != requested:
+                raise ValueError("Requested input changes within an arm and pairing tier")
+            requested_inputs[input_key] = requested
         status = PredictionStatus(row.get("prediction_status"))
         if record_id in record_ids or (source_id, arm, scale) in cases:
             raise ValueError("Duplicate planned record or source/arm/scale")
@@ -155,7 +175,9 @@ def validate_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             raw = row.get("raw_output")
             if not isinstance(raw, str):
                 raise ValueError("An assessed prediction needs its raw output")
-            actual = assess_output(raw, board)
+            # The current D/N/T/U/R study permits one enclosing Markdown
+            # fence. The legacy unscaled/scaled comparison stays strict.
+            actual = assess_output(raw, board, normalize=arm not in (Arm.UNSCALED, Arm.SCALED))
             if (actual["status"] != status or actual["json_valid"] is not json_valid
                     or json.dumps(actual["parsed"], sort_keys=True) != json.dumps(parsed, sort_keys=True)
                     or bool(actual["validation_errors"]) != bool(errors)):
@@ -163,13 +185,21 @@ def validate_plan(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         elif parsed is not None or json_valid is not None or row.get("raw_output") is not None:
             raise ValueError("Unavailable predictions cannot claim a parsed result")
         grouped[(family, scale)][arm].add(source_id)
-        checked.append({**row, "arm": arm.value, "requested_scale": scale, "prediction_status": status.value})
+        checked.append({**row, "arm": arm, "requested_scale": scale, "prediction_status": status.value})
+    all_arms = set().union(*(set(arms) for arms in grouped.values()))
+    if len(all_arms) < 2:
+        raise ValueError("The frozen plan must include both arms, with missing predictions explicit")
     for arms in grouped.values():
-        if set(arms) != {Arm.SCALED, Arm.UNSCALED}:
+        if set(arms) != all_arms:
             raise ValueError("The frozen plan must include both arms, with missing predictions explicit")
         populations = list(arms.values())
         if len(populations) > 1 and any(population != populations[0] for population in populations[1:]):
             raise ValueError("Arms must have the same planned contexts within each family and scale")
+    for arm in ("T", "U"):
+        values = sorted((tier, value) for (candidate, tier), value in requested_inputs.items()
+                        if candidate == arm and tier is not None and value is not None)
+        if values and (len(values) != 2 or values[0][1] >= values[1][1]):
+            raise ValueError("Scaled-arm inputs must be distinct and increase with the tier")
     return checked
 
 
@@ -193,7 +223,7 @@ def validate_rollout(row: dict[str, Any], plan: dict[str, Any], controller_hash:
         raise ValueError("Invalid action list or action cap exceeded")
     if not isinstance(steps, list) or len(steps) != calls:
         raise ValueError("Saved steps do not match the model-call count")
-    extra_call = status in {RolloutStatus.API_ERROR, RolloutStatus.INVALID_RESPONSE}
+    extra_call = status in {RolloutStatus.API_ERROR, RolloutStatus.OUTPUT_LIMIT, RolloutStatus.INVALID_RESPONSE}
     if calls != len(actions) + int(extra_call):
         raise ValueError("Action and model-call counts disagree with the rollout status")
     duration = row.get("duration_seconds")
@@ -283,6 +313,8 @@ def prepare_cases(plan: list[dict[str, Any]], rollouts: list[dict[str, Any]], *,
         elif status == PredictionStatus.INFRASTRUCTURE_ERROR or any(
                 a["status"] == RolloutStatus.API_ERROR for a in observed):
             case_status = CaseStatus.INFRASTRUCTURE_ERROR
+        elif any(a["status"] == RolloutStatus.OUTPUT_LIMIT for a in observed):
+            case_status = CaseStatus.INCOMPLETE
         elif status == PredictionStatus.NOT_ATTEMPTED or not observed:
             case_status = CaseStatus.NOT_ATTEMPTED
         elif len(observed) < expected_attempts:
@@ -293,6 +325,10 @@ def prepare_cases(plan: list[dict[str, Any]], rollouts: list[dict[str, Any]], *,
             key: row[key] for key in ("record_id", "source_record_id", "context_id", "layout_id", "family", "arm",
                                      "requested_scale", "prediction_status")
         } | {
+            "requested_input":
+                row.get("requested_input"),
+            "local_rule_work":
+                row.get("local_rule_work"),
             "case_status":
                 case_status.value,
             "expected_attempts":
@@ -374,9 +410,11 @@ def summarise(cases: list[dict[str, Any]],
             item for row in rows if row["case_status"] == CaseStatus.COMPLETE for item in row["attempts"]
         ]
         successful = [item for item in complete_attempts if item["status"] == RolloutStatus.ACHIEVED]
-        observed_attempts = [item for item in attempts if item["status"] != RolloutStatus.API_ERROR]
+        observed_attempts = [item for item in attempts
+                             if item["status"] not in {RolloutStatus.API_ERROR, RolloutStatus.OUTPUT_LIMIT}]
         saved_successful = [item for item in observed_attempts if item["status"] == RolloutStatus.ACHIEVED]
         infrastructure_attempts = [item for item in attempts if item["status"] == RolloutStatus.API_ERROR]
+        output_limit_attempts = [item for item in attempts if item["status"] == RolloutStatus.OUTPUT_LIMIT]
         valid_intents = [row for row in rows if row["prediction_status"] == PredictionStatus.VALID]
         intent_types = Counter(" & ".join(row["effect_predicate_types"]) for row in valid_intents)
         effect_sizes = Counter(str(row["effect_predicate_count"]) for row in valid_intents)
@@ -419,6 +457,8 @@ def summarise(cases: list[dict[str, Any]],
                 arm,
             "requested_scale":
                 scale,
+            "requested_input":
+                rows[0]["requested_input"],
             "planned_cases":
                 len(rows),
             "planned_boards":
@@ -466,6 +506,8 @@ def summarise(cases: list[dict[str, Any]],
                 sum(a["status"] == RolloutStatus.ACHIEVED for a in attempts),
             "successful_attempts":
                 len(successful),
+            "conditional_achievement_given_valid_completed":
+                len(successful) / len(complete_attempts) if complete_attempts else None,
             "all_saved_primitive_actions":
                 sum(a["actions"] for a in attempts),
             "all_saved_no_ops":
@@ -476,6 +518,8 @@ def summarise(cases: list[dict[str, Any]],
                 sum(a["no_ops"] for a in complete_attempts),
             "infrastructure_attempts":
                 len(infrastructure_attempts),
+            "output_limit_attempts":
+                len(output_limit_attempts),
             "infrastructure_primitive_actions":
                 sum(a["actions"] for a in infrastructure_attempts),
             "infrastructure_no_ops":
@@ -569,6 +613,7 @@ def summarise(cases: list[dict[str, Any]],
                 "family": family,
                 "arm": arm,
                 "requested_scale": scale,
+                "requested_input": rows[0]["requested_input"],
                 "budget": budget,
                 "planned_cases": len(rows),
                 "assessed_cases": sum(len(v) for v in board_scores.values()),
@@ -715,18 +760,29 @@ def write_results(output: Path, cases: list[dict[str, Any]], summary: list[dict[
             family_rows = [row for row in curves if row["family"] == family]
             keys = sorted({(row["arm"], row["requested_scale"]) for row in family_rows},
                           key=lambda key: (key[0], -1 if key[1] is None else key[1]))
+            legend_items = []
             for arm, scale in keys:
-                points = [
-                    row for row in family_rows
-                    if row["arm"] == arm and row["requested_scale"] == scale and row["board_mean"] is not None
-                ]
+                matching = [row for row in family_rows if row["arm"] == arm and row["requested_scale"] == scale]
+                points = [row for row in matching if row["board_mean"] is not None]
+                if arm in {"B", "D", "N", "T", "U", "R"}:
+                    requested = matching[0]["requested_input"]
+                    if arm == "T":
+                        description = f"T, d={requested:g} (tier {scale:g})"
+                    elif arm == "U":
+                        description = f"U, u={requested:g} (tier {scale:g})"
+                    else:
+                        description = f"{arm}, tier={scale:g}"
+                else:
+                    description = (f"{arm}, paired u={scale:g}" if arm == Arm.UNSCALED else f"{arm}, u={scale:g}")
                 if not points:
+                    label = f"{description} (0/{matching[-1]['planned_cases']}; unavailable)"
+                    legend_items.append(Line2D([], [], color="0.55", marker="x", linestyle="none", label=label))
                     continue
-                description = (f"{arm}, paired u={scale:g}" if arm == Arm.UNSCALED else f"{arm}, u={scale:g}")
                 label = f"{description} ({points[-1]['assessed_cases']}/{points[-1]['planned_cases']})"
                 line, = axis.step([row["budget"] for row in points], [row["board_mean"] for row in points],
                                   where="post",
                                   label=label)
+                legend_items.append(line)
                 if all(row["bootstrap_low"] is not None and row["bootstrap_high"] is not None for row in points):
                     axis.fill_between([row["budget"] for row in points], [row["bootstrap_low"] for row in points],
                                       [row["bootstrap_high"] for row in points],
@@ -737,9 +793,9 @@ def write_results(output: Path, cases: list[dict[str, Any]], summary: list[dict[
             axis.set_title(family)
             axis.set_xlabel("Primitive-action budget")
             axis.set_ylim(0, 1.02)
-            if axis.lines:
-                axis.legend(fontsize="small")
-            else:
+            if legend_items:
+                axis.legend(handles=legend_items, fontsize="small")
+            if not axis.lines:
                 axis.text(0.5, 0.5, "No assessed cases", transform=axis.transAxes, ha="center")
         axes[0][0].set_ylabel("Board-mean intent achievement")
         fig.suptitle("Assessed cases / planned cases shown in legend", fontsize="small")
@@ -779,13 +835,18 @@ def main() -> None:
         "bootstrap_seed": args.bootstrap_seed,
         "bootstrap_samples": args.bootstrap_samples,
         "uncertainty": "Paired or unpaired board bootstrap; fewer than five boards is descriptive only.",
-        "scale": "The unscaled generator is not given u; its saved prediction is paired with each requested scale.",
+        "scale": "Matrix tiers are pairing labels: B/D/N/R receive no scale, T receives the recorded absolute "
+                 "duration and U the recorded relative scale. Legacy unscaled/scaled plans can reuse one unscaled "
+                 "prediction across scales; consult the plan manifest.",
+        "conditional_achievement": "Successful divided by complete attempts on valid predictions; "
+                                   "incomplete and infrastructure-failed cases are excluded.",
         "intent_distributions":
             "Count valid predictions by conjunction of effect predicate types and by the "
             "numbers of effect and preservation predicates; invalid or missing outputs are excluded.",
         "goal_delta": "Final boxes on goals minus initial boxes on goals, measured by simulator replay. "
-                      "Saved non-infrastructure endpoints and achieved endpoints are reported separately. "
-                      "Infrastructure-failed partial endpoints are separate; a positive change does not establish "
+                      "Saved endpoints excluding API errors and output limits, and achieved endpoints, are "
+                      "reported separately. Infrastructure-failed partial endpoints are separate; "
+                      "a positive change does not establish "
                       "complete puzzle success or long-term usefulness.",
         "missing": "Unavailable or incomplete cases are excluded from measured fractions, not counted as failures. "
                    "Planned-fraction bounds assign all unknown cases success 0 or 1; they are bounds, not estimates.",

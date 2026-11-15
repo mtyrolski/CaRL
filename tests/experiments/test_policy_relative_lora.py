@@ -2,6 +2,7 @@
 
 import contextlib
 import copy
+import hashlib
 import json
 from argparse import Namespace
 from collections import Counter
@@ -16,14 +17,17 @@ from carl.icl.policy_relative_lora import PredictionStatus
 from carl.icl.policy_relative_lora import _configuration
 from carl.icl.policy_relative_lora import assess_output
 from carl.icl.policy_relative_lora import balanced_samples
+from carl.icl.policy_relative_lora import candidate_scale
 from carl.icl.policy_relative_lora import encode_example
 from carl.icl.policy_relative_lora import evaluate
 from carl.icl.policy_relative_lora import generator_messages
 from carl.icl.policy_relative_lora import load_fit_data
+from carl.icl.policy_relative_lora import load_study_data
 from carl.icl.policy_relative_lora import require_scale_information
 from carl.icl.policy_relative_lora import resource_check
 from carl.icl.policy_relative_lora import resource_encodings
 from carl.icl.policy_relative_lora import resource_records
+from carl.icl.policy_relative_lora import study_samples
 from carl.icl.policy_relative_lora import test_contexts as load_test_contexts
 from carl.icl.policy_relative_lora import training_prompts
 from carl.icl.policy_relative_lora import validation_loss
@@ -175,7 +179,7 @@ def test_prompt_is_whitelisted_and_supervised_loss_only_on_response(dataset):
         with pytest.raises(ValueError):
             generator_messages(candidate.record, Arm.SCALED, invalid)
 
-    for arm in Arm:
+    for arm in (Arm.UNSCALED, Arm.SCALED):
         tokenizer = FakeTokenizer()
         encoded = encode_example(tokenizer, candidate, arm, 1024)
         assert encoded["labels"][:3] == [-100, -100, -100]
@@ -335,7 +339,8 @@ def test_paired_arm_metadata_and_response_target_match(dataset, tmp_path):
                   eval_every=20,
                   max_length=512,
                   gradient_checkpointing=True)
-    configs = [_configuration(Namespace(**common, arm=arm), data, FakeTokenizer(), "cuda") for arm in Arm]
+    configs = [_configuration(Namespace(**common, arm=arm), data, FakeTokenizer(), "cuda")
+               for arm in (Arm.UNSCALED, Arm.SCALED)]
     assert configs[0]["comparability_sha256"] == configs[1]["comparability_sha256"]
     assert configs[0]["data_sha256"] == configs[1]["data_sha256"]
     assert configs[0]["arm"] != configs[1]["arm"]
@@ -599,3 +604,243 @@ def test_resource_check_full_flow_with_stubs_only(dataset, tmp_path, monkeypatch
     assert report["synthetic_requested_scale"] == .5 and len(report["token_lengths"]) == 12
     assert calls == {"backward": 4, "optimizer_step": 1, "generate": 1}
     assert not list(tmp_path.rglob("adapter_model.safetensors"))
+
+
+def test_study_arms_share_demonstrations_and_paired_weighted_samples(dataset, tmp_path):
+    path, rows = dataset
+    demonstrations = copy.deepcopy(rows)
+    for row in demonstrations:
+        row["policy_measurements"] = None
+    demo_path = tmp_path / "demonstrations.jsonl"
+    write_rows(demo_path, demonstrations)
+    arms = (Arm.DEMONSTRATION, Arm.MEASURED, Arm.ABSOLUTE, Arm.RELATIVE)
+    loaded = {arm: load_study_data(Namespace(arm=arm, data=str(path), demo_data=str(demo_path))) for arm in arms}
+    schedules = {}
+    for arm, (data, demo) in loaded.items():
+        sampler = study_samples(data, demo, arm, 123)
+        samples = [next(sampler) for _ in range(100)]
+        schedules[arm] = samples
+        assert all(not sample.measured for sample in samples[::2])
+        assert all(sample.measured == (arm != Arm.DEMONSTRATION) for sample in samples[1::2])
+    for arm in (Arm.ABSOLUTE, Arm.RELATIVE):
+        assert [x.record["record_id"] for x in schedules[arm]] == [
+            x.record["record_id"] for x in schedules[Arm.MEASURED]
+        ]
+    for arm in arms:
+        assert [x.record["record_id"] for x in schedules[arm][::2]] == [
+            x.record["record_id"] for x in schedules[Arm.DEMONSTRATION][::2]
+        ]
+    measured = schedules[Arm.MEASURED][1]
+    assert candidate_scale(measured, Arm.MEASURED) is None
+    assert candidate_scale(measured, Arm.ABSOLUTE) == measured.mean_success_actions
+    assert candidate_scale(measured, Arm.RELATIVE) == measured.u
+    assert candidate_scale(schedules[Arm.RELATIVE][0], Arm.RELATIVE) is None
+    for arm in (Arm.ABSOLUTE, Arm.RELATIVE):
+        assert MISSING_SCALE in json.dumps(generator_messages(schedules[arm][0].record, arm, None))
+    absolute = generator_messages(measured.record, Arm.ABSOLUTE, measured.mean_success_actions)
+    relative = generator_messages(measured.record, Arm.RELATIVE, measured.u)
+    assert f"Requested duration in actions: {measured.mean_success_actions!r}" in absolute[1]["content"]
+    assert f"Requested relative scale: {measured.u!r}" in relative[1]["content"]
+    assert all(secret not in json.dumps(absolute + relative) for secret in (
+        "SECRET_FUTURE", "SECRET_PATH", "SECRET_TRAJECTORY", "987654321", "87654321"
+    ))
+
+
+def test_study_rejects_incomplete_or_modified_common_pool(dataset, tmp_path):
+    path, rows = dataset
+    demo = copy.deepcopy(rows)
+    for row in demo:
+        row["policy_measurements"] = None
+    demo_path = tmp_path / "demo.jsonl"
+    write_rows(demo_path, demo[:-1])
+    with pytest.raises(ValueError, match="every calibrated candidate"):
+        load_study_data(Namespace(arm=Arm.MEASURED, data=str(path), demo_data=str(demo_path)))
+    demo[-1]["intent"]["effects"][0]["col"] = 2
+    write_rows(demo_path, demo)
+    with pytest.raises(ValueError):
+        load_study_data(Namespace(arm=Arm.MEASURED, data=str(path), demo_data=str(demo_path)))
+
+
+def test_study_config_hashes_match_across_measured_arms(dataset, tmp_path):
+    path, rows = dataset
+    demo_path = tmp_path / "demo.jsonl"
+    write_rows(demo_path, [{**row, "policy_measurements": None} for row in rows])
+    model = tmp_path / "model"
+    model.mkdir()
+    for name in ("model.safetensors", "config.json", "tokenizer.json"):
+        (model / name).write_text(name)
+    common = {"model": str(model), "revision": "a" * 40, "data": str(path), "demo_data": str(demo_path),
+              "seed": 123, "dtype": "bfloat16", "rank": 4, "accumulation": 4, "lr": .0002,
+              "max_steps": 100, "eval_every": 20, "max_length": 1024, "gradient_checkpointing": True}
+    configs = []
+    for arm in (Arm.MEASURED, Arm.ABSOLUTE, Arm.RELATIVE):
+        args = Namespace(**common, arm=arm)
+        data, demo = load_study_data(args)
+        configs.append(_configuration(args, data, FakeTokenizer(), "cpu", demo))
+    assert len({config["comparability_sha256"] for config in configs}) == 1
+    assert len({config["demonstration_sha256"] for config in configs}) == 1
+    assert all(config["demonstration_fraction"] == .5 for config in configs)
+    assert all(config["controller_hash"] == CONTROLLER for config in configs)
+    args = Namespace(**{**common, "data": None}, arm=Arm.DEMONSTRATION)
+    data, demo = load_study_data(args)
+    baseline = _configuration(args, data, FakeTokenizer(), "cpu", demo)
+    assert baseline["controller_hash"] is None and baseline["data_sha256"] == baseline["demonstration_sha256"]
+    assert baseline["train_layout_ids"] == configs[0]["train_layout_ids"]
+
+
+def test_study_training_pipeline_matches_updates_and_samples(dataset, tmp_path, monkeypatch):
+    import carl.icl.policy_relative_lora as module
+
+    path, rows = dataset
+    demo_path = tmp_path / "demo.jsonl"
+    write_rows(demo_path, [{**row, "policy_measurements": None} for row in rows])
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    revision = "a" * 40
+    (model_path / "experiment_revision.json").write_text(json.dumps({"revision": revision}))
+    for name in ("model.safetensors", "config.json", "tokenizer.json"):
+        (model_path / name).write_text(name)
+    samples = []
+    validation_samples = []
+
+    class Loss:
+        def __truediv__(self, _divisor):
+            return self
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return 1.0
+
+        def backward(self):
+            pass
+
+    class Model:
+        training = True
+
+        def parameters(self):
+            return [Namespace(requires_grad=True)]
+
+        def train(self):
+            self.training = True
+
+        def eval(self):
+            self.training = False
+
+    class Optimizer:
+        def __init__(self, parameters, lr):
+            assert len(list(parameters)) == 1 and lr == .0002
+
+        def step(self):
+            pass
+
+        def zero_grad(self, set_to_none):
+            assert set_to_none
+
+    class Tokenizer(FakeTokenizer):
+        def save_pretrained(self, path):
+            path.mkdir()
+
+    fake_torch = Namespace(optim=Namespace(AdamW=Optimizer), no_grad=contextlib.nullcontext)
+    monkeypatch.setattr(module, "initialise", lambda *_args, **_kwargs:
+                        (fake_torch, Tokenizer(), Model(), "cpu"))
+    monkeypatch.setattr(module, "memory", lambda _torch: {})
+    def loss(_torch, model, _tokenizer, candidate, _args, _device):
+        if model.training:
+            samples.append((candidate.record["record_id"], candidate.measured))
+        else:
+            validation_samples.append((candidate.record["record_id"], candidate.measured))
+        return Loss()
+    monkeypatch.setattr(module, "_loss", loss)
+    def checkpoint(_model, output, name):
+        location = output / name
+        location.mkdir()
+        return location
+    monkeypatch.setattr(module, "save_adapter", checkpoint)
+    schedules = {}
+    validation_schedules = {}
+    for arm in (Arm.DEMONSTRATION, Arm.MEASURED, Arm.ABSOLUTE, Arm.RELATIVE):
+        samples.clear()
+        validation_samples.clear()
+        output = tmp_path / arm
+        args = Namespace(arm=arm, data=None if arm == Arm.DEMONSTRATION else str(path), demo_data=str(demo_path),
+                         output=str(output), model=str(model_path), revision=revision, seed=123, threads=8,
+                         dtype="bfloat16", rank=4, accumulation=2, lr=.0002, max_steps=2, eval_every=1,
+                         max_length=1024, gradient_checkpointing=True, require_cuda=False, stop_monotonic=None,
+                         stop_epoch=None, min_informative_train_contexts=1, min_informative_validation_contexts=1)
+        module.train(args)
+        schedules[arm] = list(samples)
+        validation_schedules[arm] = list(validation_samples)
+        status = json.loads((output / "status.json").read_text())
+        assert status["status"] == "finished" and status["completed_steps"] == 2
+        assert status["last_validation_step"] == 2
+        assert (output / "best.json").is_file()
+    assert schedules[Arm.MEASURED] == schedules[Arm.ABSOLUTE] == schedules[Arm.RELATIVE]
+    assert [measured for _, measured in schedules[Arm.MEASURED]] == [False, True, False, True]
+    assert all(not measured for _, measured in schedules[Arm.DEMONSTRATION])
+    assert validation_schedules[Arm.MEASURED] == validation_schedules[Arm.ABSOLUTE] == validation_schedules[Arm.RELATIVE]
+    assert all(len(schedule) == 4 for schedule in validation_schedules.values())
+
+
+def test_symmetric_single_fence_normalization_retains_strict_validity():
+    valid = '{"effects":[{"predicate":"box_at","row":1,"col":4}],"preserve":[],"instruction":null}'
+    wrapped = "```json\n" + valid + "\n```"
+    result = assess_output(wrapped, BOARDS[0], normalize=True)
+    assert result["status"] == PredictionStatus.VALID
+    assert result["strict_json_valid"] is False and result["normalized_json_valid"] is True
+    assert result["fence_removed"] is True
+    assert assess_output(wrapped, BOARDS[0])["status"] == PredictionStatus.INVALID_JSON
+    nested = "```json\n" + wrapped + "\n```"
+    assert assess_output(nested, BOARDS[0], normalize=True)["status"] == PredictionStatus.INVALID_JSON
+    duplicate = '```json\n{"effects":[],"effects":[],"preserve":[]}\n```'
+    assert assess_output(duplicate, BOARDS[0], normalize=True)["normalized_json_valid"] is False
+
+
+def test_base_evaluation_uses_d_prompt_without_loading_an_adapter(tmp_path, monkeypatch):
+    import carl.icl.policy_relative_lora as module
+
+    model = tmp_path / "model"
+    model.mkdir()
+    revision = "a" * 40
+    (model / "experiment_revision.json").write_text(json.dumps({"revision": revision}))
+    for name in ("model.safetensors", "config.json", "tokenizer.json"):
+        (model / name).write_text(name)
+    board = ["#######", "#@-$--#", "#-.---#", "#######"]
+    record = {"record_id": "one", "context_id": "one", "layout_id": canonical_layout_id(from_rows(board)),
+              "split": "test", "family": "fixture", "start_observation": board, "task_goal": "Solve.",
+              "later_observation": ["SECRET_FUTURE"], "fragment_actions": [123456]}
+    contexts = tmp_path / "contexts.jsonl"
+    write_rows(contexts, [record])
+    calls = []
+
+    def fake_initialise(_args, adapter=None, train=False):
+        calls.append((adapter, train))
+        return object(), FakeTokenizer(), object(), "cpu"
+
+    def fake_generate(_torch, _model, _tokenizer, example, _args, _device, messages):
+        assert messages == generator_messages(example, Arm.DEMONSTRATION)
+        assert "SECRET_FUTURE" not in json.dumps(messages)
+        return '```json\n{"effects":[{"predicate":"box_at","row":1,"col":4}],"preserve":[]}\n```', 8, .1
+
+    monkeypatch.setattr(module, "initialise", fake_initialise)
+    monkeypatch.setattr(module, "generate", fake_generate)
+    output = tmp_path / "base.jsonl"
+    args = Namespace(arm=Arm.BASE, model=str(model), revision=revision, data=str(contexts), adapter=None,
+                     output=str(output), requested_scale=None, dtype="bfloat16", seed=1729, max_length=512,
+                     max_new_tokens=128, require_cuda=False, stop_monotonic=None, stop_epoch=None)
+    evaluate(args)
+    assert calls == [(None, False)]
+    row = json.loads(output.read_text())
+    metadata = json.loads(output.with_suffix(".run.json").read_text())
+    assert row["status"] == "valid_intent" and row["fence_removed"] is True
+    assert row["prompt"] == generator_messages(record, Arm.DEMONSTRATION)
+    assert metadata["adapter"] is metadata["adapter_weights_sha256"] is metadata["adapter_config_sha256"] is None
+    assert metadata["training_configuration_sha256"] is None
+    assert metadata["model_weights_sha256"] == hashlib.sha256((model / "model.safetensors").read_bytes()).hexdigest()
+    assert metadata["model_config_sha256"] == hashlib.sha256((model / "config.json").read_bytes()).hexdigest()
+    assert metadata["tokenizer_sha256"] == hashlib.sha256((model / "tokenizer.json").read_bytes()).hexdigest()
+    assert metadata["dtype"] == "bfloat16" and metadata["decoding"] == "greedy"
+    args.adapter = "unexpected"
+    with pytest.raises(ValueError, match="must not load an adapter"):
+        evaluate(args)

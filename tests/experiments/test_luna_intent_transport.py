@@ -143,6 +143,10 @@ def test_service_error_rejects_unrecognised_fields(config):
     {"usage": None},
     {"usage": {"input_tokens": True, "output_tokens": 1}},
     {"usage": {"input_tokens": 1, "output_tokens": 513}},
+    {"usage": {"input_tokens": 0, "output_tokens": 5}},
+    {"usage": {"input_tokens": 100, "output_tokens": 0}},
+    {"output": [], "usage": {"input_tokens": 100, "output_tokens": 0}},
+    {"usage": {"input_tokens": 0, "output_tokens": 0}},
     {"model": "gpt-6.1-terra"},
     {"service_tier": "priority"},
     {"service_tier": None},
@@ -154,8 +158,18 @@ def test_unknown_or_invalid_usage_keeps_response_and_blocks_retries(config, chan
         transport.create("board")
     with pytest.raises(LunaRequestUncertain):
         transport.create("board")
-    assert CampaignLedger(config).summary()["attempts"][0]["status"] == "unknown"
+    attempt = CampaignLedger(config).summary()["attempts"][0]
+    assert attempt["status"] == "unknown" and attempt["count"] == 1
+    assert attempt["committed_usd"] > .57  # Full worst-case reservation is retained.
     assert audit_records(config)[0]["response"] is not None
+
+
+def test_empty_output_with_zero_output_tokens_can_be_settled(config):
+    response = FakeResponse(output=[], usage={"input_tokens": 100, "output_tokens": 0})
+    response.output_text = ""
+    transport = LunaIntentTransport(config, client=FakeClient(lambda **_payload: response))
+    assert transport.create("board") is response
+    assert CampaignLedger(config).summary()["attempts"][0]["status"] == "settled"
 
 
 def test_interruption_and_orphaned_reservation_fail_closed(config):
@@ -224,3 +238,46 @@ def test_concurrent_calls_are_serialized(config):
     assert peak == 1
     assert len(audit_records(config)) == 3
     assert sum(row["committed_usd"] for row in CampaignLedger(config).summary()["attempts"]) < 2
+
+
+def test_request_pacing_waits_after_previous_call_finishes(tmp_path, monkeypatch):
+    import carl.icl.luna_intent_transport as luna
+
+    clock = {"epoch": 1000.0, "monotonic": 500.0}
+    delays = []
+
+    def sleep(delay):
+        delays.append(delay)
+        clock["epoch"] += delay
+        clock["monotonic"] += delay
+
+    fake_time = SimpleNamespace(time=lambda: clock["epoch"], monotonic=lambda: clock["monotonic"], sleep=sleep)
+    monkeypatch.setattr(luna, "time", fake_time)
+    luna._pace_requests(tmp_path)
+    clock["epoch"] += 0.2
+    clock["monotonic"] += 0.2
+    luna._record_request_finished(tmp_path)
+    clock["epoch"] += 0.3
+    clock["monotonic"] += 0.3
+    luna._pace_requests(tmp_path)
+    assert delays == pytest.approx([1.0, 0.7])
+
+
+def test_service_message_and_parameter_are_scrubbed():
+    import carl.icl.luna_intent_transport as luna
+
+    class Error(Exception):
+        status_code = 400
+        code = "invalid_prompt"
+        type = "invalid_request_error"
+        param = "text.format"
+        request_id = "req_abc123"
+        message = "Invalid schema. api_key=sk-proj-secret-key Authorization: Bearer private-value"
+
+    details = luna._error_diagnostics(Error())
+    assert details["service_code"] == "invalid_prompt"
+    assert details["service_type"] == "invalid_request_error"
+    assert details["service_param"] == "text.format"
+    assert "Invalid schema" in details["service_message"]
+    assert "sk-proj-secret-key" not in details["service_message"]
+    assert "private-value" not in details["service_message"]

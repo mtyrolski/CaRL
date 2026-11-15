@@ -37,6 +37,7 @@ from typing import Any
 from carl.icl.boards import canonical_layout_id
 from carl.icl.boards import from_rows
 from carl.icl.intent_data import validate_prediction
+from carl.icl.intent_fence_audit import remove_one_outer_fence
 from carl.icl.intent_generator_experiment import SYSTEM
 from carl.icl.intent_generator_experiment import DataSplit
 from carl.icl.intent_generator_experiment import atomic_json
@@ -61,6 +62,11 @@ SCALE_INSTRUCTION = (" The requested relative scale is a within-context percenti
 class Arm(StrEnum):
     UNSCALED = "unscaled"
     SCALED = "scaled"
+    BASE = "B"
+    DEMONSTRATION = "D"
+    MEASURED = "N"
+    ABSOLUTE = "T"
+    RELATIVE = "U"
 
 
 class Mode(StrEnum):
@@ -90,10 +96,11 @@ class PredictionStatus(StrEnum):
 @dataclass(frozen=True)
 class Candidate:
     record: dict[str, Any]
-    success_fraction: float
-    mean_success_actions: float
-    u: float
+    success_fraction: float | None
+    mean_success_actions: float | None
+    u: float | None
     weight: float
+    measured: bool = True
 
 
 @dataclass(frozen=True)
@@ -107,9 +114,9 @@ class Context:
 class FitData:
     train: tuple[Context, ...]
     validation: tuple[Context, ...]
-    controller_hash: str
-    action_cap: int
-    attempts_per_candidate: int
+    controller_hash: str | None
+    action_cap: int | None
+    attempts_per_candidate: int | None
     audit: dict[str, Any]
 
 
@@ -353,11 +360,95 @@ def load_fit_data(path: str | Path) -> FitData:
                 "distinct_scales":
                     sorted({candidate.u
                             for context in split_contexts[name]
-                            for candidate in context.candidates})
+                            for candidate in context.candidates if candidate.u is not None})
             } for name in (DataSplit.TRAIN, DataSplit.VALIDATION)
         }
     }
     return FitData(tuple(training), tuple(validation), controller, cap, attempts, audit)
+
+
+def load_demo_data(path: str | Path) -> FitData:
+    """Read every checked demonstration, including unsuccessful measured candidates."""
+    rows = read_records(path)
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    identities: set[str] = set()
+    visible_contexts: dict[tuple[tuple[str, ...], str], str] = {}
+    layouts: dict[str, set[str]] = defaultdict(set)
+    for row in rows:
+        identifier, context, layout = _identity(row)
+        split = row.get("split")
+        if not isinstance(split, str) or split not in (DataSplit.TRAIN, DataSplit.VALIDATION):
+            raise ValueError("demonstrations may contain only train and validation records")
+        if identifier in identities:
+            raise ValueError("demonstration record IDs must be unique")
+        identities.add(identifier)
+        if row.get("validation", {}).get("accepted") is not True:
+            raise ValueError("demonstration intents must be checked")
+        errors = validate_prediction(row.get("intent"), row["start_observation"])
+        if errors:
+            raise ValueError(f"invalid demonstration intent: {errors}")
+        visible = tuple(row["start_observation"]), row["task_goal"]
+        if visible in visible_contexts and visible_contexts[visible] != context:
+            raise ValueError("one visible demonstration context cannot have multiple context IDs")
+        visible_contexts[visible] = context
+        groups[context].append(row)
+        layouts[split].add(layout)
+    if layouts[DataSplit.TRAIN] & layouts[DataSplit.VALIDATION]:
+        raise ValueError("demonstration train and validation layouts overlap")
+    splits: dict[str, list[Context]] = defaultdict(list)
+    for context_id, group in sorted(groups.items()):
+        first = group[0]
+        signature = (first["split"], first["layout_id"], first["start_observation"], first["task_goal"])
+        if any((row["split"], row["layout_id"], row["start_observation"], row["task_goal"]) != signature
+               for row in group):
+            raise ValueError("demonstration context must share split, board, layout and task")
+        if len({_intent_key(row["intent"]) for row in group}) != len(group):
+            raise ValueError("duplicate demonstration intent within a context")
+        candidates = tuple(Candidate(row, None, None, None, 1 / len(group), False)
+                           for row in sorted(group, key=lambda item: item["record_id"]))
+        splits[first["split"]].append(Context(context_id, first["layout_id"], candidates))
+    if not splits[DataSplit.TRAIN] or not splits[DataSplit.VALIDATION]:
+        raise ValueError("demonstrations need train and validation contexts")
+    audit = {"rows": len(rows), "contexts": len(groups),
+             "layout_ids_by_split": {name: sorted(layouts[name]) for name in (DataSplit.TRAIN, DataSplit.VALIDATION)},
+             "splits": {name: {"contexts": len(splits[name]),
+                                "candidates": sum(len(context.candidates) for context in splits[name])}
+                        for name in (DataSplit.TRAIN, DataSplit.VALIDATION)}}
+    return FitData(tuple(splits[DataSplit.TRAIN]), tuple(splits[DataSplit.VALIDATION]), None, None, None, audit)
+
+
+def load_study_data(args: argparse.Namespace) -> tuple[FitData, FitData | None]:
+    """Require the same checked demonstration base for all D/N/T/U arms."""
+    arm = Arm(args.arm)
+    if arm in (Arm.UNSCALED, Arm.SCALED):
+        if getattr(args, "demo_data", None) is not None:
+            raise ValueError("legacy arms do not accept a demonstration mix")
+        return load_fit_data(args.data), None
+    if not getattr(args, "demo_data", None):
+        raise ValueError("D/N/T/U require --demo-data")
+    demonstration = load_demo_data(args.demo_data)
+    if arm == Arm.DEMONSTRATION:
+        return demonstration, demonstration
+    if not args.data:
+        raise ValueError("N/T/U require --data with calibrated measurements")
+    demo_rows = {candidate.record["record_id"]: candidate.record
+                 for context in (*demonstration.train, *demonstration.validation) for candidate in context.candidates}
+    for row in read_records(args.data):
+        original = demo_rows.get(row.get("record_id"))
+        if original is None or any(row.get(key) != original.get(key) for key in
+                                   ("context_id", "layout_id", "split", "start_observation", "task_goal", "intent")):
+            raise ValueError("every calibrated candidate must match the common demonstration pool")
+    return load_fit_data(args.data), demonstration
+
+
+def candidate_scale(candidate: Candidate, arm: Arm) -> float | None:
+    if not candidate.measured:
+        return None
+    if arm in (Arm.SCALED, Arm.RELATIVE):
+        return candidate.u
+    if arm == Arm.ABSOLUTE:
+        return candidate.mean_success_actions
+    return None
 
 
 def generator_messages(record: dict[str, Any],
@@ -365,18 +456,27 @@ def generator_messages(record: dict[str, Any],
                        requested_scale: float | None = None) -> list[dict[str, str]]:
     """Whitelist board, task and explicit scale; never serialise the source record."""
     arm = Arm(arm)
-    if arm == Arm.UNSCALED:
+    if arm in (Arm.UNSCALED, Arm.BASE, Arm.DEMONSTRATION, Arm.MEASURED):
         if requested_scale is not None:
             raise ValueError("unscaled prompts do not accept a requested scale")
         value = MISSING_SCALE
+    elif requested_scale is None and arm in (Arm.ABSOLUTE, Arm.RELATIVE):
+        value = MISSING_SCALE
     else:
         value_number = _number(requested_scale, "requested_scale")
-        if not 0 <= value_number <= 1:
+        if arm in (Arm.SCALED, Arm.RELATIVE) and not 0 <= value_number <= 1:
             raise ValueError("requested_scale must be between zero and one")
+        if arm == Arm.ABSOLUTE and value_number <= 0:
+            raise ValueError("requested duration must be positive")
         value = repr(value_number)
     messages = prompt_messages(record)
-    messages[0]["content"] = SYSTEM + SCALE_INSTRUCTION
-    messages[1]["content"] += f"\nRequested relative scale: {value}"
+    if arm == Arm.ABSOLUTE:
+        messages[0]["content"] = (SYSTEM + " The requested duration is the expected number of primitive controller "
+                                  "actions conditional on success. A missing-scale marker means no duration is requested.")
+        messages[1]["content"] += f"\nRequested duration in actions: {value}"
+    else:
+        messages[0]["content"] = SYSTEM + SCALE_INSTRUCTION
+        messages[1]["content"] += f"\nRequested relative scale: {value}"
     return messages
 
 
@@ -400,7 +500,7 @@ def encode_target(tokenizer: Any, record: dict[str, Any], arm: Arm | str, reques
 
 def encode_example(tokenizer: Any, candidate: Candidate, arm: Arm | str, max_length: int) -> dict[str, list[int]]:
     arm = Arm(arm)
-    return encode_target(tokenizer, candidate.record, arm, candidate.u if arm == Arm.SCALED else None, max_length)
+    return encode_target(tokenizer, candidate.record, arm, candidate_scale(candidate, arm), max_length)
 
 
 def balanced_samples(contexts: tuple[Context, ...], seed: int) -> Iterator[Candidate]:
@@ -415,20 +515,40 @@ def balanced_samples(contexts: tuple[Context, ...], seed: int) -> Iterator[Candi
             yield rng.choices(context.candidates, weights=[item.weight for item in context.candidates], k=1)[0]
 
 
-def training_prompts(data: FitData, arm: Arm | str) -> Iterator[dict[str, Any]]:
+def study_samples(data: FitData, demonstration: FitData | None, arm: Arm | str, seed: int) -> Iterator[Candidate]:
+    """Pair half demonstration with half measured examples, or two demo streams for D."""
+    arm = Arm(arm)
+    if demonstration is None:
+        yield from balanced_samples(data.train, seed)
+        return
+    base = balanced_samples(demonstration.train, seed)
+    extra = balanced_samples(demonstration.train if arm == Arm.DEMONSTRATION else data.train, seed + 1)
+    while True:
+        yield next(base)
+        yield next(extra)
+
+
+def training_prompts(data: FitData, arm: Arm | str, demonstration: FitData | None = None) -> Iterator[dict[str, Any]]:
     """Save exact visible messages and response targets for reproducible review."""
     arm = Arm(arm)
-    for split, contexts in ((DataSplit.TRAIN, data.train), (DataSplit.VALIDATION, data.validation)):
-        for context in contexts:
-            for candidate in context.candidates:
-                scale = candidate.u if arm == Arm.SCALED else None
-                yield {
-                    "record_id": candidate.record["record_id"],
-                    "context_id": context.context_id,
-                    "split": split,
-                    "messages": generator_messages(candidate.record, arm, scale),
-                    "response_target": target_text(candidate.record)
-                }
+    pools = [("measured" if demonstration else "legacy", data)]
+    if demonstration:
+        pools = [("demonstration", demonstration)]
+        if arm != Arm.DEMONSTRATION:
+            pools.append(("measured", data))
+    for source, pool in pools:
+        for split, contexts in ((DataSplit.TRAIN, pool.train), (DataSplit.VALIDATION, pool.validation)):
+            for context in contexts:
+                for candidate in context.candidates:
+                    scale = candidate_scale(candidate, arm)
+                    yield {
+                        "record_id": candidate.record["record_id"],
+                        "context_id": context.context_id,
+                        "split": split,
+                        "source": source,
+                        "messages": generator_messages(candidate.record, arm, scale),
+                        "response_target": target_text(candidate.record)
+                    }
 
 
 def _model_revision(path: Path, revision: str) -> None:
@@ -459,10 +579,12 @@ def _candidate_lengths(tokenizer: Any, contexts: tuple[Context, ...], arm: Arm, 
     }
 
 
-def _configuration(args: argparse.Namespace, data: FitData, tokenizer: Any, device: str) -> dict[str, Any]:
+def _configuration(args: argparse.Namespace, data: FitData, tokenizer: Any, device: str,
+                   demonstration: FitData | None = None) -> dict[str, Any]:
     model = Path(args.model).resolve()
+    data_path = args.data if Arm(args.arm) != Arm.DEMONSTRATION else args.demo_data
     comparable = {
-        "data_sha256": file_sha256(args.data),
+        "data_sha256": file_sha256(data_path),
         "model_revision": args.revision,
         "model_weights_sha256": file_sha256(model / "model.safetensors"),
         "model_config_sha256": file_sha256(model / "config.json"),
@@ -491,16 +613,36 @@ def _configuration(args: argparse.Namespace, data: FitData, tokenizer: Any, devi
         "loss": "response and EOS tokens only",
         "code_sha256": file_sha256(__file__)
     }
+    if demonstration is not None:
+        comparable.update({
+            "demonstration_sha256": file_sha256(args.demo_data),
+            "demonstration_train_context_ids": [item.context_id for item in demonstration.train],
+            "demonstration_validation_context_ids": [item.context_id for item in demonstration.validation],
+            "train_layout_ids": sorted(set(comparable["train_layout_ids"])
+                                       | set(demonstration.audit["layout_ids_by_split"][DataSplit.TRAIN])),
+            "validation_layout_ids": sorted(set(comparable["validation_layout_ids"])
+                                            | set(demonstration.audit["layout_ids_by_split"][DataSplit.VALIDATION])),
+            "sampling": "alternating demonstration and controller-weighted draws; D replaces measured with demo",
+            "demonstration_fraction": .5,
+            "validation_sampling": "fixed weighted draws, one per demo context per pool; seeds +2 and +3",
+            "validation_draws_per_pool": len(demonstration.validation),
+        })
     parity = hashlib.sha256(json.dumps(comparable, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    token_lengths = {
+        "train": _candidate_lengths(tokenizer, data.train, Arm(args.arm), args.max_length),
+        "validation": _candidate_lengths(tokenizer, data.validation, Arm(args.arm), args.max_length)
+    }
+    if demonstration is not None:
+        token_lengths["demonstration_train"] = _candidate_lengths(tokenizer, demonstration.train, Arm(args.arm),
+                                                                  args.max_length)
+        token_lengths["demonstration_validation"] = _candidate_lengths(tokenizer, demonstration.validation,
+                                                                       Arm(args.arm), args.max_length)
     return {
         **comparable, "comparability_sha256": parity,
         "arm": args.arm,
         "model": str(model),
         "device": device,
-        "token_lengths": {
-            "train": _candidate_lengths(tokenizer, data.train, Arm(args.arm), args.max_length),
-            "validation": _candidate_lengths(tokenizer, data.validation, Arm(args.arm), args.max_length)
-        },
+        "token_lengths": token_lengths,
         "enable_thinking": False,
         "command": sys.argv,
         "data_audit": data.audit
@@ -517,7 +659,7 @@ def require_scale_information(data: FitData,
                               minimum_train: int = 4,
                               minimum_validation: int = 1) -> None:
     """Do not present a singleton or all-tied calibration as a scale study."""
-    if Arm(arm) == Arm.UNSCALED:
+    if Arm(arm) in (Arm.UNSCALED, Arm.DEMONSTRATION, Arm.MEASURED):
         return
     if minimum_train < 1 or minimum_validation < 1:
         raise ValueError("minimum informative context counts must be positive")
@@ -529,23 +671,38 @@ def require_scale_information(data: FitData,
 
 
 def validation_loss(torch: Any, model: Any, tokenizer: Any, contexts: tuple[Context, ...], args: argparse.Namespace,
-                    device: str) -> float:
-    """Calculate weighted candidate loss, then give each context equal weight."""
+                    device: str, demonstration: tuple[Context, ...] | None = None) -> float:
+    """Use equal fixed validation effort across study arms, preserving legacy scoring."""
     model.eval()
-    losses = []
+
+    def mean_loss(pool: tuple[Context, ...]) -> float:
+        losses = []
+        for context in pool:
+            total = 0.0
+            for candidate in context.candidates:
+                value = float(_loss(torch, model, tokenizer, candidate, args, device).detach().cpu())
+                if not math.isfinite(value):
+                    raise ValueError("validation loss is not finite")
+                total += candidate.weight * value
+            losses.append(total)
+        return sum(losses) / len(losses)
+
     try:
         with torch.no_grad():
-            for context in contexts:
-                total = 0.0
-                for candidate in context.candidates:
-                    value = float(_loss(torch, model, tokenizer, candidate, args, device).detach().cpu())
-                    if not math.isfinite(value):
-                        raise ValueError("validation loss is not finite")
-                    total += candidate.weight * value
-                losses.append(total)
+            if demonstration is None:
+                value = mean_loss(contexts)
+            else:
+                base = balanced_samples(demonstration, args.seed + 2)
+                extra_pool = demonstration if Arm(args.arm) == Arm.DEMONSTRATION else contexts
+                extra = balanced_samples(extra_pool, args.seed + 3)
+                losses = [float(_loss(torch, model, tokenizer, candidate, args, device).detach().cpu())
+                          for _ in demonstration for candidate in (next(base), next(extra))]
+                if not all(math.isfinite(loss) for loss in losses):
+                    raise ValueError("validation loss is not finite")
+                value = sum(losses) / len(losses)
     finally:
         model.train()
-    return sum(losses) / len(losses)
+    return value
 
 
 def resource_records(path: str | Path) -> list[dict[str, Any]]:
@@ -720,7 +877,7 @@ def resource_check(args: argparse.Namespace) -> None:
 
 def benchmark(args: argparse.Namespace) -> None:
     """Measure a full optimiser step and generation with the actual prompts."""
-    data = load_fit_data(args.data)
+    data, demonstration = load_study_data(args)
     require_scale_information(data, args.arm, args.min_informative_train_contexts,
                               args.min_informative_validation_contexts)
     _model_revision(Path(args.model), args.revision)
@@ -733,10 +890,10 @@ def benchmark(args: argparse.Namespace) -> None:
             raise RuntimeError("CUDA required but unavailable; no silent CPU fallback")
     started = time.monotonic()
     torch, tokenizer, model, device = initialise(args, train=True)
-    configuration = _configuration(args, data, tokenizer, device)
+    configuration = _configuration(args, data, tokenizer, device, demonstration)
     optimizer = torch.optim.AdamW((parameter for parameter in model.parameters() if parameter.requires_grad),
                                   lr=args.lr)
-    examples = balanced_samples(data.train, args.seed)
+    examples = study_samples(data, demonstration, args.arm, args.seed)
     tokens = 0
     model.train()
     sync_gpu(torch)
@@ -754,7 +911,7 @@ def benchmark(args: argparse.Namespace) -> None:
     sync_gpu(torch)
     seconds = time.monotonic() - step_started
     candidate = data.train[0].candidates[0]
-    requested = candidate.u if Arm(args.arm) == Arm.SCALED else None
+    requested = candidate_scale(candidate, Arm(args.arm))
     raw, generated, generation_seconds = generate(
         torch,
         model,
@@ -797,7 +954,7 @@ def train(args: argparse.Namespace) -> None:
     current_checkpoint = None
     torch = None
     try:
-        data = load_fit_data(args.data)
+        data, demonstration = load_study_data(args)
         require_scale_information(data, args.arm, args.min_informative_train_contexts,
                                   args.min_informative_validation_contexts)
         _model_revision(Path(args.model), args.revision)
@@ -809,16 +966,16 @@ def train(args: argparse.Namespace) -> None:
             if not torch_module.cuda.is_available():
                 raise RuntimeError("CUDA required but unavailable; no silent CPU fallback")
         torch, tokenizer, model, device = initialise(args, train=True)
-        atomic_json(output / "configuration.json", _configuration(args, data, tokenizer, device))
+        atomic_json(output / "configuration.json", _configuration(args, data, tokenizer, device, demonstration))
         tokenizer.save_pretrained(output / "tokenizer")
         with (output / "prompts.jsonl").open("x", encoding="utf-8") as stream:
-            for row in training_prompts(data, args.arm):
+            for row in training_prompts(data, args.arm, demonstration):
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
         optimizer = torch.optim.AdamW((parameter for parameter in model.parameters() if parameter.requires_grad),
                                       lr=args.lr)
-        examples = balanced_samples(data.train, args.seed)
+        examples = study_samples(data, demonstration, args.arm, args.seed)
         stopped = {"requested": False}
 
         def request_stop(_signum: int, _frame: Any) -> None:
@@ -851,7 +1008,8 @@ def train(args: argparse.Namespace) -> None:
                     }
                     if ((step % args.eval_every == 0 or step == args.max_steps) and not stopped["requested"]
                             and not expired(args)):
-                        value = validation_loss(torch, model, tokenizer, data.validation, args, device)
+                        value = validation_loss(torch, model, tokenizer, data.validation, args, device,
+                                                demonstration.validation if demonstration else None)
                         row["validation_loss"] = value
                         current_checkpoint = str(save_adapter(model, output, f"checkpoint-{step}"))
                         last_validation = step
@@ -920,14 +1078,23 @@ def _strict_json(raw: str) -> Any:
     return json.loads(raw, object_pairs_hook=unique, parse_constant=invalid_constant)
 
 
-def assess_output(raw: str, board: list[str]) -> dict[str, Any]:
-    """Parse a complete response and check its predicates on the current board."""
+def assess_output(raw: str, board: list[str], *, normalize: bool = False) -> dict[str, Any]:
+    """Parse complete JSON, optionally removing one enclosing Markdown fence."""
     try:
-        intent = _strict_json(raw)
+        _strict_json(raw)
+        strict_valid = True
+    except (TypeError, ValueError, json.JSONDecodeError):
+        strict_valid = False
+    normalized, removed = remove_one_outer_fence(raw) if normalize else (raw, False)
+    try:
+        intent = _strict_json(normalized)
     except (TypeError, ValueError, json.JSONDecodeError) as error:
         return {
             "status": PredictionStatus.INVALID_JSON,
             "json_valid": False,
+            "strict_json_valid": strict_valid,
+            "normalized_json_valid": False,
+            "fence_removed": removed,
             "parsed": None,
             "validation_errors": [str(error)]
         }
@@ -935,6 +1102,9 @@ def assess_output(raw: str, board: list[str]) -> dict[str, Any]:
     return {
         "status": PredictionStatus.INVALID_INTENT if errors else PredictionStatus.VALID,
         "json_valid": True,
+        "strict_json_valid": strict_valid,
+        "normalized_json_valid": True,
+        "fence_removed": removed,
         "parsed": intent,
         "validation_errors": errors
     }
@@ -987,18 +1157,27 @@ def verify_adapter(adapter: Path, model: Path, revision: str, arm: Arm, rows: li
 def evaluate(args: argparse.Namespace) -> None:
     rows = test_contexts(args.data)
     arm = Arm(args.arm)
-    requested = args.requested_scale if arm == Arm.SCALED else None
-    if arm == Arm.UNSCALED and args.requested_scale is not None:
+    is_scaled = arm in (Arm.SCALED, Arm.RELATIVE, Arm.ABSOLUTE)
+    requested = args.requested_scale if is_scaled else None
+    if not is_scaled and args.requested_scale is not None:
         raise ValueError("unscaled evaluation must not receive --requested-scale")
-    if arm == Arm.SCALED and requested is None:
+    if is_scaled and requested is None:
         raise ValueError("scaled evaluation requires --requested-scale")
     messages = [generator_messages(row, arm, requested) for row in rows]
     _model_revision(Path(args.model), args.revision)
-    adapter = Path(args.adapter)
-    for name in ("adapter_model.safetensors", "adapter_config.json"):
-        if not (adapter / name).is_file():
-            raise ValueError(f"adapter is missing {name}")
-    training = verify_adapter(adapter, Path(args.model), args.revision, arm, rows)
+    if arm == Arm.BASE:
+        if args.adapter is not None:
+            raise ValueError("the base arm must not load an adapter")
+        adapter = None
+        training = None
+    else:
+        if not args.adapter:
+            raise ValueError("adapted evaluation requires a validation-selected adapter")
+        adapter = Path(args.adapter)
+        for name in ("adapter_model.safetensors", "adapter_config.json"):
+            if not (adapter / name).is_file():
+                raise ValueError(f"adapter is missing {name}")
+        training = verify_adapter(adapter, Path(args.model), args.revision, arm, rows)
     output = Path(args.output)
     meta_path = output.with_suffix(".run.json")
     if output.exists() or meta_path.exists():
@@ -1008,21 +1187,25 @@ def evaluate(args: argparse.Namespace) -> None:
         "data_sha256": file_sha256(args.data),
         "model": str(Path(args.model).resolve()),
         "revision": args.revision,
-        "adapter": str(adapter.resolve()),
-        "adapter_weights_sha256": file_sha256(adapter / "adapter_model.safetensors"),
-        "adapter_config_sha256": file_sha256(adapter / "adapter_config.json"),
+        "model_weights_sha256": file_sha256(Path(args.model) / "model.safetensors"),
+        "model_config_sha256": file_sha256(Path(args.model) / "config.json"),
+        "tokenizer_sha256": file_sha256(Path(args.model) / "tokenizer.json"),
+        "adapter": str(adapter.resolve()) if adapter is not None else None,
+        "adapter_weights_sha256": file_sha256(adapter / "adapter_model.safetensors") if adapter else None,
+        "adapter_config_sha256": file_sha256(adapter / "adapter_config.json") if adapter else None,
         "code_sha256": file_sha256(__file__),
         "arm": arm,
         "requested_scale": requested,
-        "training_configuration_sha256": file_sha256(adapter.parent / "configuration.json"),
-        "training_comparability_sha256": training["comparability_sha256"],
-        "controller_hash": training["controller_hash"],
+        "training_configuration_sha256": file_sha256(adapter.parent / "configuration.json") if adapter else None,
+        "training_comparability_sha256": training["comparability_sha256"] if training is not None else None,
+        "controller_hash": training["controller_hash"] if training is not None else None,
         "record_ids": [row["record_id"] for row in rows],
         "dtype": args.dtype,
         "seed": args.seed,
         "max_length": args.max_length,
         "max_new_tokens": args.max_new_tokens,
         "decoding": "greedy",
+        "output_normalisation": ("remove_one_outer_fence" if arm not in (Arm.UNSCALED, Arm.SCALED) else "strict"),
         "enable_thinking": False,
         "command": sys.argv
     }
@@ -1034,7 +1217,7 @@ def evaluate(args: argparse.Namespace) -> None:
             import torch as torch_module
             if not torch_module.cuda.is_available():
                 raise RuntimeError("CUDA required but unavailable; no silent CPU fallback")
-        model_tuple = initialise(args, adapter=str(adapter), train=False)
+        model_tuple = initialise(args, adapter=str(adapter) if adapter is not None else None, train=False)
         torch, tokenizer, model, device = model_tuple
         for prompt in messages:
             tokens = tokenizer.apply_chat_template(prompt,
@@ -1054,6 +1237,9 @@ def evaluate(args: argparse.Namespace) -> None:
                        raw_output=None,
                        parsed=None,
                        json_valid=None,
+                       strict_json_valid=None,
+                       normalized_json_valid=None,
+                       fence_removed=None,
                        validation_errors=[],
                        generated_tokens=None,
                        generation_seconds=None)
@@ -1070,7 +1256,8 @@ def evaluate(args: argparse.Namespace) -> None:
                     row.update(raw_output=raw,
                                generated_tokens=tokens,
                                generation_seconds=seconds,
-                               **assess_output(raw, record["start_observation"]))
+                               **assess_output(raw, record["start_observation"],
+                                               normalize=arm not in (Arm.UNSCALED, Arm.SCALED)))
                 except Exception as error:
                     failure = f"{type(error).__name__}: {error}"
                     row.update(status=PredictionStatus.INFRASTRUCTURE_ERROR, error=failure)
@@ -1090,13 +1277,14 @@ def evaluate(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=list(Mode))
-    parser.add_argument("--data", required=True, help="calibration JSONL or separate test-context JSONL")
+    parser.add_argument("--data", help="calibration JSONL or separate test-context JSONL")
+    parser.add_argument("--demo-data", help="common checked demonstration pool for D/N/T/U training")
     parser.add_argument("--output", required=True)
     parser.add_argument("--arm", choices=list(Arm), help="required except for the unmeasured resource check")
     parser.add_argument("--model", help="verified local model snapshot; required except for inspect")
     parser.add_argument("--revision", help="exact local Hugging Face commit; required except for inspect")
     parser.add_argument("--adapter", help="saved generator adapter; required for evaluate")
-    parser.add_argument("--requested-scale", type=float, help="required only for scaled evaluation")
+    parser.add_argument("--requested-scale", type=float, help="relative u or absolute action duration at evaluation")
     parser.add_argument("--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1729)
@@ -1123,18 +1311,31 @@ def main() -> None:
         parser.error("resource-check uses diagnostic scale 0.5 and does not accept --arm")
     if args.mode != Mode.RESOURCE_CHECK and args.arm is None:
         parser.error("this mode requires --arm")
+    if not args.data and not (args.arm == Arm.DEMONSTRATION and args.mode in (Mode.INSPECT, Mode.BENCHMARK, Mode.TRAIN)):
+        parser.error("--data is required except for D inspection, benchmarking and training")
+    if args.mode in (Mode.INSPECT, Mode.BENCHMARK, Mode.TRAIN) and args.arm in (
+            Arm.DEMONSTRATION, Arm.MEASURED, Arm.ABSOLUTE, Arm.RELATIVE) and not args.demo_data:
+        parser.error("D/N/T/U require --demo-data")
+    if args.mode in (Mode.BENCHMARK, Mode.TRAIN) and args.arm in (
+            Arm.DEMONSTRATION, Arm.MEASURED, Arm.ABSOLUTE, Arm.RELATIVE) and args.accumulation % 2:
+        parser.error("D/N/T/U require even gradient accumulation for an exact 50/50 mix")
     if args.mode != Mode.INSPECT and not all((args.model, args.revision)):
         parser.error("resource-check, benchmark, train and evaluate require --model and --revision")
-    if args.mode == Mode.EVALUATE and not args.adapter:
+    if args.arm == Arm.BASE and args.mode != Mode.EVALUATE:
+        parser.error("the base arm is available for evaluation only")
+    if args.mode == Mode.EVALUATE and args.arm == Arm.BASE and args.adapter is not None:
+        parser.error("the base arm must not load an adapter")
+    if args.mode == Mode.EVALUATE and args.arm != Arm.BASE and not args.adapter:
         parser.error("evaluate requires --adapter")
     if args.mode == Mode.INSPECT:
-        data = load_fit_data(args.data)
+        data, demonstration = load_study_data(args)
         output = Path(args.output)
         if output.exists():
             raise FileExistsError("use a fresh inspection output")
         atomic_json(
             output, {
-                "data_sha256": file_sha256(args.data),
+                "data_sha256": file_sha256(args.demo_data if args.arm == Arm.DEMONSTRATION else args.data),
+                "demonstration_sha256": file_sha256(args.demo_data) if demonstration else None,
                 "arm": args.arm,
                 "controller_hash": data.controller_hash,
                 "action_cap": data.action_cap,
