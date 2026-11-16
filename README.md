@@ -148,7 +148,7 @@ For INT environment, please see [INT repository](https://github.com/mtyrolski/IN
 ```bash
 uv venv local/experiments/trackio/.venv --python .venv/bin/python
 uv pip install --python local/experiments/trackio/.venv/bin/python -r requirements-trackio.txt
-TRACKIO_DIR="$PWD/analysis/trackio" local/experiments/trackio/.venv/bin/trackio show
+HF_HUB_OFFLINE=1 GRADIO_ANALYTICS_ENABLED=False TRACKIO_DIR="$PWD/analysis/trackio" local/experiments/trackio/.venv/bin/trackio show --host 127.0.0.1
 ```
 
 Trackio runs in a separate Python environment because its current Hugging Face Hub requirements differ from those of the main Transformers environment. Runs are stored under `analysis/trackio` by default. Set `CARL_TRACKIO_PYTHON` to use another Trackio interpreter or `TRACKIO_DIR` to choose a local directory. Logging is local; no Space or remote server is configured.
