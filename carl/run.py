@@ -12,14 +12,12 @@ import hydra
 import torch
 from dotenv import load_dotenv
 from loguru import logger
-from neptune.utils import stringify_unsupported
 from omegaconf import DictConfig
 from omegaconf import OmegaConf
 
 from carl.algorithms.algorithm import Algorithm
 from carl.slurm.grid_search import CarlGrid
 from carl.utils.result_loggers import SubgoalSearchResultLogger
-from carl.utils.secrets import mask_secret
 
 HIGHEST_PROTOCOL: Final[int] = pickle.HIGHEST_PROTOCOL
 DOTENV_PATH = './.tokens.env'
@@ -34,20 +32,17 @@ def handle_logging(
     Register experiment parameters and paths with the algorithm's external logger, if available.
     """
     pwd = os.getcwd()  # current working directory
-    real_pwd = os.environ.get('NEPTUNEPWD')
+    real_pwd = os.environ.get('CARL_ORIGINAL_DIR')
     if not hasattr(algorithm, logger_key_name):
-        logger.info(f'No {logger_key_name} found in algorithm, skipping logging to external services.')
+        logger.info(f'No {logger_key_name} found in algorithm, skipping experiment logging.')
         return
     
     assert isinstance(getattr(algorithm, logger_key_name), SubgoalSearchResultLogger), \
-        f'Expected {logger_key_name} to be of type NeptuneCaRLLogger, but got {type(getattr(algorithm, logger_key_name))}'
+        f'Expected {logger_key_name} to be a SubgoalSearchResultLogger, got {type(getattr(algorithm, logger_key_name))}'
 
     conf_to_log = OmegaConf.to_container(config)
-    getattr(algorithm, logger_key_name).custom_logger.run['parameters'] = stringify_unsupported(conf_to_log)
-    getattr(algorithm, logger_key_name).custom_logger.run['experiment_path'] = stringify_unsupported({
-        'pwd': pwd,
-        'real_pwd': real_pwd,
-    })
+    getattr(algorithm, logger_key_name).custom_logger.run['parameters'] = conf_to_log
+    getattr(algorithm, logger_key_name).custom_logger.run['experiment_path'] = {'pwd': pwd, 'real_pwd': real_pwd}
     
 def handle_precision(config: DictConfig) -> None:
     """
@@ -67,31 +62,33 @@ def _instantiate_and_run(exp_config: DictConfig) -> None:
         f'Expected algorithm to be of type Algorithm, but got {type(algorithm)}'
     logger.info(f'Registered algorithm: {algorithm}')
     
-    handle_logging(algorithm, exp_config)
-    handle_precision(exp_config)
-    _RECURSION_LIMIT: Final[int] = 2147483640
-    if sys.getrecursionlimit() < _RECURSION_LIMIT:
-        logger.warning(f'Raising recursion limit from {sys.getrecursionlimit()} to {_RECURSION_LIMIT}')
-        sys.setrecursionlimit(_RECURSION_LIMIT)
-    algorithm.run()
+    try:
+        handle_logging(algorithm, exp_config)
+        handle_precision(exp_config)
+        _RECURSION_LIMIT: Final[int] = 2147483640
+        if sys.getrecursionlimit() < _RECURSION_LIMIT:
+            logger.warning(f'Raising recursion limit from {sys.getrecursionlimit()} to {_RECURSION_LIMIT}')
+            sys.setrecursionlimit(_RECURSION_LIMIT)
+        algorithm.run()
+    finally:
+        owners = (getattr(algorithm, 'custom_logger', None), getattr(getattr(algorithm, 'result_logger', None), 'custom_logger', None))
+        for owner in owners:
+            finish = getattr(owner, 'finish', None)
+            if callable(finish):
+                finish()
 
    
 def run(config: DictConfig) -> None:
     """
-    Main runner: log config, load environment vars, verify tokens,
+    Main runner: log config, load environment variables,
     and execute all experiments in the CarlGrid.
     """
     logger.info(OmegaConf.to_yaml(config))  # dump config to logs
     load_dotenv(DOTENV_PATH, override=True)
-    neptune_api_token = os.environ.get('NEPTUNE_API_TOKEN')
     logger.info(f'CUDA_VISIBLE_DEVICES: {os.environ.get("CUDA_VISIBLE_DEVICES")}')
-    logger.info(f'NEPTUNE_API_TOKEN: {mask_secret(neptune_api_token)}')
     logger.remove()
     logger.add(sys.stderr, level='INFO')
 
-    if neptune_api_token is None:
-        logger.error('NEPTUNE_API_TOKEN is not set')
-        sys.exit(1)
         
     raw_data: dict[str, Any] = OmegaConf.to_container(config) # type: ignore[assignment]
     assert isinstance(raw_data, dict), 'Config must be a dictionary'

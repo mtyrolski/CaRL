@@ -96,7 +96,7 @@ class TrainUniversalGeneratorHF(Algorithm):
         self.model = cast(PreTrainedModel, self.model)
         cast(torch.nn.Module, self.model).to(self.device)
 
-    def _neptune_log(self, key: str, step: int, value: float) -> None:
+    def _log_metric(self, key: str, step: int, value: float) -> None:
         if self.custom_logger is None:
             return
         run = getattr(self.custom_logger, "run", None)
@@ -197,7 +197,7 @@ class TrainUniversalGeneratorHF(Algorithm):
         if n_batches > 0:
             for key in agg:
                 agg[key] /= n_batches
-                self._neptune_log(f"universal_eval/{key}", step, agg[key])
+                self._log_metric(f"universal_eval/{key}", step, agg[key])
         self.model.train()
         return agg
 
@@ -245,7 +245,7 @@ class TrainUniversalGeneratorHF(Algorithm):
                     msg = {k: float(v.item()) for k, v in losses.items()}
                     logger.info(f"[universal/{self.recipe}] step={global_step} {msg}")
                     for key, value in msg.items():
-                        self._neptune_log(f"universal_train/{key}", global_step, value)
+                        self._log_metric(f"universal_train/{key}", global_step, value)
 
                 if self.eval_every_n_steps > 0 and global_step % self.eval_every_n_steps == 0:
                     eval_metrics = self._evaluate(global_step)

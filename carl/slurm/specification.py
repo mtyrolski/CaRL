@@ -13,7 +13,6 @@ class ClusterSpec:
     repo_url: str
     apptainer_container: str
     apptainer_exec_args: str
-    neptune_api_token: str | None
     node_specs: dict
     data_dir: str
 
@@ -42,18 +41,6 @@ class ClusterSpec:
 
         if not all(key in yaml_dict for key in required_keys):
             raise ValueError(f'YAML file {yaml_path} must contain keys {required_keys}')
-
-        # load .env file to fullfill secrets
-        env_path = '.tokens.env'
-        if not os.path.exists(env_path):
-            raise ValueError(f'env file {env_path} does not exist')
-
-        from dotenv import load_dotenv
-
-        load_dotenv(dotenv_path=env_path, override=True)
-
-        # Extend yaml_dict with env variables
-        yaml_dict['neptune_api_token'] = os.getenv('NEPTUNE_API_TOKEN')
 
         return cls(**yaml_dict)
 

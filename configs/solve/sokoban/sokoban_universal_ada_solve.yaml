@@ -76,7 +76,7 @@ algorithm:
   result_logger:
     _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
     custom_logger:
-      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.TrackioCaRLLogger
       name: "universal_adasubs solve"
       description: "universal propositional generator solve"
       project: "mtyrol/drop"
