@@ -1,0 +1,7 @@
+{
+  "extends": "calibration_json_retry_v1.json",
+  "name": "campaign_fixed_k_json_retry_v1",
+  "method": "fixed",
+  "fixed_cap": "horizon",
+  "scales": [8, 4]
+}

@@ -1,0 +1,6 @@
+{
+  "extends": "calibration_live_v2.json",
+  "name": "campaign_absolute_d_provisional",
+  "method": "absolute_d",
+  "scales": [8, 4]
+}

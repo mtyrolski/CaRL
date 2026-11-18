@@ -1,0 +1,20 @@
+{
+  "extends": "base.json",
+  "name": "luna_trajectory_tuned",
+  "policy_coordinate_features": true,
+  "policy_reasoning_effort": "low",
+  "policy_response_format": "json_schema",
+  "policy_tokens": 2048,
+  "generator_reasoning_effort": "low",
+  "generator_response_format": "json_schema",
+  "generator_layout_schema": true,
+  "generator_max_attempts": 3,
+  "value_reasoning_effort": "none",
+  "value_response_format": "json_schema",
+  "value_target": "remaining_actions",
+  "value_examples": "trajectory",
+  "value_board_features": true,
+  "value_tokens": 128,
+  "calibration": {"limits": {"max_output_tokens": 1200000}},
+  "tuning_status": "pilot_unvalidated"
+}

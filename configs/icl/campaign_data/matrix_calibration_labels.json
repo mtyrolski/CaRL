@@ -1,0 +1,9 @@
+{
+  "configs": [
+    "relative_u.json",
+    "absolute_d.json",
+    "ratio_d_over_ac.json",
+    "normalized_offset.json",
+    "fixed_k.json"
+  ]
+}

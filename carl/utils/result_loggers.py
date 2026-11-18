@@ -9,7 +9,7 @@ from loguru import logger
 from carl.planners.base import Experience
 from carl.planners.base import SearchInfo
 from carl.planners.base import Solution
-from carl.utils.loggers import NeptuneCaRLLogger
+from carl.utils.logging_base import CaRLLogger
 from carl.utils.metric_logging import MetricsAccumulator
 
 SOLVED_PREFIX = 'solved_instances'
@@ -37,7 +37,7 @@ class ResultLogger(ABC):
 
 
 class SubgoalSearchResultLogger(ResultLogger):
-    def __init__(self, custom_logger: NeptuneCaRLLogger, budget_logs: list[int], problem_to_solve: int) -> None:
+    def __init__(self, custom_logger: CaRLLogger, budget_logs: list[int], problem_to_solve: int) -> None:
         self.custom_logger = custom_logger.return_logger()
         if not hasattr(self.custom_logger, 'run') or self.custom_logger.run is None or not hasattr(self.custom_logger.run, '__getitem__'):
             raise RuntimeError("Custom logger is not properly initialized: 'run' attribute is missing or not subscriptable.")
@@ -52,7 +52,7 @@ class SubgoalSearchResultLogger(ResultLogger):
     def log_results(self, results: list[Experience]) -> None:
         base_completed_problems = self.completed_problems
         self.completed_problems += len(results)
-        self.neptune_run['total_completed_problems'].append(
+        self.experiment_run['total_completed_problems'].append(
             step=self.completed_problems, value=self.completed_problems)
 
         for task_id, experience in enumerate(results):
@@ -71,7 +71,7 @@ class SubgoalSearchResultLogger(ResultLogger):
         self._log_final_finished_reasons()
 
     @property
-    def neptune_run(self):
+    def experiment_run(self):
         if not hasattr(self.custom_logger, 'run') or self.custom_logger.run is None or not hasattr(self.custom_logger.run, '__getitem__'):
             raise RuntimeError("Custom logger is not properly initialized: 'run' attribute is missing or not subscriptable.")
         return self.custom_logger.run
@@ -91,17 +91,17 @@ class SubgoalSearchResultLogger(ResultLogger):
         low_level_len, high_level_len = self._get_solution_lengths(solution)
         if not solution.solved:
             return
-        self.neptune_run[f'{SOLVED_PREFIX}__low_level_solution_len'].append(
+        self.experiment_run[f'{SOLVED_PREFIX}__low_level_solution_len'].append(
             step=base_completed_problems + task_id, value=low_level_len + 1)
-        self.neptune_run[f'{SOLVED_PREFIX}__high_level_solution_len'].append(
+        self.experiment_run[f'{SOLVED_PREFIX}__high_level_solution_len'].append(
             step=base_completed_problems + task_id, value=high_level_len + 1)
-        self.neptune_run[f'{SOLVED_PREFIX}__tree_size'].append(
+        self.experiment_run[f'{SOLVED_PREFIX}__tree_size'].append(
             step=base_completed_problems + task_id, value=search_info.tree_size)
-        self.neptune_run[f'{SOLVED_PREFIX}__tree_depth'].append(
+        self.experiment_run[f'{SOLVED_PREFIX}__tree_depth'].append(
             step=base_completed_problems + task_id, value=search_info.tree_depth)
-        self.neptune_run[f'{SOLVED_PREFIX}__leaf_nodes'].append(
+        self.experiment_run[f'{SOLVED_PREFIX}__leaf_nodes'].append(
             step=base_completed_problems + task_id, value=search_info.leaf_nodes)
-        self.neptune_run[f'{SOLVED_PREFIX}__branching_factor'].append(
+        self.experiment_run[f'{SOLVED_PREFIX}__branching_factor'].append(
             step=base_completed_problems + task_id, value=search_info.branching_factor)
         
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{SOLVED_PREFIX}__low_level_solution_len', low_level_len + 1)
@@ -114,22 +114,56 @@ class SubgoalSearchResultLogger(ResultLogger):
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{SOLVED_PREFIX}__leaf_nodes', search_info.leaf_nodes) # type: ignore
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{SOLVED_PREFIX}__branching_factor', search_info.branching_factor) # type: ignore
 
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__validator_rejection_rate',
+                                           search_info.validator_rejection_rate, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__realized_segment_len_mean',
+                                           search_info.realized_segment_length_mean, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__progress_per_segment_mean',
+                                           search_info.progress_per_segment_mean, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__backtracking_ratio',
+                                           search_info.backtracking_ratio, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__detour_ratio',
+                                           search_info.detour_ratio, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__proposal_diversity_unique_ratio',
+                                           search_info.proposal_diversity_unique_ratio, solved_only=True)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'solved_instances__proposal_diversity_entropy',
+                                           search_info.proposal_diversity_entropy, solved_only=True)
+
 
     def _log_general_metrics(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
         assert search_info.is_valid_tree_search_info
-        self.neptune_run[f'{ALL_PREFIX}__tree_size'].append(
+        self.experiment_run[f'{ALL_PREFIX}__tree_size'].append(
             step=base_completed_problems + task_id, value=search_info.tree_size)
-        self.neptune_run[f'{ALL_PREFIX}__tree_depth'].append(
+        self.experiment_run[f'{ALL_PREFIX}__tree_depth'].append(
             step=base_completed_problems + task_id, value=search_info.tree_depth)
-        self.neptune_run[f'{ALL_PREFIX}__leaf_nodes'].append(
+        self.experiment_run[f'{ALL_PREFIX}__leaf_nodes'].append(
             step=base_completed_problems + task_id, value=search_info.leaf_nodes)
-        self.neptune_run[f'{ALL_PREFIX}__branching_factor'].append(
+        self.experiment_run[f'{ALL_PREFIX}__branching_factor'].append(
             step=base_completed_problems + task_id, value=search_info.branching_factor)
 
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__tree_size', search_info.tree_size) # type: ignore
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__tree_depth', search_info.tree_depth) # type: ignore
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__leaf_nodes', search_info.leaf_nodes) # type: ignore
         self.solved_stats.log_metric_to_average(f'{AVG_PREFIX}__{ALL_PREFIX}__branching_factor', search_info.branching_factor) # type: ignore
+
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__runtime_seconds',
+                                           search_info.runtime_seconds)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__validator_rejection_rate',
+                                           search_info.validator_rejection_rate)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_events_count',
+                                           search_info.proposal_events_count)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_duplicates',
+                                           search_info.proposal_duplicates)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_diversity_unique_ratio',
+                                           search_info.proposal_diversity_unique_ratio)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__proposal_diversity_entropy',
+                                           search_info.proposal_diversity_entropy)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__backtracking_ratio',
+                                           search_info.backtracking_ratio)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__realized_segment_len_mean',
+                                           search_info.realized_segment_length_mean)
+        self._log_optional_instance_metric(base_completed_problems, task_id, 'all_instances__detour_ratio',
+                                           search_info.detour_ratio)
 
     def _log_budget_solved_rates(self, base_completed_problems: int, task_id: int, solution: Solution, search_info: SearchInfo):
         for budget in self.budget_logs:
@@ -141,13 +175,27 @@ class SubgoalSearchResultLogger(ResultLogger):
         finished_reason = search_info.finished_reason
         self.finished_reasons[finished_reason] = self.finished_reasons.get(finished_reason, 0) + 1
 
+    def _log_optional_instance_metric(
+        self,
+        base_completed_problems: int,
+        task_id: int,
+        name: str,
+        value: Any,
+        solved_only: bool = False,
+    ) -> None:
+        if value is None:
+            return
+        self.experiment_run[name].append(step=base_completed_problems + task_id, value=value)
+        avg_key = f'{AVG_PREFIX}__{name}'
+        self.solved_stats.log_metric_to_average(avg_key, value)
+
     def _log_final_solved_rates(self):
-        self.neptune_run[join('problems/solved', self.node_global_id)].append(
+        self.experiment_run[join('problems/solved', self.node_global_id)].append(
             step=self.completed_problems, value=self.solved_problems)
-        self.neptune_run[join('solved', self.node_global_id)].append(
+        self.experiment_run[join('solved', self.node_global_id)].append(
             step=self.completed_problems, value=self.solved_stats.return_scalars())
 
     def _log_final_finished_reasons(self):
         for finished_reason, count in self.finished_reasons.items():
-            self.neptune_run[join(f'finished_reasons/{finished_reason}/rate', self.node_global_id)].append(
+            self.experiment_run[join(f'finished_reasons/{finished_reason}/rate', self.node_global_id)].append(
                 step=self.completed_problems, value=count / self.completed_problems)

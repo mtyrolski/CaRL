@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "A matrix of matched methods evaluated at explicit action budgets.",
+  "properties": {
+    "matrix": {
+      "title": "Matrix",
+      "type": "string"
+    },
+    "budgets": {
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 2,
+      "title": "Budgets",
+      "type": "array"
+    },
+    "output_dir": {
+      "title": "Output Dir",
+      "type": "string"
+    }
+  },
+  "required": [
+    "matrix",
+    "budgets",
+    "output_dir"
+  ],
+  "title": "BudgetSweepConfig",
+  "type": "object"
+}

@@ -1,0 +1,6 @@
+{
+  "extends": "../experiments/tuned_relative.json",
+  "name": "tuned_quick_relative_12x12x4",
+  "instances": 2,
+  "repeat_seeds": [11]
+}

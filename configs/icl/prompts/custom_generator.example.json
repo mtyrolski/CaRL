@@ -1,0 +1,7 @@
+{
+  "extends": "../budget_sweeps/quick_fixed.json",
+  "name": "custom_generator_example",
+  "prompts": {
+    "generator": "Sokoban: # wall, - floor, . goal, $ box, * box on goal, @ player,\n+ player on goal. Move UP, DOWN, LEFT or RIGHT. You may push one box into a free\ncell, never pull or push two boxes. Solve by putting every box on a goal.\nPreserve walls, goals, box count and one player. Return only the requested JSON.\nPropose distinct intermediate subgoal boards, different from the input.\nPrefer a subgoal that keeps boxes movable."
+  }
+}

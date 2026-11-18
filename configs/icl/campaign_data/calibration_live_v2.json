@@ -1,0 +1,13 @@
+{
+  "extends": "frozen_components_relative.json",
+  "name": "campaign_calibration_v2",
+  "calibration": {
+    "reference_window": 16,
+    "candidates": 8,
+    "sampled_targets": 4,
+    "trials": 3,
+    "action_cap": 8,
+    "limits": {"max_requests": 768, "max_input_tokens": 8000, "max_total_input_tokens": 6144000,
+               "max_output_tokens": 1572864, "wall_seconds": 14400, "timeout_seconds": 90}
+  }
+}

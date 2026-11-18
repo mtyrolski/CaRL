@@ -1,6 +1,7 @@
 import os
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable
 from collections.abc import Iterable
 from pathlib import Path
@@ -48,6 +49,10 @@ from carl.utils.result_loggers import SubgoalSearchResultLogger
 from carl.utils.training_metrics import MetricsHF
 
 
+TensorPair = tuple[torch.Tensor, torch.Tensor]
+PARALLEL_DATA_PREP_MIN_ITEMS = 4096
+
+
 def solved_count(results: list[Solution]) -> int:
     return sum(int(x.solved) for x in results)
 
@@ -68,7 +73,7 @@ class TrainingLoopHF(Algorithm):
         eval_data_path (str): Path to the evaluation data.
         eval_batch_size (int): Batch size for evaluation.
         weights_dump_path (str): Path to dump the weights of the components.
-        custom_logger (NeptuneCaRLLogger): Custom logger for logging, currently only NeptuneCaRLLogger is supported.
+        custom_logger: Custom logger for experiment metrics.
         replay_buffer_data_split (float): Split ratio of the replay buffer data for training and validation.
         path_to_data_used_for_testing_cllp (str | None, optional): Path to the data used for
             testing the conditional low-level policy.
@@ -135,7 +140,7 @@ class TrainingLoopHF(Algorithm):
     ):
         super().__init__()
 
-        logger.warning('Only NeptuneCaRLLogger is supported as a custom logger.')
+        logger.warning('A custom experiment logger is required.')
 
         self.n_iterations = n_iterations
         self.evaluate_every = evaluate_every
@@ -193,11 +198,11 @@ class TrainingLoopHF(Algorithm):
             raise ValueError('At least one trainer must be specified')
 
         self.result_logger = result_logger
-        self.neptune_callback = self.result_logger.custom_logger
-        run = self.neptune_callback.run
+        self.experiment_callback = self.result_logger.custom_logger
+        run = self.experiment_callback.run
         if run is None:
-            raise RuntimeError('Neptune logger is not initialized.')
-        self.neptune_run: Any = run
+            raise RuntimeError('Experiment logger is not initialized.')
+        self.experiment_run: Any = run
 
         self.path_to_data_used_for_testing_cllp = path_to_data_used_for_testing_cllp
         self.data_to_test_cllp: list[UntokenizedTrajectory] | None = None
@@ -224,7 +229,7 @@ class TrainingLoopHF(Algorithm):
 
         return stats_after_one_iteration
 
-    def log_stats_to_neptune_logger(
+    def log_stats_to_experiment_logger(
         self,
         stats: list[dict[str, float | int]],
         iteration: int,
@@ -237,9 +242,9 @@ class TrainingLoopHF(Algorithm):
 
         for k, v in stats_after_one_iteration.items():
             k = component_name + '_' + k
-            self.neptune_run[k].append(v)
+            self.experiment_run[k].append(v)
 
-        self.neptune_run[component_name + '_buffer_length'].append(buffer_length)
+        self.experiment_run[component_name + '_buffer_length'].append(buffer_length)
 
     # TODO: change this to extract_components_for_training i zrobic iteracje po tym
     def prepare_component_for_training(self,
@@ -259,7 +264,10 @@ class TrainingLoopHF(Algorithm):
                 assert isinstance(model_storage, dict)
                 k = int(name.split('/')[-1])
                 logger.info(f'Using adaptive generator with k={k}')
-                model = model_storage[k]
+                candidate = cast(dict[int, torch.nn.Module], model_storage)[k]
+                if not isinstance(candidate, PreTrainedModel):
+                    raise TypeError(f'Generator {k} is not a Hugging Face model')
+                model = candidate
                 buffer = cast(OfflineReplayBuffer, self.replay_buffer.get_buffer_for_generator(k))
         if name == 'value':
             model_storage = self.solver.value_function.get_network()
@@ -329,39 +337,73 @@ class TrainingLoopHF(Algorithm):
             self.replay_buffer.add_from_trajectories(trajectories)
 
             # Logging buffer sizes
-            self.neptune_run['replay_buffer_len_after_filling_buffer/value'].append(
+            self.experiment_run['replay_buffer_len_after_filling_buffer/value'].append(
                 len(self.replay_buffer.value_buffer.buffer))
 
-            self.neptune_run['replay_buffer_len_after_filling_buffer/cllp'].append(
+            self.experiment_run['replay_buffer_len_after_filling_buffer/cllp'].append(
                 len(self.replay_buffer.cllp_buffer.buffer))
 
             if isinstance(self.replay_buffer.generator_buffer, dict):
                 for k, v in self.replay_buffer.generator_buffer.items():
-                    self.neptune_run[f'replay_buffer_len_after_filling_buffer/generator/{k}'].append(
+                    self.experiment_run[f'replay_buffer_len_after_filling_buffer/generator/{k}'].append(
                         len(v.buffer))
             else:
                 generator_buffer = cast(OfflineReplayBuffer, self.replay_buffer.generator_buffer)
-                self.neptune_run['replay_buffer_len_after_filling_buffer/generator'].append(
+                self.experiment_run['replay_buffer_len_after_filling_buffer/generator'].append(
                     len(generator_buffer.buffer))
 
     def prepare_data_for_training_component(
         self,
         data_x_y: list[tuple[torch.Tensor, torch.Tensor]],
     ) -> tuple[GameDataset, GameDataset]:
-        train_data_x_y: list[tuple[torch.Tensor, torch.Tensor]]
-        validation_data_x_y: list[tuple[torch.Tensor, torch.Tensor]]
+        train_data_x_y: list[TensorPair]
+        validation_data_x_y: list[TensorPair]
+
+        if len(data_x_y) < 2:
+            raise ValueError('Need at least 2 samples in replay buffer to create train/validation splits.')
 
         train_data_x_y, validation_data_x_y = train_test_split(data_x_y, test_size=self.replay_buffer_data_split)
 
-        x_train: torch.Tensor = torch.cat([x for x, _ in train_data_x_y])
-        y_train: torch.Tensor = torch.cat([y for _, y in train_data_x_y])
-        x_validation: torch.Tensor = torch.cat([x for x, _ in validation_data_x_y])
-        y_validation: torch.Tensor = torch.cat([y for _, y in validation_data_x_y])
+        x_train, y_train = self._concat_tensor_pairs_maybe_parallel(train_data_x_y)
+        x_validation, y_validation = self._concat_tensor_pairs_maybe_parallel(validation_data_x_y)
 
         train_dataset: GameDataset = GameDataset(x_train, y_train)
         validation_dataset: GameDataset = GameDataset(x_validation, y_validation)
 
         return train_dataset, validation_dataset
+
+    @staticmethod
+    def _concat_tensor_pairs(data_x_y: list[TensorPair]) -> tuple[torch.Tensor, torch.Tensor]:
+        if not data_x_y:
+            raise ValueError('Cannot concatenate an empty dataset split.')
+        return (
+            torch.cat([x for x, _ in data_x_y]),
+            torch.cat([y for _, y in data_x_y]),
+        )
+
+    def _concat_tensor_pairs_maybe_parallel(self, data_x_y: list[TensorPair]) -> tuple[torch.Tensor, torch.Tensor]:
+        if not data_x_y:
+            raise ValueError('Cannot concatenate an empty dataset split.')
+
+        worker_count = min(max(self.n_jobs, 1), len(data_x_y))
+        if worker_count <= 1 or len(data_x_y) < PARALLEL_DATA_PREP_MIN_ITEMS:
+            return self._concat_tensor_pairs(data_x_y)
+
+        chunk_size = max(1, (len(data_x_y) + worker_count - 1) // worker_count)
+        chunks: list[list[TensorPair]] = [
+            data_x_y[i:i + chunk_size] for i in range(0, len(data_x_y), chunk_size)
+        ]
+        logger.info(
+            'Preparing training data in parallel with {} threads over {} chunks ({} items).',
+            worker_count,
+            len(chunks),
+            len(data_x_y),
+        )
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            partial_results = list(executor.map(self._concat_tensor_pairs, chunks))
+
+        # Merge chunk-level tensors into one contiguous split for the HF trainer.
+        return self._concat_tensor_pairs(partial_results)
 
     def solve_one_rl_iteration(self, batch: list[np.ndarray], iteration: int) -> list[Experience]:
         num_solved_in_batch: float = 0.0
@@ -388,9 +430,9 @@ class TrainingLoopHF(Algorithm):
 
         num_solved_in_batch_rate = num_solved_in_batch / len(batch)
 
-        self.neptune_run['num_solved_in_batch_during_one_rlloop'].append(num_solved_in_batch_rate)
-        self.neptune_run['num_solved_in_batch_during_one_rlloop_count'].append(num_solved_in_batch)
-        self.neptune_run['time_batch_per_iteration'].append(time_end - time_start)
+        self.experiment_run['num_solved_in_batch_during_one_rlloop'].append(num_solved_in_batch_rate)
+        self.experiment_run['num_solved_in_batch_during_one_rlloop_count'].append(num_solved_in_batch)
+        self.experiment_run['time_batch_per_iteration'].append(time_end - time_start)
 
         return outputs_all_at_once
 
@@ -439,7 +481,7 @@ class TrainingLoopHF(Algorithm):
         for trajectory in tqdm(self.data_to_test_cllp):
             cllp_achieved_goals += self.test_cllp_on_trajectory(trajectory)
 
-        self.neptune_run['cllp_achieved_goals'].append(cllp_achieved_goals / len(self.data_to_test_cllp))
+        self.experiment_run['cllp_achieved_goals'].append(cllp_achieved_goals / len(self.data_to_test_cllp))
 
     def iterate_trainers(self,) -> Iterable[tuple[str, type[HFTrainer], Callable[..., TrainingArguments], MetricsHF]]:
         for name, component in self.components.items():
@@ -506,7 +548,7 @@ class TrainingLoopHF(Algorithm):
             ready_trainer.train()
 
             stats: list[dict[str, float | int]] = ready_trainer.state.log_history
-            self.log_stats_to_neptune_logger(
+            self.log_stats_to_experiment_logger(
                 stats=stats,
                 iteration=iteration,
                 component_name=name,
@@ -593,7 +635,7 @@ class TrainingLoopHF(Algorithm):
                 self.train_prepare_components_one_rl_iteration(_iteration)
                 self.solved_boards_since_last_training -= (self.min_count_of_new_solved_boards_to_next_train_iteration)
                 iterations_with_training += 1
-                self.neptune_run['iterations_with_training'].append(iterations_with_training)
+                self.experiment_run['iterations_with_training'].append(iterations_with_training)
             else:
                 logger.info(
                     f'Not enough new boards solved, skipping training. Solved boards: {self.solved_boards_since_last_training}'
@@ -609,7 +651,7 @@ class TrainingLoopHF(Algorithm):
                 solutions = [experience.solution for experience in solutions_and_search_infos]
                 self.solved_boards_since_last_training += solved_count(solutions)
 
-            self.neptune_run['finished_iterations'].append(_iteration)
+            self.experiment_run['finished_iterations'].append(_iteration)
 
 
 class DistributedSolverWorker(TrainingLoopHF):
@@ -692,7 +734,7 @@ class DistributedSolverWorker(TrainingLoopHF):
                 if _iteration % all_workers != workerid:
                     logger.info(f'Worker {workerid} skipping iteration {_iteration}, since its other workers job')
                     this_process_finished_iterations: int = _iteration // all_workers
-                    self.neptune_run[f'solver_{workerid}/finished_iterations'].append(
+                    self.experiment_run[f'solver_{workerid}/finished_iterations'].append(
                         this_process_finished_iterations)
                     continue
 
@@ -742,7 +784,7 @@ class DistributedTrainerWorker(TrainingLoopHF):
         iterations_with_training = 0
         iterations_without_training = 0
         gathered_solved_boards = 0
-        self.neptune_run['trainer/iterations_with_training'].append(iterations_with_training)
+        self.experiment_run['trainer/iterations_with_training'].append(iterations_with_training)
         all_workers = int(os.environ.get(CARL_ALL_NODES_COUNT, 1))
 
         for _iteration, batch_of_instances in enumerate(self.instance_generator.reset_dataloader()):
@@ -775,12 +817,12 @@ class DistributedTrainerWorker(TrainingLoopHF):
             count = 0
 
             if len(solutions_and_search_infos_batches) == 0:
-                self.neptune_run['trainer/boards_receved_from_solver_nodes'].append(0)
-                self.neptune_run['trainer/solved_boards_receved_from_solver_nodes'].append(0)
+                self.experiment_run['trainer/boards_receved_from_solver_nodes'].append(0)
+                self.experiment_run['trainer/solved_boards_receved_from_solver_nodes'].append(0)
             else:
                 for sasi_batch in solutions_and_search_infos_batches:
 
-                    self.neptune_run['trainer/boards_receved_from_solver_nodes'].append(len(sasi_batch))
+                    self.experiment_run['trainer/boards_receved_from_solver_nodes'].append(len(sasi_batch))
 
                     for solution_and_search_info in sasi_batch:
                         self.replay_buffer.add(solution_and_search_info)
@@ -789,7 +831,7 @@ class DistributedTrainerWorker(TrainingLoopHF):
 
                     solved_boards_in_batch = solved_count(solutions)
 
-                    self.neptune_run['trainer/solved_boards_receved_from_solver_nodes'].append(
+                    self.experiment_run['trainer/solved_boards_receved_from_solver_nodes'].append(
                         solved_boards_in_batch)
 
                     self.solved_boards_since_last_training += solved_boards_in_batch
@@ -797,13 +839,13 @@ class DistributedTrainerWorker(TrainingLoopHF):
 
             logger.info(f'Worker Trainer read {count} solutions')
             logger.info(f'Worker Trainer solved boards since last training: {self.solved_boards_since_last_training}')
-            self.neptune_run['trainer/gathered_solved_boards'].append(gathered_solved_boards)
-            self.neptune_run['trainer/solved_boards_since_last_training'].append(
+            self.experiment_run['trainer/gathered_solved_boards'].append(gathered_solved_boards)
+            self.experiment_run['trainer/solved_boards_since_last_training'].append(
                 self.solved_boards_since_last_training)
 
             if (self.solved_boards_since_last_training >= self.min_count_of_new_solved_boards_to_next_train_iteration):
                 iterations_with_training += 1
-                self.neptune_run['trainer/iterations_with_training'].append(iterations_with_training)
+                self.experiment_run['trainer/iterations_with_training'].append(iterations_with_training)
                 self.train_prepare_components_one_rl_iteration(iterations_with_training)
                 self.solved_boards_since_last_training -= (self.min_count_of_new_solved_boards_to_next_train_iteration)
             else:
@@ -812,7 +854,7 @@ class DistributedTrainerWorker(TrainingLoopHF):
                 )
                 logger.info('Sleeping for 5 seconds')
                 iterations_without_training += 1
-                self.neptune_run['trainer/iterations_without_training'].append(iterations_without_training)
+                self.experiment_run['trainer/iterations_without_training'].append(iterations_without_training)
                 time.sleep(5)
 
         dump_resource(stop_signal, stop_signal)

@@ -1,0 +1,5 @@
+{
+  "extends": "relative.json",
+  "name": "relative_policy_coordinates_12x12x4",
+  "policy_coordinate_features": true
+}

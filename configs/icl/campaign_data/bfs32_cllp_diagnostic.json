@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "bfs32_cllp_diagnostic_v1",
+  "policy_config": "configs/icl/campaign_data/calibration_json_retry_v1.json",
+  "policy_inputs": "analysis/luna_icl/campaign_100/random_walk_bfs_32/policy_inputs.json",
+  "bfs_report": "analysis/luna_icl/campaign_100/random_walk_bfs_32/report.json",
+  "offsets": [4, 8],
+  "seed": 11,
+  "action_cap": 8,
+  "max_committed_usd": "0.75",
+  "ledger_stage": "policy_validation",
+  "ledger_tag_prefix": "bfs32_cllp_v1:"
+}

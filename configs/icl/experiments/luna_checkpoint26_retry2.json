@@ -1,0 +1,27 @@
+{
+  "extends": "../prompts/generator_planned_board.json",
+  "name": "luna_checkpoint26_relative_retry2",
+  "model": "gpt-6-luna",
+  "method": "relative_u",
+  "scales": [0.85, 0.5],
+  "generator_reasoning_effort": "low",
+  "generator_checkpoint": "analysis/luna_icl/campaign_100/generator_probe_v2/checkpoint_balanced/generator.json",
+  "generator_example_limit": 26,
+  "generator_max_attempts": 2,
+  "num_subgoals": 1,
+  "action_budget": 128,
+  "max_expansions": 128,
+  "repeat_seeds": [11],
+  "family": "real_12x12x4",
+  "split": "scale_validation",
+  "instances": 1,
+  "output_dir": "analysis/luna_icl/campaign_100/generator_probe_v2/solver_validation",
+  "limits": {
+    "max_requests": 512,
+    "max_input_tokens": 24000,
+    "max_total_input_tokens": 3000000,
+    "max_output_tokens": 131072,
+    "wall_seconds": 1200,
+    "timeout_seconds": 90
+  }
+}

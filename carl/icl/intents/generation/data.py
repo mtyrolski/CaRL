@@ -1,0 +1,238 @@
+"""Inputs, prompts, encoding and sampling for Sokoban intent generation."""
+
+import hashlib
+import json
+import os
+import random
+from collections import defaultdict
+from collections.abc import Iterator
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+SYSTEM = (
+    "You propose one achievable, non-trivial Sokoban intent using only the current board. "
+    "Rows and columns are zero-based. # is wall, - is floor, . is goal, $ is box, "
+    "* is box on goal, @ is player and + is player on goal. "
+    "Return only a JSON object with keys effects, preserve, instruction. "
+    "effects is a nonempty array of objects, each either "
+    '{"predicate":"box_at","row":R,"col":C}, '
+    '{"predicate":"player_at","row":R,"col":C}, or '
+    '{"predicate":"boxes_on_goals_at_least","count":N}. '
+    "Every effect must be false on the current board. All effects are required together. "
+    "preserve is an array and may be empty; instruction is null or a short string."
+)
+DEFAULT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+DEFAULT_REVISION = "7ae557604adf67be50417f59c2c2f167def9a775"
+
+
+class DataSplit(StrEnum):
+    TRAIN = "train"
+    VALIDATION = "validation"
+    TEST = "test"
+
+
+class GeneratorMethod(StrEnum):
+    BASE = "base"
+    ADAPTED = "adapted"
+    IN_CONTEXT = "in_context"
+
+
+class RunMode(StrEnum):
+    BENCHMARK = "benchmark"
+    TRAIN = "train"
+    EVALUATE = "evaluate"
+
+
+class TrainingAugmentation(StrEnum):
+    NONE = "none"
+    D4 = "d4"
+
+
+def prompt_messages(record: dict[str, Any]) -> list[dict[str, str]]:
+    """Whitelist permitted input fields; do not serialise the record itself."""
+    board = record["start_observation"]
+    goal = record["task_goal"]
+    if (
+        not isinstance(board, list)
+        or not board
+        or not all(isinstance(row, str) for row in board)
+    ):
+        raise ValueError("start_observation must be a nonempty list of board rows")
+    if not isinstance(goal, str):
+        raise ValueError("task_goal must be a string")
+    return [
+        {"role": "system", "content": SYSTEM},
+        {
+            "role": "user",
+            "content": "Task: " + goal + "\nCurrent board:\n" + "\n".join(board),
+        },
+    ]
+
+
+def target_text(record: dict[str, Any]) -> str:
+    intent = record["intent"]
+    if (
+        not isinstance(intent, dict)
+        or not isinstance(intent.get("effects"), list)
+        or not intent["effects"]
+    ):
+        raise ValueError("checked intent must contain a nonempty effects array")
+    return json.dumps(intent, ensure_ascii=False, separators=(",", ":"))
+
+
+def read_records(path: str | Path, split: str | None = None) -> list[dict[str, Any]]:
+    rows = []
+    with Path(path).open(encoding="utf-8") as source:
+        for line in source:
+            if line.strip():
+                record = json.loads(line)
+                if split is None or record.get("split") == split:
+                    rows.append(record)
+    return rows
+
+
+def file_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def parse_json(text: str) -> Any:
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-JSON constant {value}")
+
+    return json.loads(text, parse_constant=reject_constant)
+
+
+def encode_example(
+    tokenizer: Any, record: dict[str, Any], max_length: int
+) -> dict[str, list[int]]:
+    prefix = tokenizer.apply_chat_template(
+        prompt_messages(record),
+        tokenize=True,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
+    if not isinstance(prefix, list):
+        prefix = prefix.tolist()
+    end = tokenizer.eos_token or ""
+    answer = tokenizer.encode(target_text(record) + end, add_special_tokens=False)
+    ids = prefix + answer
+    if len(ids) > max_length:
+        raise ValueError(
+            f"complete example needs {len(ids)} tokens; limit is {max_length}; no truncation performed"
+        )
+    return {
+        "input_ids": ids,
+        "attention_mask": [1] * len(ids),
+        "labels": [-100] * len(prefix) + answer,
+    }
+
+
+def board_balanced(
+    records: list[dict[str, Any]], seed: int
+) -> Iterator[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        groups[str(record["layout_id"])].append(record)
+    rng = random.Random(seed)
+    pools: dict[str, list[dict[str, Any]]] = {key: [] for key in groups}
+    while groups:
+        keys = list(groups)
+        rng.shuffle(keys)
+        for key in keys:
+            if not pools[key]:
+                pools[key] = rng.sample(groups[key], len(groups[key]))
+            yield pools[key].pop()
+
+
+def augmented_training_samples(
+    records: list[dict[str, Any]], seed: int, augmentation: TrainingAugmentation | str
+) -> Iterator[tuple[dict[str, Any], str]]:
+    """Keep board sampling unchanged while drawing symmetries from a separate RNG."""
+    from carl.icl.intent_augmentation import SYMMETRIES
+    from carl.icl.intent_augmentation import BoardSymmetry
+    from carl.icl.intent_augmentation import transform_training_record
+
+    mode = TrainingAugmentation(augmentation)
+    rng = random.Random(seed ^ 0x5D4A7A)
+    for record in board_balanced(records, seed):
+        symmetry = (
+            rng.choice(SYMMETRIES)
+            if mode == TrainingAugmentation.D4
+            else BoardSymmetry.IDENTITY
+        )
+        yield (
+            transform_training_record(record, symmetry)
+            if mode == TrainingAugmentation.D4
+            else record,
+            symmetry.value,
+        )
+
+
+def one_per_board(
+    records: list[dict[str, Any]], limit: int = 0
+) -> list[dict[str, Any]]:
+    """Deterministically pick the first context per independent layout."""
+    seen: set[str] = set()
+    result = []
+    for record in records:
+        key = str(record["layout_id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(record)
+        if limit and len(result) >= limit:
+            break
+    return result
+
+
+def validation_contexts(
+    records: list[dict[str, Any]], max_boards: int, per_board: int
+) -> list[dict[str, Any]]:
+    """Select fixed contexts without inspecting model results; diversify effect types."""
+    boards: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        boards.setdefault(str(record["layout_id"]), []).append(record)
+    selected = []
+    for board_records in list(boards.values())[: max_boards or None]:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for record in board_records:
+            groups.setdefault(str(record.get("effect_type", "unknown")), []).append(
+                record
+            )
+        board_selected: list[dict[str, Any]] = []
+        while len(board_selected) < per_board and any(groups.values()):
+            for group in groups.values():
+                if group and len(board_selected) < per_board:
+                    board_selected.append(group.pop(0))
+        selected.extend(board_selected)
+    return selected
+
+
+def evaluation_records(
+    records: list[dict[str, Any]], ids_path: str | None, limit: int
+) -> list[dict[str, Any]]:
+    if ids_path is None:
+        return one_per_board(records, limit)
+    if limit:
+        raise ValueError("use either --test-ids or --test-boards, not both")
+    ids = json.loads(Path(ids_path).read_text(encoding="utf-8"))["record_ids"]
+    if not isinstance(ids, list) or len(ids) != len(set(ids)):
+        raise ValueError("frozen test IDs must be a unique list")
+    lookup = {record["record_id"]: record for record in records}
+    if any(record_id not in lookup for record_id in ids):
+        raise ValueError("frozen test ID is absent from test records")
+    return [lookup[record_id] for record_id in ids]
+
+
+def atomic_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    os.replace(tmp, path)

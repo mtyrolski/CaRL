@@ -1,0 +1,1 @@
+{"extends": "relative.json", "name": "smoke_relative", "instances": 2, "repeat_seeds": [11], "easy": true, "action_budget": 16, "max_expansions": 16, "limits": {"max_requests": 32, "max_output_tokens": 8192, "wall_seconds": 120}}

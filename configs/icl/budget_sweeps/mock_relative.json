@@ -1,0 +1,11 @@
+{
+  "extends": "pilot_relative.json",
+  "name": "mock_relative_12x12x4",
+  "instances": 2,
+  "few_shot": 1,
+  "repeat_seeds": [11],
+  "max_expansions": 16,
+  "calibration": {"trials": 1},
+  "cache_dir": "analysis/luna_icl/budget_sweep_mock_cache",
+  "limits": {"max_requests": 64, "max_output_tokens": 16384, "wall_seconds": 300}
+}

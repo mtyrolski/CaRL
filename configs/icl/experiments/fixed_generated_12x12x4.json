@@ -1,0 +1,5 @@
+{
+  "extends": "fixed.json",
+  "name": "fixed_generated_12x12x4",
+  "family": "generated_12x12x4"
+}

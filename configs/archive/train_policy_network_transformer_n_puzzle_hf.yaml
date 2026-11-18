@@ -1,12 +1,11 @@
 algorithm:
   _target_: carl.algorithms.train_supervised.TrainSupervisedHF
   custom_logger:
-    _target_: carl.utils.loggers.NeptuneCaRLLogger
+    _target_: carl.utils.loggers.TrackioCaRLLogger
     name: "baseline_policy"
     description: ""
     project: "pmtest/subexit"
     tags: "baseline_policy n_puzzle train paper_experiments n_40000"
-    api_token: "eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlMTg1NjhmYy1jMzM3LTQ4NDQtODEwMC03ZDkyNjVkNTQ1ZjAifQ=="
     log_parameters: False
   datamodule:
     _target_: carl.dataloader.game_data_module.GameDataModule

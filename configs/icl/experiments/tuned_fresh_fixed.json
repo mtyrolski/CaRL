@@ -1,0 +1,6 @@
+{
+  "extends": "tuned_fixed.json",
+  "name": "tuned_fixed_fresh_holdout",
+  "data_dir": "data/icl/fresh_holdout_20261102",
+  "instances": 5
+}

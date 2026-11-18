@@ -1,0 +1,7 @@
+{
+  "extends": "mock_relative.json",
+  "name": "mock_fixed_12x12x4",
+  "method": "fixed",
+  "scales": [8, 4],
+  "fixed_cap": "horizon"
+}
