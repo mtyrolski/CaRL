@@ -17,6 +17,7 @@ import numpy as np
 from carl.icl.boards import to_rows
 from carl.icl.intent_data import predicate_value
 from carl.icl.intent_data import validate_prediction
+from carl.icl.intent_domain import decode_intent
 from carl.icl.luna_components.formatting import board_coordinates
 from carl.icl.types import Board
 from carl.icl.types import BoardEnvironment
@@ -86,10 +87,11 @@ def build_prompt(state: Board, intent: dict[str, Any], task_goal: str,
            for item in memory):
         raise ValueError("Memory must contain action attempts with a boolean no-op flag")
     rows = to_rows(state)
+    checked = decode_intent({"effects": intent["effects"], "preserve": intent["preserve"], "instruction": None})
     question = {
         "state": rows,
         "state_coordinates": board_coordinates(rows),
-        "intent": {"effects": intent["effects"], "preserve": intent["preserve"]},
+        "intent": {"effects": checked["effects"], "preserve": checked["preserve"]},
         "task_goal": task_goal,
         "attempt_history": [{"action": item.action.value, "no_op": item.no_op} for item in memory],
     }

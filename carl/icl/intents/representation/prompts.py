@@ -11,6 +11,7 @@ from carl.icl.intents.generation.data import DataSplit
 from carl.icl.intents.generation.data import file_sha256
 from carl.icl.intents.generation.data import prompt_messages
 from carl.icl.intents.generation.data import read_records
+from carl.icl.intents.generation.data import same_prompt_layout
 from carl.icl.intents.representation.formats import Representation
 from carl.icl.intents.representation.formats import _canonical
 from carl.icl.intents.representation.formats import render_representation
@@ -154,7 +155,7 @@ def messages_for(
         if (
             example.get("split") != DataSplit.TRAIN
             or example.get("validation", {}).get("accepted") is not True
-            or example["layout_id"] == record["layout_id"]
+            or same_prompt_layout(example, record)
         ):
             raise ValueError(
                 "support must be checked TRAIN data from a distinct layout"

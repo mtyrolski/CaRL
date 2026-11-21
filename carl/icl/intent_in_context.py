@@ -27,6 +27,7 @@ from carl.icl.intent_generator_experiment import prepare_evaluation_output
 from carl.icl.intent_generator_experiment import prompt_messages
 from carl.icl.intent_generator_experiment import read_records
 from carl.icl.intent_generator_experiment import target_text
+from carl.icl.intents.generation.data import same_prompt_layout
 
 
 class Mode(StrEnum):
@@ -102,7 +103,7 @@ def in_context_messages(record: dict[str, Any], support: list[dict[str, Any]]) -
     for example in support:
         if example.get("split") != DataSplit.TRAIN or example.get("validation", {}).get("accepted") is not True:
             raise ValueError("In-context demonstrations must be checked training records")
-        if example["layout_id"] == record["layout_id"]:
+        if same_prompt_layout(example, record):
             raise ValueError("A demonstration cannot share the query layout")
         messages.extend([prompt_messages(example)[1], {"role": "assistant", "content": target_text(example)}])
     messages.append(query[1])

@@ -15,6 +15,8 @@ GENERATION_COMPONENTS = (
     "boards.py",
     "intent_augmentation.py",
     "intent_data.py",
+    "intent_domain.py",
+    "intent_annotations.py",
 )
 
 REPRESENTATION_COMPONENTS = (
@@ -26,6 +28,8 @@ REPRESENTATION_COMPONENTS = (
     "intents/representation/predictions.py",
     "boards.py",
     "intent_data.py",
+    "intent_domain.py",
+    "intent_annotations.py",
     "intent_in_context.py",
 )
 

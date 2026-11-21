@@ -82,14 +82,69 @@ def target_text(record: dict[str, Any]) -> str:
 
 
 def read_records(path: str | Path, split: str | None = None) -> list[dict[str, Any]]:
+    """Read legacy rows and validate versioned annotations before selecting a split."""
+    from carl.icl.intent_annotations import DA_VERSION
+
     rows = []
     with Path(path).open(encoding="utf-8") as source:
         for line in source:
             if line.strip():
                 record = json.loads(line)
-                if split is None or record.get("split") == split:
-                    rows.append(record)
-    return rows
+                if not isinstance(record, dict):
+                    raise ValueError("intent dataset records must be objects")
+                rows.append(record)
+    if any(row.get("schema_version") == DA_VERSION for row in rows):
+        _check_versioned_annotations(rows, DA_VERSION)
+    return [row for row in rows if split is None or row.get("split") == split]
+
+
+def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> None:
+    from carl.icl.boards import canonical_layout_id, from_rows
+    from carl.icl.intent_annotations import annotation_identity, context_identity
+    from carl.icl.intent_data import SCHEMA_VERSION, validate_prediction
+    from carl.icl.intent_domain import TASK_GOAL, decode_intent, render_instruction
+
+    layouts: dict[str, DataSplit] = {}
+    records: set[str] = set()
+    for row in rows:
+        if row.get("schema_version") != version or row.get("intent_version") != SCHEMA_VERSION:
+            raise ValueError("mixed schema versions in checked annotations")
+        identifier = row.get("record_id")
+        if not isinstance(identifier, str) or not identifier or identifier in records:
+            raise ValueError("checked annotation record IDs must be unique and nonempty")
+        records.add(identifier)
+        split = DataSplit(row.get("split"))
+        board = row.get("start_observation")
+        if not isinstance(board, list):
+            raise ValueError("checked annotation start_observation must contain board rows")
+        layout = canonical_layout_id(from_rows(board))
+        if row.get("layout_id") != layout:
+            raise ValueError("checked annotation layout_id differs from the canonical layout")
+        if layouts.setdefault(layout, split) != split:
+            raise ValueError("checked annotation layouts overlap across splits")
+        verification = row.get("validation")
+        if (row.get("task_goal") != TASK_GOAL or not isinstance(verification, dict)
+                or verification.get("accepted") is not True or verification.get("status") != "accepted"):
+            raise ValueError("expected a checked and accepted Sokoban annotation")
+        intent = decode_intent(row.get("intent"))
+        errors = validate_prediction(intent, board)
+        if errors or row.get("instruction") != render_instruction(intent):
+            raise ValueError(f"invalid checked annotation {identifier}: {errors or ['instruction mismatch']}")
+        context_id = context_identity(board)
+        if row.get("context_id") != context_id or annotation_identity(context_id, intent) != identifier:
+            raise ValueError("checked annotation identity differs from the board or intent")
+
+
+def same_prompt_layout(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    """Also check canonical wall and goal identity with versioned support data."""
+    from carl.icl.boards import canonical_layout_id, from_rows
+    from carl.icl.intent_annotations import DA_VERSION
+
+    if DA_VERSION in (first.get("schema_version"), second.get("schema_version")):
+        return canonical_layout_id(from_rows(first["start_observation"])) == canonical_layout_id(
+            from_rows(second["start_observation"]),
+        )
+    return first["layout_id"] == second["layout_id"]
 
 
 def file_sha256(path: str | Path) -> str:

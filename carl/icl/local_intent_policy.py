@@ -19,6 +19,7 @@ from typing import Any
 
 from carl.icl.boards import from_rows
 from carl.icl.data_sources.sokoban import environment
+from carl.icl.intent_annotations import DA_VERSION
 from carl.icl.luna_intent_rollout import POLICY_PROMPT
 from carl.icl.luna_intent_rollout import rollout
 
@@ -79,11 +80,16 @@ class LocalIntentPolicy:
         return str(self.tokenizer.decode(output[0, ids.shape[1]:], skip_special_tokens=True)).strip()
 
 
-def run_record(record: dict[str, Any], decide: Any, action_cap: int) -> dict[str, Any]:
+def run_record(
+    record: dict[str, Any], decide: Any, action_cap: int, *, proposed_intent: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Evaluate an explicitly supplied intent without exposing other record fields."""
+    if record.get("schema_version") == DA_VERSION and record.get("split") == "test" and proposed_intent is None:
+        raise ValueError("A held-out annotation requires a separate proposed intent")
+    intent = record["intent"] if proposed_intent is None else proposed_intent
     state = from_rows(record["start_observation"])
     started = time.monotonic()
-    result = rollout(environment(state), state, record["intent"], decide,
+    result = rollout(environment(state), state, intent, decide,
                      cap=action_cap, task_goal=record["task_goal"])
     return {"record_id": record["record_id"], "elapsed_seconds": time.monotonic() - started,
             "result": asdict(result)}
