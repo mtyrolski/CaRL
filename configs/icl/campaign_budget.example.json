@@ -6,5 +6,6 @@
   "stage_limits_usd": {
     "example": "0.00"
   },
-  "models": {}
+  "models": {},
+  "routes": {}
 }

@@ -13,17 +13,111 @@ from carl.icl.prompt_defaults import (
     DEFAULT_VALUE,
     DEFAULT_VALUE_REMAINING,
 )
-from carl.icl.types import JSONObject, PathSetting
+from carl.icl.types import (
+    CompletionAPI, ComponentRole, JSONObject, ModelProvider, PathSetting, ReasoningEffort,
+    ResponseFormat,
+)
 
 ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 DEFAULT_MODEL: Final[str] = "gpt-6-luna"
 DEFAULT_EMBEDDING_MODEL: Final[str] = "text-embedding-3-small"
+DEFAULT_OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
 
 
 class Settings(BaseModel):
     """Reject misspelled keys and non-finite experimental settings."""
 
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, hide_input_in_errors=True)
+
+
+_ENDPOINTS: Final = {
+    "openai": ("responses", DEFAULT_OPENAI_BASE_URL, "OPENAI_API_KEY"),
+    "mistral": ("chat_completions", "https://api.mistral.ai/openai/v1", "MISTRAL_API_KEY"),
+}
+
+
+class ModelCapabilities(Settings):
+    """Features enabled for the configured model and its fixed endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    reasoning: bool = Field(default=True, strict=True)
+    json_schema: bool = Field(default=True, strict=True)
+    json_object: bool = Field(default=True, strict=True)
+    embeddings: bool = Field(default=True, strict=True)
+    streaming: bool = Field(default=True, strict=True)
+
+
+class ModelSettings(Settings):
+    """Model, decoding options and supported features for an ICL role."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str = Field(pattern=r"^\S+$")
+    provider: ModelProvider = "openai"
+    api: CompletionAPI = "responses"
+    revision: str | None = Field(default=None, pattern=r"^\S+$")
+    api_key_env: Literal["OPENAI_API_KEY", "MISTRAL_API_KEY"] = "OPENAI_API_KEY"
+    reasoning_effort: ReasoningEffort = "none"
+    response_format: ResponseFormat = "text"
+    temperature: float | None = Field(default=None, ge=0, le=1, strict=True)
+    capabilities: ModelCapabilities = Field(default_factory=ModelCapabilities)
+
+    @model_validator(mode="before")
+    @classmethod
+    def endpoint_defaults(cls, values: object) -> object:
+        """Supply the fixed transport and capabilities when omitted."""
+        if not isinstance(values, dict):
+            return values
+        provider = values.get("provider", "openai")
+        if provider not in ("openai", "mistral"):
+            return values
+        api, _, api_key_env = _ENDPOINTS[provider]
+        settings = {"api": api, "api_key_env": api_key_env, **values}
+        if provider == "mistral":
+            defaults = {"reasoning": False, "embeddings": False, "streaming": False}
+            declared = settings.get("capabilities", {})
+            if isinstance(declared, dict):
+                settings["capabilities"] = {**defaults, **declared}
+        return settings
+
+    @model_validator(mode="after")
+    def validate_endpoint(self) -> "ModelSettings":
+        """Reject unsupported endpoint, decoding and capability combinations."""
+        api, _, api_key_env = _ENDPOINTS[self.provider]
+        if self.api != api or self.api_key_env != api_key_env:
+            raise ValueError(f"{self.provider} requires {api} and {api_key_env}")
+        capabilities = self.capabilities
+        if self.provider == "mistral" and (capabilities.reasoning or capabilities.embeddings or capabilities.streaming):
+            raise ValueError("Mistral Chat Completions uses a profile without reasoning, embeddings or streaming")
+        if self.reasoning_effort != "none" and not capabilities.reasoning:
+            raise ValueError("Reasoning is disabled for the configured endpoint and model")
+        if self.temperature is not None and self.reasoning_effort != "none":
+            raise ValueError("Temperature requires reasoning_effort=none")
+        if self.response_format == "json_schema" and not capabilities.json_schema:
+            raise ValueError("JSON schema output is disabled for the configured endpoint and model")
+        if self.response_format == "json_object" and not capabilities.json_object:
+            raise ValueError("JSON object output is disabled for the configured endpoint and model")
+        return self
+
+    @property
+    def base_url(self) -> str:
+        """Return the fixed SDK base URL associated with the configured provider."""
+        return _ENDPOINTS[self.provider][1]
+
+    def identity(self) -> JSONObject:
+        """Return the behavior contract used in provenance and fingerprints."""
+        return {**self.model_dump(mode="json", exclude={"api_key_env"}), "base_url": self.base_url}
+
+
+class RoleSettings(Settings):
+    """Optional overrides for the policy, generator and value roles."""
+
+    model_config = ConfigDict(frozen=True)
+
+    policy: ModelSettings | None = Field(default=None, exclude_if=lambda value: value is None)
+    generator: ModelSettings | None = Field(default=None, exclude_if=lambda value: value is None)
+    value: ModelSettings | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class PromptSettings(Settings):
@@ -110,6 +204,7 @@ class ExperimentConfig(Settings):
 
     name: str = "luna_relative"
     model: str = DEFAULT_MODEL
+    roles: RoleSettings | None = Field(default=None, exclude_if=lambda value: value is None)
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
     policy_reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     json_max_retries: int = Field(default=0, ge=0, le=1)
@@ -170,10 +265,11 @@ class ExperimentConfig(Settings):
         """Validate scale semantics and the corresponding execution cap."""
         if self.generator_example_limit is not None and self.generator_checkpoint is None:
             raise ValueError("generator_example_limit requires a generator_checkpoint")
-        if self.generator_layout_schema and (
-            self.generator_response_format or self.response_format
-        ) != "json_schema":
+        generator = self.role("generator")
+        if self.generator_layout_schema and generator.response_format != "json_schema":
             raise ValueError("Layout-constrained generation requires json_schema output")
+        if self.selection == "embeddings" and not generator.capabilities.embeddings:
+            raise ValueError("Embedding selection is disabled for the configured generator endpoint and model")
         if self.method in {"relative", "relative_u", "fixed", "absolute", "absolute_d", "ratio_d_over_ac", "normalized_offset"}:
             if (
                 len(self.scales) != 2
@@ -200,6 +296,21 @@ class ExperimentConfig(Settings):
                     "Fixed horizons cannot exceed the configured maximum controller cap"
                 )
         return self
+
+    def explicit_role(self, role: ComponentRole) -> ModelSettings | None:
+        """Return the configured model and endpoint override, when supplied."""
+        return getattr(self.roles, role) if self.roles is not None else None
+
+    def role(self, role: ComponentRole) -> ModelSettings:
+        """Resolve a role or adapt the historical single-model configuration."""
+        configured = self.explicit_role(role)
+        if configured is not None:
+            return configured
+        return ModelSettings(
+            model=self.model,
+            reasoning_effort=getattr(self, f"{role}_reasoning_effort") or self.reasoning_effort,
+            response_format=getattr(self, f"{role}_response_format") or self.response_format,
+        )
 
     def path(self, field: PathSetting) -> Path:
         """Resolve an explicit path setting relative to the repository root."""

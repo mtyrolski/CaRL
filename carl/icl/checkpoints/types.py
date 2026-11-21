@@ -3,8 +3,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from carl.icl.config import PromptSettings
-from carl.icl.types import Example
+from carl.icl.config import ModelSettings, PromptSettings
+from carl.icl.types import Example, ResponseFormat
 
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
@@ -27,7 +27,7 @@ class GeneratorDefaults(FrozenRecord):
 
     prompts: PromptSettings
     reasoning_effort: Literal["none", "low", "medium", "high"]
-    response_format: Literal["text", "json_schema"]
+    response_format: ResponseFormat
     layout_schema: bool
     max_output_tokens: int = Field(ge=1)
     max_attempts: int = Field(ge=1)
@@ -77,8 +77,9 @@ class CalibratedExample(FrozenRecord):
 class GeneratorCheckpoint(FrozenRecord):
     """Generator-only examples; policy training and policy few-shot count are separate."""
 
-    version: Literal["carl-generator-checkpoint-v1"] = "carl-generator-checkpoint-v1"
+    version: Literal["carl-generator-checkpoint-v1", "carl-generator-checkpoint-v2"] = "carl-generator-checkpoint-v1"
     model: str = Field(min_length=1)
+    generator_transport: ModelSettings | None = Field(default=None, exclude_if=lambda value: value is None)
     provider: Literal["openai", "mock"]
     policy_fingerprint: Digest
     policy_few_shot: int = Field(ge=0)
@@ -95,6 +96,10 @@ class GeneratorCheckpoint(FrozenRecord):
     @model_validator(mode="after")
     def validate_examples(self) -> "GeneratorCheckpoint":
         """Reject count drift and repeated targets while allowing repeated contexts."""
+        if (self.version == "carl-generator-checkpoint-v2") != (self.generator_transport is not None):
+            raise ValueError("Generator checkpoint version and transport disagree")
+        if self.generator_transport is not None and self.generator_transport.model != self.model:
+            raise ValueError("Generator checkpoint model and transport disagree")
         if self.actual_example_count != len(self.examples):
             raise ValueError("Checkpoint actual_example_count differs from stored examples")
         ids = [(example.context, example.target_index) for example in self.examples]

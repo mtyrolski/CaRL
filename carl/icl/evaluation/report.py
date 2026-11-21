@@ -123,6 +123,11 @@ def _calibration_usage(calibration: JSONObject) -> JSONObject:
         "api_cost_scope": "recorded_invocations"
         if history
         else "last_saved_invocation",
+        "physical_requests": sum(
+            record.get("physical_requests", record.get("requests", 0) if calibration.get("provider") == "openai" else 0)
+            for record in records
+        ),
+        "chat_completion_requests": sum(record.get("chat_completion_requests", 0) for record in records),
         **{
             key: sum(record.get(key, 0) for record in records)
             for key in (

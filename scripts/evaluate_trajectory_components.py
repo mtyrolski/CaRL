@@ -18,7 +18,7 @@ from carl.icl.api import BudgetExceeded, RequestFailed, write_json
 from carl.icl.boards import from_rows, to_rows, validate_subgoal
 from carl.icl.config import ExperimentConfig, Limits, load_config
 from carl.icl.datasets import environment, load_data, verify_solution
-from carl.icl.experiment import credentials
+from carl.icl.experiment import create_inference_api, prepare_credentials
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.components import ICLComponents
 from carl.icl.search import rollout
@@ -169,8 +169,8 @@ def run(args: argparse.Namespace) -> Path:
         witness_path = config.path("data_dir") / "private_witnesses" / config.family / f"{config.split}.json"
         witnesses = {item["id"]: item["actions"] for item in json.loads(witness_path.read_text(encoding="utf-8"))}
     provider = "openai" if args.execute else "mock" if args.mock else "replay"
-    credentials(provider)
-    api = ExperimentAPI(config.path("cache_dir"), provider, config.limits)
+    prepare_credentials(config, provider)
+    api = create_inference_api(config, provider)
     data_paths = [config.path("data_dir") / "training.json", witness_path,
                   config.path("data_dir") / config.family / f"{config.split}.json"]
     if config.value_examples == "trajectory":
@@ -248,8 +248,8 @@ def run_generated_policy(args: argparse.Namespace) -> Path:
         **({"cache_dir": str(args.cache_dir.resolve())} if args.cache_dir else {})})
     training, _ = load_data(config)
     provider = "openai" if args.execute else "mock" if args.mock else "replay"
-    credentials(provider)
-    api = ExperimentAPI(config.path("cache_dir"), provider, config.limits)
+    prepare_credentials(config, provider)
+    api = create_inference_api(config, provider)
     report: dict[str, Any] = {"version": 1, "component": "generated_policy", "provider": provider,
         "model": config.model, "config": config.model_dump(mode="json"),
         "generator_provider": generator["provider"],

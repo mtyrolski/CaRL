@@ -170,6 +170,174 @@
       },
       "title": "Tuning",
       "type": "object"
+    },
+    "ModelCapabilities": {
+      "additionalProperties": false,
+      "description": "Features enabled for the configured model and its fixed endpoint.",
+      "properties": {
+        "reasoning": {
+          "default": true,
+          "title": "Reasoning",
+          "type": "boolean"
+        },
+        "json_schema": {
+          "default": true,
+          "title": "Json Schema",
+          "type": "boolean"
+        },
+        "json_object": {
+          "default": true,
+          "title": "Json Object",
+          "type": "boolean"
+        },
+        "embeddings": {
+          "default": true,
+          "title": "Embeddings",
+          "type": "boolean"
+        },
+        "streaming": {
+          "default": true,
+          "title": "Streaming",
+          "type": "boolean"
+        }
+      },
+      "title": "ModelCapabilities",
+      "type": "object"
+    },
+    "ModelSettings": {
+      "additionalProperties": false,
+      "description": "Model, decoding options and supported features for an ICL role.",
+      "properties": {
+        "model": {
+          "pattern": "^\\S+$",
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "default": "openai",
+          "enum": [
+            "openai",
+            "mistral"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "api": {
+          "default": "responses",
+          "enum": [
+            "responses",
+            "chat_completions"
+          ],
+          "title": "Api",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "pattern": "^\\S+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Revision"
+        },
+        "api_key_env": {
+          "default": "OPENAI_API_KEY",
+          "enum": [
+            "OPENAI_API_KEY",
+            "MISTRAL_API_KEY"
+          ],
+          "title": "Api Key Env",
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "default": "none",
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
+        },
+        "response_format": {
+          "default": "text",
+          "enum": [
+            "text",
+            "json_object",
+            "json_schema"
+          ],
+          "title": "Response Format",
+          "type": "string"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/ModelCapabilities"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "ModelSettings",
+      "type": "object"
+    },
+    "RoleSettings": {
+      "additionalProperties": false,
+      "description": "Optional overrides for the policy, generator and value roles.",
+      "properties": {
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "RoleSettings",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -551,6 +719,17 @@
       ],
       "title": "Tuning Status",
       "type": "string"
+    },
+    "roles": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RoleSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "title": "ExperimentConfig",

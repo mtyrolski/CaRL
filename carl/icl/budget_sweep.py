@@ -251,7 +251,8 @@ def _run_locked(
                 "Cannot resume: provider, settings, data, calibration, code or dependencies changed"
             )
     else:
-        credentials(provider)
+        if all(config.roles is None for config in configs):
+            credentials(provider)
         write_json(manifest_path, manifest)
         write_json(
             output / "sweep_plan.json",

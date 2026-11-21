@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
+from carl.icl.api import create_client
 from carl.icl.campaign_budget import CampaignLedger
 from carl.icl.luna_action_format import action_text_format
 from carl.icl.luna_intent_diagnostics import SAFE_ERROR_CODES as SAFE_ERROR_CODES
@@ -225,8 +226,7 @@ class LunaIntentTransport:
         self.audit_dir = self.run_dir / "luna_requests"
         self.audit_dir.mkdir(parents=True, exist_ok=True)
         if client is None:
-            from openai import OpenAI    # Imported only when the experiment needs the API.
-            client = OpenAI(timeout=timeout_seconds, max_retries=0)
+            client = create_client(None, timeout_seconds)
         else:
             client = client.with_options(timeout=timeout_seconds, max_retries=0)
         self.client = client

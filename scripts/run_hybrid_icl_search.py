@@ -1,4 +1,4 @@
-"""Prepare or run CaRL search with a prompted OpenAI subgoal generator.
+"""Prepare or run CaRL search with a prompted subgoal generator.
 
 Default: inspect initial requests without API calls or checkpoint loading.
 Run as `uv run --extra icl python -m scripts.run_hybrid_icl_search --help`.
@@ -18,9 +18,11 @@ from transformers import BertForSequenceClassification
 
 from carl.environment.sokoban.env import SokobanEnv
 from carl.environment.sokoban.tokenizer import SokobanTokenizer
-from carl.icl.api import BudgetExceeded, CachedOpenAI, RequestFailed, write_json
+from carl.icl.api import BudgetExceeded, RequestFailed, write_json
 from carl.icl.boards import from_rows, level_key, to_rows, validate_subgoal
+from carl.icl.config import ExperimentConfig, Limits, RoleSettings
 from carl.icl.data import prepare_data
+from carl.icl.experiment import create_inference_api, prepare_credentials
 from carl.icl.generator import OpenAISubgoalGenerator
 from carl.inference_components.conditional_low_level_policy import TransformerConditionalLowLevelPolicy
 from carl.inference_components.subgoal_generator import AdaptiveSubgoalGenerator
@@ -66,6 +68,21 @@ def read_config(args: argparse.Namespace) -> dict[str, Any]:
         config[name] = str(path if path.is_absolute() else ROOT / path)
     if args.reasoning_effort is not None:
         config["reasoning_effort"] = None if args.reasoning_effort == "omit" else args.reasoning_effort
+    if "roles" in config:
+        roles = RoleSettings.model_validate(config["roles"])
+        if roles.policy is not None or roles.value is not None or roles.generator is None:
+            raise ValueError("Hybrid search configures roles.generator and loads policy and value from local checkpoints")
+        if getattr(args, "model", None) is not None:
+            raise ValueError("Set roles.generator.model and its revision together in the hybrid config")
+        generator = roles.generator.model_dump()
+        if args.reasoning_effort is not None:
+            generator["reasoning_effort"] = config["reasoning_effort"] or "none"
+        roles = RoleSettings.model_validate({"generator": generator})
+        assert roles.generator is not None
+        if config["selection"] == "embeddings" and not roles.generator.capabilities.embeddings:
+            raise ValueError("Generator endpoint does not support embeddings")
+        config["model"] = roles.generator.model
+        config["roles"] = roles.model_dump(mode="json")
     if config["instances"] < 1 or config["max_nodes"] < 1:
         raise ValueError("Instances and node budgets must be positive")
     return config
@@ -111,12 +128,23 @@ def run(args: argparse.Namespace) -> int:
     provider = "openai" if args.execute else "mock" if args.mock else "replay"
     if args.mock and config["selection"] == "embeddings":
         raise ValueError("--mock supports --selection direct; embeddings require --execute or cached --replay")
-    api = CachedOpenAI(
-        config["cache_dir"],
-        provider=provider,
-        max_requests=config["max_requests"],
-        timeout_seconds=config["timeout_seconds"],
-        max_wall_seconds=config["max_wall_seconds"],
+    preview_only = not (args.execute or args.mock or args.replay)
+    inference = ExperimentConfig(
+        model=config["model"],
+        roles=config.get("roles"),
+        cache_dir=config["cache_dir"],
+        limits=Limits(
+            max_requests=config["max_requests"],
+            timeout_seconds=config["timeout_seconds"],
+            wall_seconds=config["max_wall_seconds"],
+            max_output_tokens=config["max_requests"] * config["max_output_tokens"],
+        ),
+    )
+    transport = inference.explicit_role("generator")
+    if args.execute and transport is not None:
+        prepare_credentials(inference, provider)
+    api = create_inference_api(
+        inference, provider, transport=transport, preview_only=preview_only,
     )
     generator = OpenAISubgoalGenerator(
         env=env,
@@ -130,14 +158,18 @@ def run(args: argparse.Namespace) -> int:
         selection=config["selection"],
         embedding_model=config["embedding_model"],
         max_output_tokens=config["max_output_tokens"],
-        reasoning_effort=config["reasoning_effort"],
+        reasoning_effort=(
+            config["reasoning_effort"] if transport is None or args.reasoning_effort == "omit"
+            else transport.reasoning_effort
+        ),
+        transport=transport,
         controller_cap=config["controller_cap"],
         max_expansions=config["max_expansions"],
     )
     output = Path(config["output"]) / f"{time.time_ns()}_{provider}_{config['planner']}_{config['selection']}"
     output.mkdir(parents=True)
     write_json(output / "config.json", config)
-    if not (args.execute or args.mock or args.replay):
+    if preview_only:
         payloads = []
         for instance in instances:
             for k in generator.generator_k_list or [None]:
@@ -261,7 +293,7 @@ def main() -> int:
         help="Use disjoint evaluation boards one move from solved, for an interface diagnostic",
     )
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--execute", action="store_true", help="Use the live OpenAI API")
+    mode.add_argument("--execute", action="store_true", help="Use the configured generator API")
     mode.add_argument(
         "--mock", action="store_true", help="Full solver with explicitly labelled legal-successor mock proposals"
     )

@@ -1,5 +1,6 @@
 """Explicit-state subgoal selection, prompts, and proposal decoding."""
 import json
+from typing import cast
 
 import numpy as np
 
@@ -10,7 +11,7 @@ from carl.icl.llm_components.formatting import (
     FIELDS, board_distance, layout_generator_payload, schema_object, task,
 )
 from carl.icl.responses import text_message
-from carl.icl.types import Board, BoardRows, Example, JSONObject, Probabilities
+from carl.icl.types import Board, BoardRows, Example, JSONObject, Probabilities, RoutedInferenceClient
 
 
 class LLMSubgoalGenerator(LLMComponentBase):
@@ -71,15 +72,17 @@ class LLMSubgoalGenerator(LLMComponentBase):
             )
         # Same retained candidate pool and deterministic diverse order for u and d.
         if self.config.selection == "embeddings" and resolve_embeddings:
+            transport = self.config.explicit_role("generator")
 
             def embed(rows: BoardRows) -> Probabilities:
-                result = self.api.call(
-                    "embeddings",
-                    {
-                        "model": self.config.embedding_model,
-                        "input": [embedding_text(rows)],
-                        "encoding_format": "float",
-                    },
+                payload = {
+                    "model": self.config.embedding_model,
+                    "input": [embedding_text(rows)],
+                    "encoding_format": "float",
+                }
+                result = (
+                    cast(RoutedInferenceClient, self.api).call("embeddings", payload, transport=transport)
+                    if transport is not None else self.api.call("embeddings", payload)
                 )
                 vector = np.asarray(result["vectors"][0], dtype=float)
                 norm = np.linalg.norm(vector)

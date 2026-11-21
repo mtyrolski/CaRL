@@ -3,6 +3,7 @@ import hashlib
 import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 
@@ -12,7 +13,10 @@ from carl.icl.checkpoints.types import GeneratorCheckpoint
 from carl.icl.config import ExperimentConfig
 from carl.icl.llm_components.formatting import POLICY_COORDINATE_INSTRUCTIONS, POLICY_COORDINATE_VERSION
 from carl.icl.responses import RESPONSE_CONTRACT_VERSION, request_options, text_message
-from carl.icl.types import BoardEnvironment, ComponentRole, Example, InferenceClient, JSONObject, TrainingData
+from carl.icl.types import (
+    COMPONENT_ROLES, BoardEnvironment, ComponentRole, Example, InferenceClient, JSONObject,
+    RoutedInferenceClient, TrainingData,
+)
 
 
 class LLMComponentBase(ABC):
@@ -44,17 +48,19 @@ class LLMComponentBase(ABC):
         self.generator_checkpoint: GeneratorCheckpoint | None = None
         if config.generator_checkpoint is not None:
             self.generator_checkpoint = load_generator_checkpoint(
-                config.path("generator_checkpoint"), model=config.model, policy_fingerprint=self.fingerprint(),
+                config.path("generator_checkpoint"), model=config.role("generator").model, policy_fingerprint=self.fingerprint(),
                 action_cap=config.calibration.action_cap, provider=api.provider,
+                generator_transport=config.explicit_role("generator"),
             )
     def fingerprint(self) -> str:
         # Excludes test family/size, method, run seed and search scales: frozen transfer.
         """Hash the frozen policy contract without test settings or search scales."""
+        policy = self.config.role("policy")
         contract = {
-            "model": self.config.model,
-            "reasoning": self.config.policy_reasoning_effort or self.config.reasoning_effort,
+            "model": policy.model,
+            "reasoning": policy.reasoning_effort,
             "response_contract": RESPONSE_CONTRACT_VERSION,
-            "response_format": self.config.policy_response_format or self.config.response_format,
+            "response_format": policy.response_format,
             "prompt": self.config.prompts.policy,
             "policy_tokens": self.config.policy_tokens,
             "temperature": self.config.policy_temperature,
@@ -65,6 +71,8 @@ class LLMComponentBase(ABC):
             "sampling": "categorical-unmasked",
             "stopping": "exact-target-or-task-terminal",
         }
+        if self.config.explicit_role("policy") is not None:
+            contract["model_settings"] = policy.identity()
         if self.config.policy_demo_selection != "legacy":
             contract["policy_demo_selection"] = self.config.policy_demo_selection
         if self.config.policy_coordinate_features:
@@ -84,9 +92,9 @@ class LLMComponentBase(ABC):
         *,
         schema: JSONObject,
     ) -> JSONObject:
-        response_format = getattr(self.config, f"{role}_response_format", None) or self.config.response_format
-        reasoning_effort = getattr(self.config, f"{role}_reasoning_effort", None) or self.config.reasoning_effort
-        if response_format == "text":
+        settings = self.config.role(role)
+        response_format = settings.response_format
+        if response_format in {"text", "json_object"}:
             prompt += "\nReturn only JSON matching this schema: " + json.dumps(schema)
         messages: list[JSONObject] = [text_message("developer", prompt)]
         for question, answer in examples:
@@ -97,7 +105,7 @@ class LLMComponentBase(ABC):
                 ]
             )
         messages.append(text_message("user", json.dumps(query)))
-        output_format: JSONObject = {"type": "text"}
+        output_format: JSONObject = {"type": response_format}
         if response_format == "json_schema":
             output_format = {
                 "type": "json_schema",
@@ -106,12 +114,21 @@ class LLMComponentBase(ABC):
                 "schema": schema,
             }
         payload = {
-            **request_options(reasoning_effort, output_format),
-            "model": self.config.model,
+            **request_options(settings.reasoning_effort, output_format),
+            "model": settings.model,
             "input": messages,
             "max_output_tokens": getattr(self.config, f"{role}_tokens"),
             "metadata": {"component": role},
         }
+        if self.config.explicit_role(role) is not None:
+            payload["stream"] = settings.capabilities.streaming
+            payload["text"].pop("verbosity")
+            payload.pop("include")
+            payload.pop("reasoning")
+            if settings.capabilities.reasoning:
+                payload["reasoning"] = {"effort": settings.reasoning_effort}
+            if settings.temperature is not None:
+                payload["temperature"] = settings.temperature
         return payload
     def _json(
         self, payload: JSONObject, mock_value: Callable[[], JSONObject]
@@ -123,15 +140,21 @@ class LLMComponentBase(ABC):
                 "usage": {},
             }
 
+        role = payload.get("metadata", {}).get("component")
+        transport = self.config.explicit_role(role) if role in COMPONENT_ROLES else None
+        api = cast(RoutedInferenceClient, self.api)
         for attempt in range(self.config.json_max_retries + 1):
-            result = (self.api.call("responses", payload, mock=mock) if attempt == 0 else
-                      self.api.call_json_retry("responses", payload, mock=mock))
+            call = api.call if attempt == 0 else api.call_json_retry
+            result = (
+                call("responses", payload, mock=mock, transport=transport)
+                if transport is not None else call("responses", payload, mock=mock)
+            )
             try:
                 value = json.loads(result["output_text"])
                 if not isinstance(value, dict):
                     raise ValueError("Expected an object")
                 return value
-            except (ValueError, TypeError):
+            except (KeyError, ValueError, TypeError):
                 if attempt == self.config.json_max_retries:
                     raise RequestFailed("Invalid JSON from model component") from None
         raise AssertionError("Unreachable retry loop")

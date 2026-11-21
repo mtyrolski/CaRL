@@ -1,10 +1,8 @@
 """Offline, assumption-driven token estimates for explicit-board solver sweeps."""
 import json
 import math
-from typing import Final
 
 import numpy as np
-import tiktoken
 from pydantic import Field, model_validator
 
 from carl.icl.boards import from_rows, to_rows
@@ -12,17 +10,18 @@ from carl.icl.budget_sweep import BudgetSweepConfig
 from carl.icl.calibration import calibration_id
 from carl.icl.config import ExperimentConfig, Settings
 from carl.icl.datasets import environment, load_data
-from carl.icl.experiment_api import ExperimentAPI
+from carl.icl.experiment import create_inference_api
+from carl.icl.experiment_api import local_token_encoding
 from carl.icl.components import ICLComponents
-from carl.icl.types import JSONObject
+from carl.icl.types import ComponentRole, JSONObject, ModelProvider
 
-ENCODING: Final[str] = "o200k_base"
 
 
 class Pricing(Settings):
     """Explicit editable provider pricing, expressed per million tokens."""
 
     model: str
+    provider: ModelProvider = "openai"
     input_usd_per_million: float = Field(ge=0)
     output_usd_per_million: float = Field(ge=0)
     currency: str = "USD"
@@ -61,7 +60,7 @@ class Assumptions(Settings):
 
 def _tokens(payload: JSONObject) -> int:
     """Match ExperimentAPI's local serialized-payload token estimate."""
-    encoding = tiktoken.get_encoding(ENCODING)
+    encoding = local_token_encoding()
     return len(
         encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=())
     )
@@ -77,7 +76,7 @@ def _sample(config: ExperimentConfig) -> JSONObject:
         raise ValueError("Token estimator currently supports num_subgoals=1 only")
     training, instances = load_data(config)
     state = from_rows(instances[0]["state"])
-    api = ExperimentAPI(config.path("cache_dir"), "mock", config.limits)
+    api = create_inference_api(config, "mock", preview_only=True)
     components = ICLComponents(config, api, environment(state), training)
     if config.method == "relative":
         # Never use mock calibration as live calibration; labels only size the prompt.
@@ -159,8 +158,10 @@ def estimate(
     spec: BudgetSweepConfig, configs: list[ExperimentConfig], assumptions: Assumptions
 ) -> JSONObject:
     """Estimate explicitly assumed workloads, plus configured logical accounting ceilings."""
-    if any(c.model != assumptions.pricing.model for c in configs):
-        raise ValueError("Price model must match every experiment model")
+    roles: tuple[ComponentRole, ...] = ("policy", "generator", "value")
+    models = (config.role(role) for config in configs for role in roles)
+    if any((model.provider, model.model) != (assumptions.pricing.provider, assumptions.pricing.model) for model in models):
+        raise ValueError("Price model and provider must match all experiment roles for a single-price estimate")
     samples = {config.name: _sample(config) for config in configs}
     if len({sample["calibration_signature"] for sample in samples.values()}) != 1:
         raise ValueError(

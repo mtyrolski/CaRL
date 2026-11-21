@@ -1,11 +1,14 @@
 """Domain contracts; dynamic dictionaries are confined to JSON/API boundaries."""
 from collections.abc import Callable
-from typing import Any, Literal, NotRequired, Protocol, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypeAlias, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
 
 from carl.utils.aliases import State
+
+if TYPE_CHECKING:
+    from carl.icl.config import ModelSettings
 
 Board: TypeAlias = NDArray[np.float32]
 Probabilities: TypeAlias = NDArray[np.float64]
@@ -13,6 +16,11 @@ Coordinate: TypeAlias = tuple[int, int]
 BoardRows: TypeAlias = list[str]
 Provider: TypeAlias = Literal["openai", "replay", "mock"]
 ComponentRole: TypeAlias = Literal["generator", "policy", "value"]
+ModelProvider: TypeAlias = Literal["openai", "mistral"]
+CompletionAPI: TypeAlias = Literal["responses", "chat_completions"]
+ReasoningEffort: TypeAlias = Literal["none", "low", "medium", "high"]
+ResponseFormat: TypeAlias = Literal["text", "json_object", "json_schema"]
+COMPONENT_ROLES: tuple[ComponentRole, ...] = ("policy", "generator", "value")
 PathSetting: TypeAlias = Literal[
     "trajectory_source", "data_dir", "cache_dir", "output_dir", "generator_checkpoint"
 ]
@@ -27,13 +35,31 @@ class InferenceClient(Protocol):
     provider: str
     metrics: dict[str, int | float]
 
-    def call(self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None) -> JSONObject:
+    def call(
+        self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None,
+    ) -> JSONObject:
         """Return a complete decoded response from a provider or cache."""
         ...
 
-    def call_json_retry(self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None) -> JSONObject:
+    def call_json_retry(
+        self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None,
+    ) -> JSONObject:
         """Retry a request using a distinct cache slot."""
         ...
+
+
+class RoutedInferenceClient(InferenceClient, Protocol):
+    """Accept explicit model routing in addition to the legacy client contract."""
+
+    def call(
+        self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None,
+        *, transport: "ModelSettings | None" = None,
+    ) -> JSONObject: ...
+
+    def call_json_retry(
+        self, endpoint: str, payload: JSONObject, mock: MockResponse | None = None,
+        *, transport: "ModelSettings | None" = None,
+    ) -> JSONObject: ...
 
 
 class Candidate(TypedDict):

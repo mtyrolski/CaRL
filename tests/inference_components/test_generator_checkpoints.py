@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from carl.icl.boards import from_rows
 from carl.icl.boards import to_rows
 from carl.icl.calibration import calibrate
+from carl.icl.calibration import calibration_id
 from carl.icl.calibration import calibration_result_digest
 from carl.icl.checkpoints import export_generator_checkpoint
 from carl.icl.checkpoints import load_generator_checkpoint
@@ -205,3 +206,42 @@ def test_limit_overflow_and_missing_checkpoint_fail(checkpoint_case: CheckpointC
     config = case.config.model_copy(update={"generator_checkpoint": str(case.path), "generator_example_limit": 3})
     with pytest.raises(ValueError, match="fewer than requested"):
         components_for_run(config, "mock", case.training, case.board)
+
+
+@pytest.mark.usefixtures("deterministic_token_estimates")
+def test_checkpoint_binds_generator_route_without_changing_policy_calibration(checkpoint_case: CheckpointCase) -> None:
+    case = checkpoint_case
+    legacy = components_for_run_without_calibration(case, case.config)
+    case.config = ExperimentConfig.model_validate({
+        **case.config.model_dump(),
+        "roles": {"generator": {
+            "provider": "mistral", "model": "ministral-8b-2512", "revision": "25.12",
+            "response_format": "json_object",
+        }},
+    })
+    routed = components_for_run_without_calibration(case, case.config)
+    assert routed.fingerprint() == legacy.fingerprint()
+    assert calibration_id(case.config, routed) == calibration_id(case.config, legacy)
+    exported = case.export()
+    assert exported.version == "carl-generator-checkpoint-v2"
+    transport = case.config.explicit_role("generator")
+    assert transport is not None
+    assert load_generator_checkpoint(case.path, model=transport.model, generator_transport=transport) == exported
+    with pytest.raises(ValueError, match="transport mismatch"):
+        load_generator_checkpoint(case.path, model=transport.model)
+    with pytest.raises(ValueError, match="transport mismatch"):
+        load_generator_checkpoint(
+            case.path, model=transport.model, generator_transport=transport.model_copy(update={"revision": "other"}),
+        )
+
+    new_policy = ExperimentConfig.model_validate({
+        **case.config.model_dump(), "roles": {"generator": transport, "policy": transport},
+    })
+    changed = components_for_run_without_calibration(case, new_policy)
+    assert changed.fingerprint() != legacy.fingerprint()
+    assert calibration_id(new_policy, changed) != calibration_id(case.config, legacy)
+
+
+def components_for_run_without_calibration(case: CheckpointCase, config: ExperimentConfig) -> LunaComponents:
+    api = ExperimentAPI(config.path("cache_dir"), "mock", config.limits, preview_only=True)
+    return LunaComponents(config, api, environment(case.board), case.training)

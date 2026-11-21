@@ -70,6 +70,8 @@ def calibration_id(config: ExperimentConfig, components: "ICLComponents") -> str
 def calibration_result_digest(summary: JSONObject) -> str:
     """Detect accidental modification of labels, weights, medians or selected IDs."""
     payload = {key: summary.get(key) for key in ('signature', 'policy_fingerprint', 'examples', 'contexts', 'selected_example_ids')}
+    if 'policy_transport' in summary:
+        payload['policy_transport'] = summary['policy_transport']
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
@@ -165,6 +167,9 @@ def _calibrate_locked(config: ExperimentConfig, components: "ICLComponents", dir
                            'categorical actions with its own SeedSequence. No rollout is replayed as a new observation. '
                            'Estimates are conditional on the realized cached policy distributions; provider model draws '
                            'have no controlled seed and cannot be reproduced without the response cache.'}
+    policy_transport = config.explicit_role('policy')
+    if policy_transport is not None:
+        summary['policy_transport'] = policy_transport.identity()
     invocation_actions = 0
     targets: list[JSONObject] = []
     trial_rows: list[JSONObject] = []

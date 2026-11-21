@@ -12,7 +12,7 @@ import numpy as np
 
 from carl.icl.boards import from_rows, state_hash, validate_subgoal
 from carl.icl.checkpoints.types import CalibratedExample, GeneratorCheckpoint, GeneratorDefaults, SourceArtifact
-from carl.icl.config import ROOT, ExperimentConfig
+from carl.icl.config import ROOT, ExperimentConfig, ModelSettings
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.types import JSONObject
 
@@ -154,14 +154,17 @@ def export_generator_checkpoint(
     evidence = _json_bytes(calibration)
     evidence_hash = _digest(evidence)
     evidence_name = f"calibration-{evidence_hash}.json"
+    generator = config.role("generator")
+    transport = config.explicit_role("generator")
     checkpoint = GeneratorCheckpoint(
-        model=config.model, provider=provider, policy_fingerprint=policy_fingerprint,
+        version="carl-generator-checkpoint-v2" if transport is not None else "carl-generator-checkpoint-v1",
+        model=generator.model, generator_transport=transport, provider=provider, policy_fingerprint=policy_fingerprint,
         policy_few_shot=config.few_shot, action_cap=config.calibration.action_cap,
         calibration_signature=calibration["signature"], calibration_result_digest=calibration["result_digest"],
         calibration_evidence=SourceArtifact(path=evidence_name, sha256=evidence_hash), source_hashes=sources,
         defaults=GeneratorDefaults(
-            prompts=config.prompts, reasoning_effort=config.generator_reasoning_effort or config.reasoning_effort,
-            response_format=config.generator_response_format or config.response_format,
+            prompts=config.prompts, reasoning_effort=generator.reasoning_effort,
+            response_format=generator.response_format,
             layout_schema=config.generator_layout_schema, max_output_tokens=config.generator_tokens,
             max_attempts=config.generator_max_attempts, num_subgoals=config.num_subgoals,
             offset_denominator=config.offset_denominator,
@@ -177,6 +180,7 @@ def export_generator_checkpoint(
 def load_generator_checkpoint(
     path: str | Path, *, model: str | None = None, policy_fingerprint: str | None = None,
     action_cap: int | None = None, provider: str | None = None, verify_sources: bool = False,
+    generator_transport: ModelSettings | None = None,
 ) -> GeneratorCheckpoint:
     """Validate the complete snapshot; optionally verify external source files too."""
     path = Path(path)
@@ -188,6 +192,8 @@ def load_generator_checkpoint(
     for field, value in expected.items():
         if value is not None and getattr(checkpoint, field) != value:
             raise ValueError(f"Generator checkpoint {field} mismatch")
+    if (model is not None or generator_transport is not None) and checkpoint.generator_transport != generator_transport:
+        raise ValueError("Generator checkpoint transport mismatch")
     evidence_path = path.parent / checkpoint.calibration_evidence.path
     if evidence_path.resolve().parent != path.parent.resolve():
         raise ValueError("Checkpoint calibration evidence must be adjacent to the checkpoint")

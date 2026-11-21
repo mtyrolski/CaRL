@@ -8,6 +8,7 @@ import numpy as np
 
 from carl.icl.api import BudgetExceeded, CachedOpenAI, RequestFailed
 from carl.icl.boards import embedding_text, from_rows, to_rows, validate_subgoal
+from carl.icl.config import ModelSettings
 from carl.inference_components.component import InferenceComponent, RawComponent
 from carl.solver.nodes import GeneratedSubgoal, SearchTreeNode
 
@@ -44,6 +45,7 @@ class OpenAISubgoalGenerator(InferenceComponent):
         reasoning_effort: str | None = "low",
         controller_cap: int = 8,
         max_expansions: int = 100,
+        transport: ModelSettings | None = None,
     ) -> None:
         if planner not in {"adaptive", "universal"} or selection not in {"direct", "embeddings"}:
             raise ValueError("Unknown planner or demonstration selection")
@@ -59,6 +61,7 @@ class OpenAISubgoalGenerator(InferenceComponent):
         ):
             raise ValueError("Generator limits must be positive")
         self.env, self.model, self.api = env, model, api
+        self.transport = transport
         self.planner, self.selection, self.embedding_model = planner, selection, embedding_model
         self.mode = "bank" if planner == "adaptive" else "propositional_universal"
         self.generator_k_list = list(generator_k_list or [8, 4, 1]) if planner == "adaptive" else []
@@ -170,7 +173,11 @@ class OpenAISubgoalGenerator(InferenceComponent):
                 request["k"] = k
             return json.dumps(request)
 
-        messages: list[dict[str, Any]] = [{"role": "developer", "content": PROMPT}]
+        output_format = self.transport.response_format if self.transport else "json_schema"
+        prompt = PROMPT
+        if output_format != "json_schema":
+            prompt += "\nReturn only JSON matching this schema: " + json.dumps(schema)
+        messages: list[dict[str, Any]] = [{"role": "developer", "content": prompt}]
         for example in self._examples(rows, k, resolve_embeddings):
             messages.extend(
                 [
@@ -183,7 +190,9 @@ class OpenAISubgoalGenerator(InferenceComponent):
             )
         # A developer-message boundary after all demonstrations preserves the
         # reusable prefix when the dynamic board at the end changes (GPT-6+).
-        use_explicit_cache = self.model.startswith("gpt-6")
+        use_explicit_cache = self.model.startswith("gpt-6") and (
+            self.transport is None or self.transport.provider == "openai"
+        )
         if use_explicit_cache:
             messages.append(
                 {
@@ -198,20 +207,20 @@ class OpenAISubgoalGenerator(InferenceComponent):
                 }
             )
         messages.append({"role": "user", "content": query(rows)})
+        text_format: dict[str, Any] = {"type": output_format}
+        if output_format == "json_schema":
+            text_format.update(name="sokoban_subgoals", strict=True, schema=schema)
         payload: dict[str, Any] = {
             "model": self.model,
             "input": messages,
             "store": False,
             "max_output_tokens": self.max_output_tokens,
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "sokoban_subgoals",
-                    "strict": True,
-                    "schema": schema,
-                }
-            },
+            "text": {"format": text_format},
         }
+        if self.transport is not None:
+            payload["metadata"] = {"component": "generator"}
+            if self.transport.temperature is not None:
+                payload["temperature"] = self.transport.temperature
         if self.reasoning_effort is not None:
             payload["reasoning"] = {"effort": self.reasoning_effort}
         if use_explicit_cache:

@@ -1,0 +1,23 @@
+{
+  "extends": "provider_openai.example.json",
+  "name": "provider_ministral",
+  "roles": {
+    "generator": {
+      "provider": "mistral",
+      "api": "chat_completions",
+      "model": "ministral-8b-2512",
+      "revision": "25.12",
+      "api_key_env": "MISTRAL_API_KEY",
+      "reasoning_effort": "none",
+      "response_format": "json_object",
+      "temperature": 0,
+      "capabilities": {
+        "reasoning": false,
+        "embeddings": false,
+        "streaming": false,
+        "json_schema": true,
+        "json_object": true
+      }
+    }
+  }
+}

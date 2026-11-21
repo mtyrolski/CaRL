@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--matrix", default=DEFAULT_MATRIX)
     parser.add_argument(
         "--model",
-        help="Override the model for ALL three components; changing it requires recalibration",
+        help="Override the fallback model used by roles without an explicit model",
     )
     parser.add_argument("--output", type=Path)
     parser.add_argument(
@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Share or restore a local query cache (relative to the CaRL checkout)",
     )
     modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--execute", action="store_true", help="Use OpenAI API; may incur charges")
+    modes.add_argument("--execute", action="store_true", help="Use the configured APIs; may incur charges")
     modes.add_argument(
         "--mock", action="store_true", help="Heuristic offline plumbing check, not a Luna benchmark"
     )

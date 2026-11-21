@@ -30,7 +30,7 @@ def main() -> int:
         help="Read only previously cached live responses",
     )
     modes.add_argument(
-        "--execute", action="store_true", help="Use OpenAI; incurs charges"
+        "--execute", action="store_true", help="Use the configured APIs; incurs charges"
     )
     args = parser.parse_args()
     config_path = Path(args.config).expanduser()

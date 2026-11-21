@@ -3,15 +3,17 @@ import csv
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
 from carl.icl.api import write_json
 from carl.icl.boards import from_rows
 from carl.icl.calibration import calibrate, calibration_id, calibration_result_digest, target_indices
-from carl.icl.config import ROOT, ExperimentConfig, load_config
+from carl.icl.config import ROOT, ExperimentConfig, Limits, ModelSettings, load_config
 from carl.icl.datasets import environment, load_data
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.experiments.tuning import tune as _tune
@@ -22,8 +24,9 @@ from carl.icl.types import Board, JSONObject, TrainingData
 from carl.utils.aliases import State
 
 __all__ = [
-    "calibration_components", "calibration_path", "components_for_run", "credentials", "matrix_configs",
-    "output_directory", "preview", "run_calibration", "run_condition", "run_matrix", "tune",
+    "calibration_components", "calibration_path", "components_for_run", "create_inference_api",
+    "credentials", "matrix_configs", "output_directory", "prepare_credentials", "preview",
+    "run_calibration", "run_condition", "run_matrix", "tune",
 ]
 
 
@@ -46,11 +49,37 @@ def credentials(provider: str) -> None:
         )
 
 
+def prepare_credentials(config: ExperimentConfig, provider: str) -> None:
+    """Load credentials for live mode. Explicit roles resolve their own key on dispatch."""
+    if config.roles is None:
+        credentials(provider)
+    elif provider == "openai":
+        load_dotenv(ROOT / ".env", override=False)
+
+
+def create_inference_api(
+    config: ExperimentConfig,
+    provider: str,
+    *,
+    limits: Limits | None = None,
+    transport: ModelSettings | None = None,
+    client: Any = None,
+    client_factory: Callable[[ModelSettings | None, float], Any] | None = None,
+    encoding: Any = None,
+    preview_only: bool = False,
+) -> ExperimentAPI:
+    """Apply the same cache and limits to all clients constructed from experiment settings."""
+    return ExperimentAPI(
+        config.path("cache_dir"), provider, limits or config.limits, client,
+        encoding=encoding, transport=transport, client_factory=client_factory, preview_only=preview_only,
+    )
+
+
 def calibration_components(config: ExperimentConfig, provider: str) -> ICLComponents:
     """Bind calibration to training layouts and its independent request budget."""
     training, _ = load_data(config)
     state = from_rows(training["contexts"][0]["state"])
-    api = ExperimentAPI(config.path("cache_dir"), provider, config.calibration.limits)
+    api = create_inference_api(config, provider, limits=config.calibration.limits)
     return ICLComponents(config, api, environment(state), training)
 
 
@@ -66,7 +95,7 @@ def calibration_path(config: ExperimentConfig, components: ICLComponents) -> Pat
 
 def run_calibration(config: ExperimentConfig, provider: str) -> JSONObject:
     """Resume calibration and write separate machine-readable and human cost reports."""
-    credentials(provider)
+    prepare_credentials(config, provider)
     components = calibration_components(config, provider)
     summary = calibrate(config, components, config.path("data_dir") / "calibration")
     directory = calibration_path(config, components).parent
@@ -92,10 +121,10 @@ def run_calibration(config: ExperimentConfig, provider: str) -> JSONObject:
 
 
 def components_for_run(
-    config: ExperimentConfig, provider: str, training: TrainingData, state: Board
+    config: ExperimentConfig, provider: str, training: TrainingData, state: Board, *, preview_only: bool = False,
 ) -> ICLComponents:
     """Validate few-shot and calibration contracts before spending inference budget."""
-    api = ExperimentAPI(config.path("cache_dir"), provider, config.limits)
+    api = create_inference_api(config, provider, preview_only=preview_only)
     components = ICLComponents(config, api, environment(state), training)
     if config.generator_checkpoint is None and config.method in {"relative", "relative_u", "absolute", "absolute_d", "ratio_d_over_ac", "normalized_offset"}:
         path = calibration_path(config, components)
@@ -136,7 +165,7 @@ def preview(config: ExperimentConfig, provider: str = "replay") -> Path:
     state = from_rows(instances[0]["state"])
     components = ICLComponents(
         config,
-        ExperimentAPI(config.path("cache_dir"), provider, config.limits),
+        create_inference_api(config, provider, preview_only=True),
         environment(state),
         training,
     )
@@ -148,7 +177,7 @@ def preview(config: ExperimentConfig, provider: str = "replay") -> Path:
     }
     note = "Embedding retrieval is not resolved in preview. No requests were sent."
     try:
-        components = components_for_run(config, provider, training, state)
+        components = components_for_run(config, provider, training, state, preview_only=True)
         if config.method in {"relative", "relative_u", "absolute", "absolute_d", "ratio_d_over_ac", "normalized_offset", "fixed"}:
             payloads["generator"] = [
                 components.generator_payload(state, scale, resolve_embeddings=False)
@@ -195,7 +224,7 @@ def run_condition(
     stop_on_api_error: bool = False,
 ) -> list[JSONObject]:
     """Execute matched seeds, optionally resuming durable per-trial outcomes."""
-    credentials(provider)
+    prepare_credentials(config, provider)
     if provider == "mock" and config.selection == "embeddings":
         raise ValueError(
             "Embedding retrieval requires --execute or --replay; mock uses direct examples"
@@ -327,7 +356,6 @@ def matrix_configs(path: Path) -> list[ExperimentConfig]:
 
 def run_matrix(configs: list[ExperimentConfig], provider: str, directory: Path) -> None:
     """Preflight every condition before executing and aggregating the comparison."""
-    credentials(provider)
     for config in configs:
         training, instances = load_data(config)
         components_for_run(config, provider, training, from_rows(instances[0]["state"]))

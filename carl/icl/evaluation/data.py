@@ -55,7 +55,9 @@ class RunRecord(Settings):
     expansions: int = Field(ge=0)
     seconds: float = Field(ge=0)
     requests: int = Field(ge=0)
+    physical_requests: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
     response_requests: int = Field(ge=0)
+    chat_completion_requests: int = Field(default=0, ge=0)
     embedding_requests: int = Field(ge=0)
     cache_hits: int = Field(ge=0)
     input_tokens: int = Field(ge=0)
@@ -66,9 +68,16 @@ class RunRecord(Settings):
     logical_requests: int = Field(ge=0)
     logical_input_tokens: int = Field(ge=0)
     logical_output_tokens: int = Field(ge=0)
+    logical_token_byte_fallback: Literal[0, 1] = 0
     generator_calls: int = Field(ge=0)
     policy_calls: int = Field(ge=0)
     value_calls: int = Field(ge=0)
+
+    @property
+    def physical_request_count(self) -> int:
+        if self.physical_requests is not None:
+            return self.physical_requests
+        return self.requests if self.provider == "openai" else 0
 
     @model_validator(mode="after")
     def check_outcome(self) -> "RunRecord":
@@ -106,9 +115,20 @@ class SavedRun:
                 "_prompt_profile_recorded", False
             ),
         }
+        if self.record.logical_token_byte_fallback:
+            contract["logical_token_byte_fallback"] = True
         return hashlib.sha256(
             json.dumps(contract, sort_keys=True).encode()
         ).hexdigest()[:12]
+
+    @property
+    def models(self) -> str:
+        if self.settings.roles is None:
+            return self.settings.model
+        policy = self.settings.role("policy")
+        generator = self.settings.role("generator")
+        value = self.settings.role("value")
+        return f"π={policy.provider}/{policy.model}, G={generator.provider}/{generator.model}, V={value.provider}/{value.model}"
 
     @property
     def label(self) -> str:
@@ -116,7 +136,7 @@ class SavedRun:
         difficulty = "one-move fixture" if self.settings.easy else "full initial state"
         return (
             f"{self.record.family} · {self.record.provider} · {difficulty} · "
-            f"{self.settings.action_budget} actions · {self.settings.model} · {self.record.split}"
+            f"{self.settings.action_budget} actions · {self.models} · {self.record.split}"
         )
 
 

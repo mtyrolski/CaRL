@@ -71,7 +71,7 @@ def summarize(runs: list[SavedRun], config: EvaluationConfig) -> list[JSONObject
                     "prompt_profile_recorded": first.detail.get(
                         "_prompt_profile_recorded", False
                     ),
-                    "model": first.settings.model,
+                    "model": first.models,
                     "easy": first.settings.easy,
                     "split": first.record.split,
                     "tuning_status": first.record.tuning_status,
@@ -98,7 +98,7 @@ def summarize(runs: list[SavedRun], config: EvaluationConfig) -> list[JSONObject
                     "logical_requests": sum(
                         run.record.logical_requests for run in records
                     ),
-                    "physical_requests": sum(run.record.requests for run in records),
+                    "physical_requests": sum(run.record.physical_request_count for run in records),
                     "logical_input_tokens": sum(
                         run.record.logical_input_tokens for run in records
                     ),
@@ -106,10 +106,10 @@ def summarize(runs: list[SavedRun], config: EvaluationConfig) -> list[JSONObject
                         run.record.logical_output_tokens for run in records
                     ),
                     "physical_input_tokens": sum(
-                        run.record.input_tokens for run in records
+                        run.record.input_tokens for run in records if run.record.provider == "openai"
                     ),
                     "physical_output_tokens": sum(
-                        run.record.output_tokens for run in records
+                        run.record.output_tokens for run in records if run.record.provider == "openai"
                     ),
                 }
             )
