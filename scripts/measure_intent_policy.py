@@ -1,4 +1,4 @@
-"""Measure a frozen policy on checked Sokoban intents with mock or offline replay."""
+"""Measure a frozen policy on checked Sokoban intents with offline backends."""
 
 import argparse
 import json
@@ -14,7 +14,7 @@ from carl.icl.llm_components.predicate import PredicatePolicy
 from carl.icl.luna_intent_rollout import Action, ActionAttempt
 from carl.icl.policy_relative.measurements import MeasurementSettings, measure
 from carl.icl.policy_relative.rollout import PolicyFactory, ReplayIntentPolicy
-from carl.icl.predicate_icl import components_for_predicate_run, load_condition
+from carl.icl.predicate_icl import components_for_predicate_run, load_condition, local_role_models
 
 RIGHT = '{"action":"RIGHT"}'
 
@@ -47,14 +47,15 @@ def _mock_right(_seed: int) -> Callable[[str], str]:
 def _predicate_policy(
     config: ExperimentConfig, args: argparse.Namespace,
 ) -> tuple[dict[str, Any], PolicyFactory, Callable[[dict[str, Any]], None]]:
+    local_roles = local_role_models(config)
     support = load_condition(
         config, args.support_data or args.data, args.support_manifest,
-        policy_data=args.policy_data, policy_audit=args.policy_audit,
+        policy_data=args.policy_data, policy_audit=args.policy_audit, local_roles=local_roles,
     )
-    mode = "mock" if args.mock else "replay"
-    components = components_for_predicate_run(config, support, mode, calibration=True)
+    mode = "local" if args.local is not None else "mock" if args.mock else "replay"
+    components = components_for_predicate_run(config, support, mode, calibration=True, local_roles=local_roles)
     controller = {
-        "id": f"predicate-{mode}-policy-v1", "deterministic": args.mock,
+        "id": f"predicate-{mode}-policy-v1", "deterministic": mode != "replay",
         "predicate_policy": components.contract("policy"),
         "limits": components.api.limits.model_dump(),
         "cache_dir": str(config.path("cache_dir").resolve()),
@@ -64,7 +65,10 @@ def _predicate_policy(
         return components.policy_factory(seed, mock=(lambda _: RIGHT) if args.mock else None)
 
     def check(row: dict[str, Any]) -> None:
-        support.assert_policy_holdout(SokobanObservation(tuple(row["start_observation"])), task_group=task_group_id(row))
+        observation = SokobanObservation(tuple(row["start_observation"]))
+        group = task_group_id(row)
+        support.assert_policy_holdout(observation, task_group=group)
+        components.assert_local_query(observation, split="test", task_group=group, roles=("policy",))
 
     return controller, factory, check
 
@@ -77,9 +81,10 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--mock", action="store_true", help="Use the deterministic RIGHT fixture policy")
     mode.add_argument("--replay", type=Path, metavar="CONFIG", help="Use the policy route and cache from this experiment config")
+    mode.add_argument("--local", type=Path, metavar="CONFIG", help="Use the pinned local policy in this experiment config")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--action-cap", type=int, default=8)
-    parser.add_argument("--trials", type=int, help="Default planned attempts per candidate (mock 1, replay 4)")
+    parser.add_argument("--trials", type=int, help="Default planned attempts per candidate (mock and local 1, replay 4)")
     parser.add_argument("--attempt-plan", type=Path, help="JSON mapping selected record IDs to planned attempt counts")
     parser.add_argument("--quota", type=Path, help="JSON mapping effect types to per-context candidate caps")
     parser.add_argument("--offset-denominator", type=float, default=8.0)
@@ -94,19 +99,21 @@ def main() -> int:
     try:
         settings = MeasurementSettings(
             seed=args.seed, action_cap=args.action_cap,
-            trials=args.trials if args.trials is not None else (1 if args.mock else 4),
+            trials=args.trials if args.trials is not None else (4 if args.replay else 1),
             planned_attempts=_read_mapping(args.attempt_plan), quota=_read_mapping(args.quota),
             offset_denominator=args.offset_denominator,
         )
-        if args.mock and args.cache_dir is not None:
+        if args.replay is None and args.cache_dir is not None:
             raise ValueError("--cache-dir requires --replay")
         if args.predicate_config is not None and not args.mock:
             raise ValueError("--predicate-config is for --mock; pass a predicate config directly to --replay")
-        config_path = args.predicate_config if args.mock else args.replay
+        config_path = args.predicate_config if args.mock else args.replay or args.local
         config = load_config(config_path) if config_path is not None else None
         if config is not None and args.cache_dir is not None:
             config = ExperimentConfig.model_validate({**config.model_dump(), "cache_dir": str(args.cache_dir)})
         typed = config is not None and config.predicate_icl is not None
+        if args.local is not None and not typed:
+            raise ValueError("--local requires a predicate config")
         if typed != (args.support_manifest is not None):
             raise ValueError("a predicate config and --support-manifest are required together")
         if not typed and (args.support_data or args.policy_data or args.policy_audit or args.predicate_config):

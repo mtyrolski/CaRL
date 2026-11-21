@@ -5,13 +5,14 @@ from typing import Literal
 
 from pydantic import Field
 
-from carl.icl.config import ExperimentConfig, PredicateICLSettings, Settings
+from carl.icl.config import ROOT, ExperimentConfig, PredicateICLSettings, Settings
 from carl.icl.experiment import create_inference_api, prepare_credentials
 from carl.icl.intent_domain import SokobanObservation
 from carl.icl.intent_support import FrozenSupport, load_support
 from carl.icl.llm_components.predicate import (
     PREDICATE_GENERATOR_PROMPT, PREDICATE_POLICY_PROMPT, PredicateComponents, create_predicate_components,
 )
+from carl.icl.local_models import LocalRoleModel, bind_local_role
 from carl.icl.policy_relative.labels import contract_hash
 from carl.icl.types import JSONObject
 
@@ -23,15 +24,34 @@ def predicate_settings(config: ExperimentConfig) -> PredicateICLSettings:
     return config.predicate_icl
 
 
-def selection_contract(config: ExperimentConfig) -> JSONObject:
+LocalModels = dict[Literal["policy", "generator"], LocalRoleModel]
+
+
+def local_role_models(config: ExperimentConfig) -> LocalModels:
+    """Bind configured local snapshots from paths relative to the checkout."""
+    overrides = predicate_settings(config).local_roles
+    models: LocalModels = {}
+    if overrides is not None:
+        for role in ("policy", "generator"):
+            settings = getattr(overrides, role)
+            if settings is not None:
+                paths = {"model": str(ROOT / Path(settings.model).expanduser())}
+                if settings.adapter is not None:
+                    paths["adapter"] = str(ROOT / Path(settings.adapter).expanduser())
+                models[role] = bind_local_role(settings.model_copy(update=paths), role)
+    return models
+
+
+def selection_contract(config: ExperimentConfig, *, local_roles: LocalModels | None = None) -> JSONObject:
     """Bind the validation choice to the actual role prompts and model routes."""
     settings = predicate_settings(config)
+    roles = local_role_models(config) if local_roles is None else local_roles
     return {
         **settings.model_dump(mode="json"),
         "policy_prompt": settings.policy_prompt or PREDICATE_POLICY_PROMPT,
         "generator_prompt": settings.generator_prompt or PREDICATE_GENERATOR_PROMPT,
-        "policy_model": config.role("policy").identity(),
-        "generator_model": config.role("generator").identity(),
+        "policy_model": roles["policy"].identity() if "policy" in roles else config.role("policy").identity(),
+        "generator_model": roles["generator"].identity() if "generator" in roles else config.role("generator").identity(),
         "seed": config.seed,
         "policy_tokens": config.policy_tokens,
         "generator_tokens": config.generator_tokens,
@@ -43,25 +63,33 @@ def selection_contract(config: ExperimentConfig) -> JSONObject:
 
 def load_condition(
     config: ExperimentConfig, data: Path, manifest: Path,
-    *, policy_data: Path | None = None, policy_audit: Path | None = None,
+    *, policy_data: Path | None = None, policy_audit: Path | None = None, local_roles: LocalModels | None = None,
 ) -> FrozenSupport:
     """Read immutable support and check that this is the selected condition."""
     support = load_support(manifest, data, policy_data=policy_data, policy_audit=policy_audit)
-    if support.manifest["selection"] != selection_contract(config):
+    if support.manifest["selection"] != selection_contract(config, local_roles=local_roles):
         raise ValueError("config differs from the frozen prompt, scale or support selection")
     return support
 
 
 def components_for_predicate_run(
     config: ExperimentConfig, support: FrozenSupport, mode: str,
-    *, preview_only: bool = False, calibration: bool = False,
+    *, preview_only: bool = False, calibration: bool = False, local_roles: LocalModels | None = None,
 ) -> PredicateComponents:
-    """Build π and G over one budgeted API and separate role supports."""
+    """Build π and G with separate support and explicit local or API backends."""
     settings = predicate_settings(config)
-    if not preview_only:
+    roles = local_role_models(config) if local_roles is None else local_roles
+    needed = {"policy"} if calibration else {"policy", "generator"}
+    if mode == "local":
+        if not needed <= roles.keys():
+            raise ValueError("local mode requires local weights for each executed role")
+    elif not preview_only:
+        if needed <= roles.keys():
+            raise ValueError("use local mode when each executed role uses local weights")
         prepare_credentials(config, mode)
     api = create_inference_api(
-        config, mode, limits=config.calibration.limits if calibration else config.limits, preview_only=preview_only,
+        config, "mock" if mode == "local" else mode,
+        limits=config.calibration.limits if calibration else config.limits, preview_only=preview_only,
     )
     return create_predicate_components(
         config, api,
@@ -73,6 +101,7 @@ def components_for_predicate_run(
         generator_support_fingerprint=support.generator_fingerprint,
         context_limit=settings.context_limit,
         scale_arm=settings.scale_arm,
+        local_roles=roles,
     )
 
 

@@ -154,6 +154,34 @@ class Limits(Settings):
 PredicateScale = Literal["unscaled", "absolute_d", "ratio_d_over_ac", "offset_rank", "normalized_offset", "relative_u"]
 
 
+class LocalModelSettings(Settings):
+    """A pinned local decoder snapshot and optional role-specific LoRA adapter."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str = Field(min_length=1)
+    revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    adapter: str | None = Field(default=None, min_length=1)
+    device: Literal["cpu", "cuda"] = "cpu"
+    dtype: Literal["float32", "float16", "bfloat16"] = "float32"
+
+
+class LocalRoleSettings(Settings):
+    """Local overrides for the predicate policy and generator."""
+
+    model_config = ConfigDict(frozen=True)
+
+    policy: LocalModelSettings | None = Field(default=None, exclude_if=lambda value: value is None)
+    generator: LocalModelSettings | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def nonempty(self) -> "LocalRoleSettings":
+        """Require at least one role when using the local override block."""
+        if self.policy is None and self.generator is None:
+            raise ValueError("local_roles requires a policy or generator")
+        return self
+
+
 class PredicateICLSettings(Settings):
     """An opt-in prompting condition for the checked Sokoban intent path."""
 
@@ -167,6 +195,7 @@ class PredicateICLSettings(Settings):
     policy_prompt: str | None = Field(default=None, min_length=1)
     generator_prompt: str | None = Field(default=None, min_length=1)
     context_limit: int = Field(default=16000, ge=1, strict=True)
+    local_roles: LocalRoleSettings | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def check_validation_scale(self) -> "PredicateICLSettings":

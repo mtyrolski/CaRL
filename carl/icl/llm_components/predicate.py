@@ -2,9 +2,9 @@
 
 import hashlib
 import json
-import math
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Final, Literal, TypeAlias
 
 from carl.icl.api import BudgetExceeded
@@ -13,12 +13,15 @@ from carl.icl.experiment_api import ExperimentAPI, local_token_encoding
 from carl.icl.intent_domain import (
     DOMAIN_VERSION, Action, Intent, SokobanObservation, decode_intent, render_instruction, validate_intent_proposal,
 )
-from carl.icl.intents.representation.formats import Representation
-from carl.icl.intents.representation.prompts import COMMON, REPRESENTATION_INSTRUCTIONS
 from carl.icl.llm_components.formatting import schema_object
+from carl.icl.local_models import LocalRoleModel
 from carl.icl.luna_action_format import action_text_format
 from carl.icl.luna_intent_rollout import ACTION_PARSER_VERSION, Action as RolloutAction, ActionAttempt, _action
 from carl.icl.policy_relative.labels import contract_hash
+from carl.icl.predicate_prompts import (
+    GENERATOR_PROMPT_VERSION, PREDICATE_GENERATOR_PROMPT as PREDICATE_GENERATOR_PROMPT, SCALE_INSTRUCTIONS,
+    generator_instruction, generator_query,
+)
 from carl.icl.responses import RESPONSE_CONTRACT_VERSION, is_token_count, text_message
 from carl.icl.types import JSONObject
 
@@ -27,7 +30,6 @@ PromptExample: TypeAlias = tuple[JSONObject, JSONObject]
 MockText: TypeAlias = Callable[[], str]
 
 POLICY_PROMPT_VERSION: Final = "sokoban-predicate-policy-v1"
-GENERATOR_PROMPT_VERSION: Final = "sokoban-predicate-generator-v1"
 INTENT_PARSER_VERSION: Final = "sokoban-observable-intent-json-v1"
 
 PREDICATE_POLICY_PROMPT: Final = (
@@ -39,22 +41,6 @@ PREDICATE_POLICY_PROMPT: Final = (
     "attempt_history lists earlier actions, and no_op means the visible observation did not change. "
     'Respond with exactly one JSON object with an action key and one of "UP", "DOWN", "LEFT" or "RIGHT".'
 )
-PREDICATE_GENERATOR_PROMPT: Final = (
-    COMMON + REPRESENTATION_INSTRUCTIONS[Representation.JSON]
-    + " ? is an unseen cell. Each effect must be visibly false and each preservation condition visibly true now. "
-    "Use the task goal to choose progress."
-)
-
-SCALE_INSTRUCTIONS: Final = {
-    "unscaled": "The scale is null. Propose useful progress without a length target.",
-    "absolute_d": "Scale is the mean primitive-action count of successful controller attempts.",
-    "ratio_d_over_ac": "Scale is the mean successful controller action count divided by the context median.",
-    "offset_rank": "Scale ranks demonstration action offsets on a zero-to-one scale.",
-    "normalized_offset": "Scale is a demonstration action offset divided by a fixed denominator.",
-    "relative_u": "Scale is the controller-relative percentile of successful action counts, weighted by success rate.",
-}
-
-
 def _json(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
@@ -79,7 +65,8 @@ def _intent_text_format() -> JSONObject:
 @dataclass(frozen=True)
 class _Role:
     name: PredicateRole
-    model: ModelSettings
+    model: ModelSettings | None
+    local: LocalRoleModel | None
     prompt: str
     examples: tuple[tuple[str, str], ...]
     output_tokens: int
@@ -95,11 +82,12 @@ def _role(
     support_fingerprint: str | None,
     context_limit: int,
     scale_arm: str | None = None,
+    local: LocalRoleModel | None = None,
 ) -> _Role:
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError(f"{name} prompt must be nonempty")
     if scale_arm is not None:
-        prompt = f"{prompt}\n{SCALE_INSTRUCTIONS[scale_arm]}"
+        prompt = generator_instruction(scale_arm, prompt)
     query_fields = {"observation", "instruction", "attempt_history"} if name == "policy" else {
         "observation", "task_goal", "scale",
     }
@@ -107,7 +95,17 @@ def _role(
     if any(set(question) != query_fields or set(answer) != answer_fields for question, answer in examples):
         raise ValueError(f"Unexpected fields in {name} support example")
     frozen = tuple((_json(question), _json(answer)) for question, answer in examples)
-    model = config.role(name)
+    prompt_sha256 = hashlib.sha256(prompt.encode()).hexdigest()
+    if local is None:
+        model = config.role(name)
+        model_identity = model.identity()
+    else:
+        model = None
+        if local.role != name:
+            raise ValueError(f"Local model was bound for {local.role}, expected {name}")
+        local.assert_prompt(prompt_sha256)
+        model_identity = local.identity()
+
     output_tokens = config.policy_tokens if name == "policy" else config.generator_tokens
     examples_sha256 = contract_hash(frozen)
     contract = {
@@ -116,11 +114,11 @@ def _role(
         "response_contract_version": RESPONSE_CONTRACT_VERSION,
         "prompt_version": POLICY_PROMPT_VERSION if name == "policy" else GENERATOR_PROMPT_VERSION,
         "parser_version": ACTION_PARSER_VERSION if name == "policy" else INTENT_PARSER_VERSION,
-        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "prompt_sha256": prompt_sha256,
         "examples_sha256": examples_sha256,
         "support_fingerprint": support_fingerprint or examples_sha256,
         "shots": len(frozen),
-        "model": model.identity(),
+        "model": model_identity,
         "output_tokens": output_tokens,
         "context_limit": context_limit,
     }
@@ -128,7 +126,7 @@ def _role(
         contract["scale_arm"] = scale_arm
         contract["json_max_retries"] = config.json_max_retries
     contract["fingerprint"] = contract_hash(contract)
-    return _Role(name, model, prompt, frozen, output_tokens, contract)
+    return _Role(name, model, local, prompt, frozen, output_tokens, contract)
 
 
 def _request(role: _Role, query: JSONObject, attempt_seed: int | None = None) -> JSONObject:
@@ -142,22 +140,22 @@ def _request(role: _Role, query: JSONObject, attempt_seed: int | None = None) ->
         if not is_token_count(attempt_seed):
             raise ValueError("Attempt seed must be a nonnegative integer")
         metadata["attempt_seed"] = str(attempt_seed)
-    text = {"format": {"type": model.response_format}}
-    if model.response_format == "json_schema":
+    text = {"format": {"type": model.response_format if model is not None else "text"}}
+    if model is not None and model.response_format == "json_schema":
         text = action_text_format() if role.name == "policy" else _intent_text_format()
     payload = {
-        "model": model.model,
+        "model": model.model if model is not None else "local",
         "input": messages,
         "metadata": metadata,
         "max_output_tokens": role.output_tokens,
         "text": text,
-        "stream": model.capabilities.streaming,
+        "stream": model.capabilities.streaming if model is not None else False,
         "store": False,
         "tools": [],
     }
-    if model.capabilities.reasoning:
+    if model is not None and model.capabilities.reasoning:
         payload["reasoning"] = {"effort": model.reasoning_effort}
-    if model.temperature is not None:
+    if model is not None and model.temperature is not None:
         payload["temperature"] = model.temperature
     return payload
 
@@ -171,25 +169,62 @@ class PredicateComponents:
     _generator: _Role
     context_limit: int
     scale_arm: str
+    _local_metrics: dict[str, int] = field(default_factory=lambda: {
+        "local_requests": 0, "local_policy_calls": 0, "local_generator_calls": 0,
+        "local_input_tokens": 0, "local_output_tokens": 0,
+    })
+    _local_started: float = field(default_factory=time.monotonic)
+
+    @property
+    def metrics(self) -> dict[str, int | float]:
+        """Report local compute separately from logical and physical API requests."""
+        local = self._local_metrics if self._policy.local is not None or self._generator.local is not None else {}
+        return {**self.api.metrics, **local}
+
+    def is_local(self, role: PredicateRole) -> bool:
+        """Report whether a role uses local weights."""
+        return self._role(role).local is not None
+
+    def _role(self, role: PredicateRole) -> _Role:
+        if role == "policy":
+            return self._policy
+        if role == "generator":
+            return self._generator
+        raise ValueError(f"Unknown predicate component role: {role}")
 
     def contract(self, role: PredicateRole) -> JSONObject:
         """Return the role identity for experiment records and calibration."""
-        if role not in ("policy", "generator"):
-            raise ValueError(f"Unknown predicate component role: {role}")
-        return json.loads(_json((self._policy if role == "policy" else self._generator).contract))
+        return json.loads(_json(self._role(role).contract))
+
+    def assert_local_query(
+        self, observation: SokobanObservation, *, split: Literal["validation", "test"], task_group: str | None,
+        roles: Sequence[PredicateRole] = ("policy", "generator"),
+    ) -> None:
+        """Check a query against the local checkpoint's training and validation splits."""
+        for name in roles:
+            local = self._role(name).local
+            if local is not None:
+                local.assert_query(observation, split=split, task_group=task_group)
 
     def budget_counts(self, payload: JSONObject) -> dict[str, int]:
         """Estimate the complete canonical request and reserve its output capacity."""
-        encoding = self.api.encoding if self.api.encoding is not None else local_token_encoding()
+        local = self._role(payload["metadata"]["component"]).local
+        if local is None:
+            encoding = self.api.encoding if self.api.encoding is not None else local_token_encoding()
+            input_tokens = len(encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=()))
+            context_limit = self.context_limit
+        else:
+            input_tokens = local.input_tokens(payload["input"])
+            context_limit = local.context_limit(self.context_limit)
         return {
-            "input_tokens": len(encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=())),
+            "input_tokens": input_tokens,
             "output_tokens": payload["max_output_tokens"],
-            "context_limit": self.context_limit,
+            "context_limit": context_limit,
         }
 
     def _checked(self, payload: JSONObject) -> JSONObject:
         counts = self.budget_counts(payload)
-        if counts["input_tokens"] + counts["output_tokens"] > self.context_limit:
+        if counts["input_tokens"] + counts["output_tokens"] > counts["context_limit"]:
             raise BudgetExceeded(f"Predicate {payload['metadata']['component']} context window exceeded")
         return payload
 
@@ -215,21 +250,13 @@ class PredicateComponents:
 
     def generator_payload(self, observation: SokobanObservation, task_goal: str, scale: float | None) -> JSONObject:
         """Build G(x, g, u) from the current observation, task and requested scale."""
-        if not isinstance(task_goal, str) or not task_goal.strip():
-            raise ValueError("Task goal must be nonempty")
-        if self.scale_arm == "unscaled":
-            if scale is not None:
-                raise ValueError("Unscaled generation requires a null scale")
-        else:
-            if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(scale) or scale <= 0:
-                raise ValueError(f"Invalid requested scale for {self.scale_arm}")
-            if self.scale_arm in ("relative_u", "offset_rank") and scale >= 1:
-                raise ValueError(f"Requested {self.scale_arm} must be strictly between zero and one")
-        return self._checked(_request(self._generator, {
-            "observation": list(observation.rows), "task_goal": task_goal, "scale": scale,
-        }))
+        query = generator_query(observation.rows, task_goal, scale, self.scale_arm)
+        return self._checked(_request(self._generator, query))
 
     def _call(self, payload: JSONObject, role: _Role, mock: MockText | None = None, *, retry: bool = False) -> str:
+        if role.local is not None:
+            return self._call_local(payload, role, mock)
+
         def mock_response() -> JSONObject:
             assert mock is not None
             return {"output_text": mock(), "model": "mock_predicate_components", "usage": {}}
@@ -237,6 +264,36 @@ class PredicateComponents:
         call = self.api.call_json_retry if retry else self.api.call
         result = call("responses", payload, mock=mock_response if mock is not None else None, transport=role.model)
         return result["output_text"]
+
+    def _call_local(self, payload: JSONObject, role: _Role, mock: MockText | None) -> str:
+        if self.api.preview_only:
+            raise ValueError("A preview client cannot perform local inference")
+        if mock is not None:
+            raise ValueError(f"Mock text cannot replace the local {role.name} model")
+        local = role.local
+        assert local is not None
+        metrics, limits = self._local_metrics, self.api.limits
+        if time.monotonic() - self._local_started >= limits.wall_seconds:
+            raise BudgetExceeded("Local inference wall-time budget exhausted")
+        if metrics["local_requests"] >= limits.max_requests:
+            raise BudgetExceeded("Local inference request budget exhausted")
+        input_count = local.input_tokens(payload["input"])
+        if input_count > limits.max_input_tokens or metrics["local_input_tokens"] + input_count > limits.max_total_input_tokens:
+            raise BudgetExceeded("Local inference input token budget exhausted")
+        if metrics["local_output_tokens"] + role.output_tokens > limits.max_output_tokens:
+            raise BudgetExceeded("Insufficient remaining local output tokens for a full request")
+        metrics["local_requests"] += 1
+        metrics[f"local_{role.name}_calls"] += 1
+        metrics["local_input_tokens"] += input_count
+        try:
+            output, _, output_count = local.complete(
+                payload["input"], output_tokens=role.output_tokens, context_limit=self.context_limit,
+            )
+        except Exception:
+            metrics["local_output_tokens"] += role.output_tokens
+            raise
+        metrics["local_output_tokens"] += output_count
+        return output
 
     def action(
         self, observation: SokobanObservation, intent: Intent, memory: Sequence[ActionAttempt] = (),
@@ -281,7 +338,7 @@ class PredicatePolicy:
     @property
     def metrics(self) -> dict[str, int | float]:
         """Expose the stage 02 counters for each trial's usage delta."""
-        return self.components.api.metrics
+        return self.components.metrics
 
     def render_action(
         self, observation: SokobanObservation, intent: Intent, memory: Sequence[ActionAttempt],
@@ -311,18 +368,23 @@ def create_predicate_components(
     policy_support_fingerprint: str | None = None,
     generator_support_fingerprint: str | None = None,
     scale_arm: str = "relative_u",
+    local_roles: Mapping[PredicateRole, LocalRoleModel] | None = None,
 ) -> PredicateComponents:
     """Instantiate two configured roles with copied, immutable rendered support."""
     if not is_token_count(context_limit) or context_limit == 0:
         raise ValueError("Context limit must be a positive integer")
     if scale_arm not in SCALE_INSTRUCTIONS:
         raise ValueError(f"Unknown predicate scale arm: {scale_arm}")
+    local = local_roles or {}
+    if any(role not in ("policy", "generator") for role in local):
+        raise ValueError("Only the predicate policy and generator support local weights")
     policy = _role(
         config, "policy", policy_prompt, policy_examples,
-        support_fingerprint=policy_support_fingerprint, context_limit=context_limit,
+        support_fingerprint=policy_support_fingerprint, context_limit=context_limit, local=local.get("policy"),
     )
     generator = _role(
         config, "generator", generator_prompt, generator_examples,
         support_fingerprint=generator_support_fingerprint, context_limit=context_limit, scale_arm=scale_arm,
+        local=local.get("generator"),
     )
     return PredicateComponents(api, policy, generator, context_limit, scale_arm)

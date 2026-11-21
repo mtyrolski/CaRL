@@ -3,7 +3,7 @@
 Input JSONL records contain record_id, start_observation, task_goal and intent.
 For generator comparisons, ``intent`` must be that generator's recorded output,
 not the trajectory annotation. No demonstration endpoint or action is passed
-to the policy. This module never trains or loads an adapter.
+to the policy. A verified policy adapter can be supplied for frozen inference.
 """
 
 import argparse
@@ -18,10 +18,15 @@ from pathlib import Path
 from typing import Any
 
 from carl.icl.boards import from_rows
+from carl.icl.config import LocalModelSettings
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.intent_annotations import DA_VERSION
+from carl.icl.intent_domain import SokobanObservation
+from carl.icl.intent_support import task_group_id
+from carl.icl.local_models import LocalRoleModel, bind_local_role
 from carl.icl.luna_intent_rollout import POLICY_PROMPT
 from carl.icl.luna_intent_rollout import rollout
+from carl.icl.types import JSONObject
 
 
 @dataclass(frozen=True)
@@ -44,9 +49,9 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def config_hash(config: PolicyConfig) -> str:
+def config_hash(config: PolicyConfig, *, adapter_identity: JSONObject | None = None) -> str:
     payload = {**asdict(config), "prompt_sha256": hashlib.sha256(POLICY_PROMPT.encode()).hexdigest(),
-               "sampling": "greedy", "adapter": None}
+               "sampling": "greedy", "adapter": adapter_identity}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -95,6 +100,14 @@ def run_record(
             "result": asdict(result)}
 
 
+def _check_adapter_queries(model: LocalRoleModel, records: list[JSONObject]) -> None:
+    for record in records:
+        split = record.get("split")
+        if split in ("validation", "test"):
+            model.assert_query(SokobanObservation(tuple(record["start_observation"])), split=split,
+                               task_group=task_group_id(record))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--records", required=True, type=Path, help="Preselected JSONL with explicit intents")
@@ -102,6 +115,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path, help="New output directory")
     parser.add_argument("--model", required=True, type=Path, help="Complete local model snapshot")
     parser.add_argument("--revision", required=True, help="Immutable source revision of local snapshot")
+    parser.add_argument("--adapter", type=Path, help="Frozen, verified policy adapter checkpoint")
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--max-context-tokens", type=int, default=2048)
@@ -109,10 +123,18 @@ def main() -> None:
     args = parser.parse_args()
     config = PolicyConfig(str(args.model.resolve()), args.revision, args.device, args.max_new_tokens,
                           args.max_context_tokens, args.action_cap)
-    if not args.model.is_dir() or not (args.model / "model.safetensors").is_file():
-        raise ValueError("A complete single-file local safetensors snapshot is required")
-    if args.model.resolve().name != args.revision:
-        raise ValueError("Model path must be the snapshot directory for the requested revision")
+    if min(config.max_new_tokens, config.max_context_tokens, config.action_cap) < 1:
+        raise ValueError("Token limits and action cap must be positive")
+    local = None
+    if args.adapter is not None:
+        settings = LocalModelSettings(model=config.model, revision=args.revision, adapter=str(args.adapter),
+                                      device=args.device, dtype="float16" if args.device == "cuda" else "float32")
+        local = bind_local_role(settings, "policy", prompt_sha256=hashlib.sha256(POLICY_PROMPT.encode()).hexdigest())
+    else:
+        if not args.model.is_dir() or not (args.model / "model.safetensors").is_file():
+            raise ValueError("A complete single-file local safetensors snapshot is required")
+        if args.model.resolve().name != args.revision:
+            raise ValueError("Model path must be the snapshot directory for the requested revision")
     if args.output.exists():
         raise FileExistsError("Use a new output directory for a frozen run")
     records = [json.loads(line) for line in args.records.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -123,26 +145,33 @@ def main() -> None:
         if len(set(args.record_id)) != len(args.record_id) or any(key not in by_id for key in args.record_id):
             raise ValueError("Requested record IDs must be distinct and present")
         records = [by_id[key] for key in args.record_id]
+    if local is not None:
+        _check_adapter_queries(local, records)
     args.output.mkdir(parents=True)
-    manifest = {"schema_version": 1, "config": asdict(config), "config_sha256": config_hash(config),
+    identity = local.identity() if local is not None else None
+    manifest = {"schema_version": 1, "config": asdict(config), "config_sha256": config_hash(config, adapter_identity=identity),
                 "policy_prompt": POLICY_PROMPT, "records_sha256": sha256_file(args.records),
-                "model_weights_sha256": sha256_file(args.model / "model.safetensors"),
-                "tokenizer_sha256": sha256_file(args.model / "tokenizer.json"),
                 "command": sys.argv, "records": [row["record_id"] for row in records],
                 "status": "prepared", "api_calls": 0,
                 "error_interpretation": "api_error from rollout means local inference failure here"}
+    if identity is None:
+        manifest.update(model_weights_sha256=sha256_file(args.model / "model.safetensors"),
+                        tokenizer_sha256=sha256_file(args.model / "tokenizer.json"))
+    else:
+        manifest["local_role"] = identity
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    import torch
-    from transformers import AutoModelForCausalLM
-    from transformers import AutoTokenizer
 
-    if args.device == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA unavailable; no silent CPU fallback")
-    tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)
-    dtype = torch.float16 if args.device == "cuda" else torch.float32
-    model: Any = AutoModelForCausalLM.from_pretrained(args.model, local_files_only=True, torch_dtype=dtype)
-    model = model.to(args.device)
-    decide = LocalIntentPolicy(tokenizer, model, torch, config)
+    def decide(prompt: str) -> str:
+        if local is None:
+            assert base_policy is not None
+            return base_policy(prompt)
+        output, _, _ = local.complete_chat(
+            [{"role": "user", "content": prompt}], output_tokens=config.max_new_tokens,
+            context_limit=config.max_context_tokens,
+        )
+        return output
+
+    base_policy = _load_base_policy(config) if local is None else None
     with (args.output / "results.jsonl").open("x", encoding="utf-8") as output:
         for record in records:
             output.write(json.dumps(run_record(record, decide, config.action_cap)) + "\n")
@@ -152,6 +181,19 @@ def main() -> None:
     temporary = args.output / ".manifest.tmp"
     temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, args.output / "manifest.json")
+
+
+def _load_base_policy(config: PolicyConfig) -> LocalIntentPolicy:
+    import torch
+    from transformers import AutoModelForCausalLM
+    from transformers import AutoTokenizer
+
+    if config.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA unavailable; no silent CPU fallback")
+    tokenizer = AutoTokenizer.from_pretrained(config.model, local_files_only=True)
+    dtype = torch.float16 if config.device == "cuda" else torch.float32
+    model: Any = AutoModelForCausalLM.from_pretrained(config.model, local_files_only=True, torch_dtype=dtype)
+    return LocalIntentPolicy(tokenizer, model.to(config.device), torch, config)
 
 
 if __name__ == "__main__":

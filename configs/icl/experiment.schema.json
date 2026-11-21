@@ -417,12 +417,107 @@
           "minimum": 1,
           "title": "Context Limit",
           "type": "integer"
+        },
+        "local_roles": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalRoleSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
         "validation_id"
       ],
       "title": "PredicateICLSettings",
+      "type": "object"
+    },
+    "LocalModelSettings": {
+      "additionalProperties": false,
+      "description": "A pinned local decoder snapshot and optional role-specific LoRA adapter.",
+      "properties": {
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "adapter": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adapter"
+        },
+        "device": {
+          "default": "cpu",
+          "enum": [
+            "cpu",
+            "cuda"
+          ],
+          "title": "Device",
+          "type": "string"
+        },
+        "dtype": {
+          "default": "float32",
+          "enum": [
+            "float32",
+            "float16",
+            "bfloat16"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "revision"
+      ],
+      "title": "LocalModelSettings",
+      "type": "object"
+    },
+    "LocalRoleSettings": {
+      "additionalProperties": false,
+      "description": "Local overrides for the predicate policy and generator.",
+      "properties": {
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalModelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "generator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalModelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "LocalRoleSettings",
       "type": "object"
     }
   },

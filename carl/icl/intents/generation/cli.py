@@ -1,6 +1,7 @@
 """Command-line interface for local intent generation."""
 
 import argparse
+import math
 from collections.abc import Callable
 
 from carl.icl.intents.generation.data import DEFAULT_MODEL
@@ -14,6 +15,7 @@ def run_cli(
     train: Callable[[argparse.Namespace], None],
     evaluate: Callable[[argparse.Namespace], None],
     *,
+    inspect: Callable[[argparse.Namespace], None] | None = None,
     description: str | None = None,
 ) -> None:
     parser = argparse.ArgumentParser(description=description)
@@ -27,9 +29,12 @@ def run_cli(
     parser.add_argument(
         "--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16"
     )
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--seed", type=int, default=1729)
     parser.add_argument("--rank", type=int, default=4)
+    parser.add_argument("--lora-target", dest="lora_targets", action="append",
+                        help="PEFT target module suffix; repeat to override q_proj and v_proj")
     parser.add_argument("--accumulation", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--max-length", type=int, default=1024)
@@ -62,23 +67,22 @@ def run_cli(
         help="resume an interrupted evaluation after validating its configuration",
     )
     args = parser.parse_args()
-    if args.revision is None:
+    if args.mode != RunMode.INSPECT and args.revision is None:
         if args.model != DEFAULT_MODEL:
             parser.error(
                 "--revision is required for a non-default model or local model directory"
             )
         args.revision = DEFAULT_REVISION
-    if (
-        args.accumulation < 1
-        or args.max_length < 1
-        or args.eval_every < 1
-        or args.validation_contexts_per_board < 1
-    ):
-        parser.error(
-            "accumulation, max-length, eval-every and validation-contexts-per-board must be positive"
-        )
+    if min(args.accumulation, args.max_length, args.max_new_tokens, args.eval_every, args.rank,
+           args.threads, args.max_steps, args.validation_contexts_per_board) < 1:
+        parser.error("accumulation, token limits, steps, rank, thread and context counts must be positive")
+    if not math.isfinite(args.lr) or args.lr <= 0:
+        parser.error("learning rate must be finite and positive")
     if args.pad_to_length < 0 or args.pad_to_length > args.max_length:
         parser.error("pad-to-length must be between zero and max-length")
-    {RunMode.BENCHMARK: benchmark, RunMode.TRAIN: train, RunMode.EVALUATE: evaluate}[
-        args.mode
-    ](args)
+    if args.mode == RunMode.INSPECT:
+        if inspect is None:
+            parser.error("inspect is unavailable for this command")
+        inspect(args)
+    else:
+        {RunMode.BENCHMARK: benchmark, RunMode.TRAIN: train, RunMode.EVALUATE: evaluate}[args.mode](args)

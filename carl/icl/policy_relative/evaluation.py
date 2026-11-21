@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from carl.icl.intent_data import validate_prediction
+from carl.icl.intent_domain import SokobanObservation, decode_intent, validate_intent_proposal
 from carl.icl.intent_generator_experiment import DataSplit
 from carl.icl.intent_generator_experiment import atomic_json
 from carl.icl.intent_generator_experiment import file_sha256
@@ -16,13 +17,19 @@ from carl.icl.intent_generator_experiment import generate
 from carl.icl.intent_generator_experiment import initialise
 from carl.icl.intent_generator_experiment import read_records
 from carl.icl.intent_representation_training import expired
+from carl.icl.intents.generation.checkpoint import (
+    has_adapter_contract, predicate_prompt_contract, verify_adapter_artifact, verify_held_out_records,
+    verify_validation_selection,
+)
+from carl.icl.intents.generation.data import predicate_record
 from carl.icl.intents.representation.normalization import remove_one_outer_fence
 from carl.icl.policy_relative.checks import _identity
 from carl.icl.policy_relative.configuration import _model_revision
-from carl.icl.policy_relative.prompts import generator_messages
+from carl.icl.policy_relative.prompts import generator_messages, prompt_scale_arm
 from carl.icl.policy_relative.provenance import code_provenance
 from carl.icl.policy_relative.types import Arm
 from carl.icl.policy_relative.types import PredictionStatus
+from carl.icl.policy_relative.types import SCALED_ARMS, VERSIONED_SCALE_ARMS
 
 
 def _strict_json(raw: str) -> Any:
@@ -41,7 +48,7 @@ def _strict_json(raw: str) -> Any:
 
 
 def assess_output(
-    raw: str, board: list[str], *, normalize: bool = False
+    raw: str, board: list[str], *, normalize: bool = False, predicate: bool = False,
 ) -> dict[str, Any]:
     """Parse complete JSON, optionally removing one enclosing Markdown fence."""
     try:
@@ -62,7 +69,13 @@ def assess_output(
             "parsed": None,
             "validation_errors": [str(error)],
         }
-    errors = validate_prediction(intent, board)
+    if predicate:
+        try:
+            errors = list(validate_intent_proposal(decode_intent(intent), SokobanObservation(tuple(board))))
+        except ValueError as error:
+            errors = [str(error)]
+    else:
+        errors = validate_prediction(intent, board)
     return {
         "status": PredictionStatus.INVALID_INTENT if errors else PredictionStatus.VALID,
         "json_valid": True,
@@ -133,14 +146,15 @@ def verify_adapter(
 def evaluate(args: argparse.Namespace) -> None:
     rows = test_contexts(args.data)
     arm = Arm(args.arm)
-    is_scaled = arm in (Arm.SCALED, Arm.RELATIVE, Arm.ABSOLUTE)
+    is_scaled = arm in SCALED_ARMS
     requested = args.requested_scale if is_scaled else None
     if not is_scaled and args.requested_scale is not None:
         raise ValueError("unscaled evaluation must not receive --requested-scale")
     if is_scaled and requested is None:
         raise ValueError("scaled evaluation requires --requested-scale")
-    messages = [generator_messages(row, arm, requested) for row in rows]
-    _model_revision(Path(args.model), args.revision)
+    model_path = Path(args.model)
+    _model_revision(model_path, args.revision)
+    manifest = None
     if arm == Arm.BASE:
         if args.adapter is not None:
             raise ValueError("the base arm must not load an adapter")
@@ -155,18 +169,31 @@ def evaluate(args: argparse.Namespace) -> None:
         for name in ("adapter_model.safetensors", "adapter_config.json"):
             if not (adapter / name).is_file():
                 raise ValueError(f"adapter is missing {name}")
-        training = verify_adapter(adapter, Path(args.model), args.revision, arm, rows)
+        if has_adapter_contract(adapter) or arm in VERSIONED_SCALE_ARMS or any(predicate_record(row) for row in rows):
+            manifest = verify_adapter_artifact(adapter, base=model_path, revision=args.revision, role="generator")
+            verify_validation_selection(adapter, manifest)
+            verify_held_out_records(rows, manifest)
+            training = manifest["training"]
+            if training.get("arm") != arm or manifest["prompt"] != predicate_prompt_contract(prompt_scale_arm(arm)):
+                raise ValueError("adapter arm or prompt differs from the pinned checkpoint")
+        else:
+            training = verify_adapter(adapter, model_path, args.revision, arm, rows)
+    predicate = manifest is not None or any(predicate_record(row) for row in rows)
+    messages = [generator_messages(row, arm, requested, predicate=predicate) for row in rows]
     output = Path(args.output)
     meta_path = output.with_suffix(".run.json")
     if output.exists() or meta_path.exists():
         raise FileExistsError("use a fresh evaluation output")
     output.parent.mkdir(parents=True, exist_ok=True)
     code_sha256, code_files_sha256 = code_provenance()
+    weights = model_path / "model.safetensors"
+    if not weights.is_file():
+        weights = model_path / "model.safetensors.index.json"
     configuration = {
         "data_sha256": file_sha256(args.data),
         "model": str(Path(args.model).resolve()),
         "revision": args.revision,
-        "model_weights_sha256": file_sha256(Path(args.model) / "model.safetensors"),
+        "model_weights_sha256": file_sha256(weights),
         "model_config_sha256": file_sha256(Path(args.model) / "config.json"),
         "tokenizer_sha256": file_sha256(Path(args.model) / "tokenizer.json"),
         "adapter": str(adapter.resolve()) if adapter is not None else None,
@@ -176,6 +203,7 @@ def evaluate(args: argparse.Namespace) -> None:
         "adapter_config_sha256": file_sha256(adapter / "adapter_config.json")
         if adapter
         else None,
+        "adapter_fingerprint": manifest["fingerprint"] if manifest else None,
         "code_sha256": code_sha256,
         "code_files_sha256": code_files_sha256,
         "arm": arm,
@@ -193,6 +221,7 @@ def evaluate(args: argparse.Namespace) -> None:
         else None,
         "record_ids": [row["record_id"] for row in rows],
         "dtype": args.dtype,
+        "device": getattr(args, "device", "auto"),
         "seed": args.seed,
         "max_length": args.max_length,
         "max_new_tokens": args.max_new_tokens,
@@ -270,6 +299,7 @@ def evaluate(args: argparse.Namespace) -> None:
                             raw,
                             record["start_observation"],
                             normalize=arm not in (Arm.UNSCALED, Arm.SCALED),
+                            predicate=predicate,
                         ),
                     )
                 except Exception as error:

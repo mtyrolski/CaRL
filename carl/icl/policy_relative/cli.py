@@ -66,11 +66,16 @@ def main() -> None:
         "--dtype", choices=("float32", "float16", "bfloat16"), default="bfloat16"
     )
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--seed", type=int, default=1729)
-    parser.add_argument("--rank", type=int, choices=(2, 4), default=4)
+    parser.add_argument("--rank", type=int, default=4)
+    parser.add_argument("--lora-target", dest="lora_targets", action="append",
+                        help="PEFT target module suffix; repeat to override q_proj and v_proj")
     parser.add_argument("--accumulation", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--max-length", type=int, default=512)
+    parser.add_argument("--pad-to-length", type=int, default=0,
+                        help="equalize the model token budget while masking padding")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--max-steps", type=int, default=100)
@@ -84,6 +89,7 @@ def main() -> None:
     if (
         min(
             args.threads,
+            args.rank,
             args.accumulation,
             args.max_length,
             args.max_new_tokens,
@@ -97,6 +103,10 @@ def main() -> None:
         parser.error("steps, lengths, threads and accumulation must be positive")
     if not math.isfinite(args.lr) or args.lr <= 0:
         parser.error("learning rate must be finite and positive")
+    if not 0 <= args.pad_to_length <= args.max_length:
+        parser.error("pad-to-length must be between zero and max-length")
+    if args.require_cuda and args.device == "cpu":
+        parser.error("--require-cuda conflicts with --device cpu")
     if args.mode == Mode.RESOURCE_CHECK and args.arm is not None:
         parser.error(
             "resource-check uses diagnostic scale 0.5 and does not accept --arm"

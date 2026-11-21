@@ -15,6 +15,7 @@ from carl.icl.intents.generation.data import same_prompt_layout
 from carl.icl.intents.representation.formats import Representation
 from carl.icl.intents.representation.formats import _canonical
 from carl.icl.intents.representation.formats import render_representation
+from carl.icl.predicate_prompts import COMMON, JSON_INSTRUCTION
 
 
 class SupportSet(StrEnum):
@@ -25,23 +26,8 @@ class SupportSet(StrEnum):
     BALANCED2 = "balanced2"
 
 
-COMMON = (
-    "You propose one achievable, non-trivial Sokoban intent using only the current board. "
-    "Rows and columns are zero-based. # is wall, - is floor, . is goal, $ is box, "
-    "* is box on goal, @ is player and + is player on goal. "
-    "An intent has required effects and preservation conditions. All effects must hold "
-    "together and each must be false on the current board. Every preservation condition "
-    "must be true now and remain true. Boxes are indistinguishable. "
-    "The only predicates are box at (row,column), player at (row,column), "
-    "and at least a given number of boxes on goals. Return one intent, with no other text. "
-)
-
 REPRESENTATION_INSTRUCTIONS = {
-    Representation.JSON: 'Return exactly a JSON object with keys "effects", "preserve", "instruction". '
-    "Both effects and preserve are arrays; effects is nonempty. instruction must be null. "
-    'Predicates are {"predicate":"box_at","row":R,"col":C}, '
-    '{"predicate":"player_at","row":R,"col":C}, or '
-    '{"predicate":"boxes_on_goals_at_least","count":N}.',
+    Representation.JSON: JSON_INSTRUCTION,
     Representation.FORMAL: "Return exactly E[effects] P[preserve]. Separate predicates in each list with semicolons; "
     "the preserve list may be empty. Write predicates only as box(R,C), player(R,C), or goals(N). "
     "For example E[box(2,3);goals(2)] P[] requires both effects and preserves nothing.",

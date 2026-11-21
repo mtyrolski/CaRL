@@ -1,0 +1,65 @@
+algorithm:
+  _target_: carl.algorithms.train_supervised.TrainSupervisedHF
+  custom_logger: null
+  datamodule:
+    _target_: carl.dataloader.game_data_module.GameDataModule
+    env:
+      _target_: carl.environment.sokoban.env.SokobanEnv
+      tokenizer:
+        _target_: carl.environment.sokoban.tokenizer.SokobanTokenizer
+        size_of_board: [12, 12]
+      num_boxes: 4
+    dataset_path: ${hydra:runtime.cwd}/rl-data/validation/sokoban/offline/12-12-4/sokoban_12_12_4_trajectories_part_1.pkl
+    save_tokenized_dataset_path: tokenized
+    training_goal: cllp
+    subgoal_distance_interval: [1]
+    num_of_trajectories: 8
+    trajectory_length: 8
+    validation_split: 0.25
+    num_workers: 1
+  custom_metrics:
+    _target_: carl.utils.training_metrics.ConditionalLowLevelPolicyMetricsHF
+  trainer:
+    _partial_: true
+    _target_: transformers.Trainer
+    args:
+      _target_: transformers.TrainingArguments
+      output_dir: checkpoints
+      use_cpu: true
+      max_steps: 1
+      seed: 73
+      per_device_train_batch_size: 2
+      per_device_eval_batch_size: 4
+      learning_rate: 0.001
+      logging_steps: 1
+      eval_strategy: steps
+      eval_steps: 1
+      save_strategy: steps
+      save_steps: 1
+      save_total_limit: 1
+      load_best_model_at_end: false
+      save_safetensors: true
+      report_to: none
+  model:
+    _partial_: true
+    _target_: transformers.BertForSequenceClassification
+  config:
+    _target_: transformers.BertConfig
+    vocab_size: 22
+    hidden_size: 32
+    intermediate_size: 64
+    num_hidden_layers: 1
+    num_attention_heads: 4
+    max_position_embeddings: 512
+    pad_token_id: 1
+    num_labels: 4
+  do_finetune: false
+  path_to_model_weights: null
+
+carl_grid: [{}]
+
+hydra:
+  run:
+    dir: analysis/icl/full_state/bert
+  job:
+    chdir: true

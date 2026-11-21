@@ -13,24 +13,32 @@ from carl.icl.intent_generator_experiment import atomic_json
 from carl.icl.intent_generator_experiment import generate
 from carl.icl.intent_generator_experiment import initialise
 from carl.icl.intent_generator_experiment import memory
+from carl.icl.intent_generator_experiment import parse_json
 from carl.icl.intent_generator_experiment import sync_gpu
 from carl.icl.intent_generator_experiment import tensor_example
 from carl.icl.intent_representation_training import completion_status
 from carl.icl.intent_representation_training import expired
 from carl.icl.intent_representation_training import save_adapter
+from carl.icl.intents.generation.checkpoint import ADAPTER_MANIFEST, publish_adapter
 from carl.icl.policy_relative.configuration import _configuration
 from carl.icl.policy_relative.configuration import _model_revision
 from carl.icl.policy_relative.configuration import require_scale_information
 from carl.icl.policy_relative.data import load_study_data
-from carl.icl.policy_relative.prompts import balanced_samples
 from carl.icl.policy_relative.prompts import candidate_scale
 from carl.icl.policy_relative.prompts import encode_example
 from carl.icl.policy_relative.prompts import generator_messages
-from carl.icl.policy_relative.prompts import study_samples
+from carl.icl.policy_relative.prompts import loss_samples
 from carl.icl.policy_relative.prompts import training_prompts
+from carl.icl.policy_relative.prompts import weighted_study_samples
 from carl.icl.policy_relative.types import Arm
 from carl.icl.policy_relative.types import Candidate
 from carl.icl.policy_relative.types import Context
+
+
+def _tensors(torch: Any, tokenizer: Any, encoded: dict[str, list[int]], args: argparse.Namespace, device: str) -> Any:
+    padding = getattr(args, "pad_to_length", 0)
+    return tensor_example(torch, encoded, device, pad_to_length=padding,
+                          pad_token_id=tokenizer.pad_token_id if padding else None)
 
 
 def _loss(
@@ -42,7 +50,12 @@ def _loss(
     device: str,
 ) -> Any:
     encoded = encode_example(tokenizer, candidate, Arm(args.arm), args.max_length)
-    return model(**tensor_example(torch, encoded, device)).loss
+    return model(**_tensors(torch, tokenizer, encoded, args, device)).loss
+
+
+def _weighted_loss(loss: Any, weight: float, accumulation: int) -> Any:
+    """Scale only the target-token loss after the model applies its masks."""
+    return (loss if weight == 1 else loss * weight) / accumulation
 
 
 def validation_loss(
@@ -53,6 +66,8 @@ def validation_loss(
     args: argparse.Namespace,
     device: str,
     demonstration: tuple[Context, ...] | None = None,
+    *,
+    explicit_weights: bool = False,
 ) -> float:
     """Use equal fixed validation effort across study arms, preserving legacy scoring."""
     model.eval()
@@ -78,19 +93,19 @@ def validation_loss(
             if demonstration is None:
                 value = mean_loss(contexts)
             else:
-                base = balanced_samples(demonstration, args.seed + 2)
+                base = loss_samples(demonstration, args.seed + 2, explicit_weights=False)
                 extra_pool = (
                     demonstration if Arm(args.arm) == Arm.DEMONSTRATION else contexts
                 )
-                extra = balanced_samples(extra_pool, args.seed + 3)
+                extra = loss_samples(extra_pool, args.seed + 3, explicit_weights=explicit_weights)
                 losses = [
                     float(
                         _loss(torch, model, tokenizer, candidate, args, device)
                         .detach()
                         .cpu()
-                    )
+                    ) * weight
                     for _ in demonstration
-                    for candidate in (next(base), next(extra))
+                    for candidate, weight in (next(base), next(extra))
                 ]
                 if not all(math.isfinite(loss) for loss in losses):
                     raise ValueError("validation loss is not finite")
@@ -125,18 +140,17 @@ def benchmark(args: argparse.Namespace) -> None:
         (parameter for parameter in model.parameters() if parameter.requires_grad),
         lr=args.lr,
     )
-    examples = study_samples(data, demonstration, args.arm, args.seed)
+    examples = weighted_study_samples(data, demonstration, Arm(args.arm), args.seed)
     tokens = 0
     model.train()
     sync_gpu(torch)
     step_started = time.monotonic()
     for _ in range(args.accumulation):
-        example = encode_example(
-            tokenizer, next(examples), Arm(args.arm), args.max_length
-        )
-        tensors = tensor_example(torch, example, device)
-        tokens += len(example["input_ids"])
-        loss = model(**tensors).loss / args.accumulation
+        candidate, weight = next(examples)
+        example = encode_example(tokenizer, candidate, Arm(args.arm), args.max_length)
+        tensors = _tensors(torch, tokenizer, example, args, device)
+        tokens += int(tensors["input_ids"].numel())
+        loss = _weighted_loss(model(**tensors).loss, weight, args.accumulation)
         if not math.isfinite(float(loss.detach().cpu())):
             raise ValueError("benchmark loss is not finite")
         loss.backward()
@@ -223,10 +237,8 @@ def train(args: argparse.Namespace) -> None:
                     "CUDA required but unavailable; no silent CPU fallback"
                 )
         torch, tokenizer, model, device = initialise(args, train=True)
-        atomic_json(
-            output / "configuration.json",
-            _configuration(args, data, tokenizer, device, demonstration),
-        )
+        configuration = _configuration(args, data, tokenizer, device, demonstration)
+        atomic_json(output / "configuration.json", configuration)
         tokenizer.save_pretrained(output / "tokenizer")
         with (output / "prompts.jsonl").open("x", encoding="utf-8") as stream:
             for row in training_prompts(data, args.arm, demonstration):
@@ -237,7 +249,15 @@ def train(args: argparse.Namespace) -> None:
             (parameter for parameter in model.parameters() if parameter.requires_grad),
             lr=args.lr,
         )
-        examples = study_samples(data, demonstration, args.arm, args.seed)
+        examples = weighted_study_samples(data, demonstration, Arm(args.arm), args.seed)
+        explicit_weights = "measurement_provenance" in data.audit
+
+        def checkpoint(name: str, step: int, loss: float | None) -> Path:
+            if "base_snapshot" not in configuration:
+                return save_adapter(model, output, name)
+            return publish_adapter(model, tokenizer, output, name, base_identity=configuration["base_snapshot"],
+                                   role="generator", training=configuration, prompt=configuration["prompt"],
+                                   step=step, validation_loss=loss)
         stopped = {"requested": False}
 
         def request_stop(_signum: int, _frame: Any) -> None:
@@ -259,11 +279,14 @@ def train(args: argparse.Namespace) -> None:
                         break
                     step_start = time.monotonic()
                     total_loss = 0.0
+                    samples = []
                     for _ in range(args.accumulation):
-                        loss = (
-                            _loss(torch, model, tokenizer, next(examples), args, device)
-                            / args.accumulation
-                        )
+                        candidate, weight = next(examples)
+                        loss = _weighted_loss(_loss(torch, model, tokenizer, candidate, args, device),
+                                              weight, args.accumulation)
+                        samples.append({"record_id": candidate.record["record_id"],
+                                        "scale": candidate_scale(candidate, Arm(args.arm)),
+                                        "measured_weight": candidate.weight, "loss_multiplier": weight})
                         total_loss += float(loss.detach().cpu())
                         if not math.isfinite(total_loss):
                             raise ValueError("training loss is not finite")
@@ -275,6 +298,7 @@ def train(args: argparse.Namespace) -> None:
                         "step": step,
                         "train_loss": total_loss,
                         "seconds": time.monotonic() - step_start,
+                        "samples": samples,
                     }
                     if (
                         (step % args.eval_every == 0 or step == args.max_steps)
@@ -289,20 +313,23 @@ def train(args: argparse.Namespace) -> None:
                             args,
                             device,
                             demonstration.validation if demonstration else None,
+                            explicit_weights=explicit_weights,
                         )
                         row["validation_loss"] = value
-                        current_checkpoint = str(
-                            save_adapter(model, output, f"checkpoint-{step}")
-                        )
+                        location = checkpoint(f"checkpoint-{step}", step, value)
+                        current_checkpoint = str(location)
                         last_validation = step
                         if value < best:
                             best, best_path = value, current_checkpoint
+                            manifest_path = location / ADAPTER_MANIFEST
                             atomic_json(
                                 output / "best.json",
                                 {
                                     "step": step,
                                     "validation_loss": value,
                                     "adapter": best_path,
+                                    **({"adapter_fingerprint": parse_json(manifest_path.read_text())["fingerprint"]}
+                                       if manifest_path.is_file() else {}),
                                 },
                             )
                     curve.write(json.dumps(row) + "\n")
@@ -321,7 +348,7 @@ def train(args: argparse.Namespace) -> None:
                     )
                     print(json.dumps(row), flush=True)
             last = (
-                str(save_adapter(model, output, f"checkpoint-last-{completed}"))
+                str(checkpoint(f"checkpoint-last-{completed}", completed, None))
                 if completed
                 else None
             )

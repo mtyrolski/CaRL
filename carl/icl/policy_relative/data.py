@@ -10,6 +10,7 @@ from carl.icl.intent_annotations import DA_VERSION
 from carl.icl.intent_data import validate_prediction
 from carl.icl.intent_generator_experiment import DataSplit
 from carl.icl.intent_generator_experiment import read_records
+from carl.icl.intents.generation.data import record_task_group
 from carl.icl.policy_relative.checks import _checked_context
 from carl.icl.policy_relative.checks import _digest_string
 from carl.icl.policy_relative.checks import _identity
@@ -18,10 +19,18 @@ from carl.icl.policy_relative.checks import _positive_int
 from carl.icl.policy_relative.labels import MEASUREMENT_VERSION
 from carl.icl.policy_relative.labels import contract_hash
 from carl.icl.policy_relative.labels import pool_identity
-from carl.icl.policy_relative.types import Arm
+from carl.icl.policy_relative.types import VERSIONED_SCALE_ARMS, Arm
 from carl.icl.policy_relative.types import Candidate
 from carl.icl.policy_relative.types import Context
 from carl.icl.policy_relative.types import FitData
+
+
+def _task_groups_by_split(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
+    return {
+        split: sorted({group for row in rows if row["split"] == split
+                       and (group := record_task_group(row)) is not None})
+        for split in (DataSplit.TRAIN, DataSplit.VALIDATION)
+    }
 
 
 def _versioned_provenance(
@@ -207,6 +216,7 @@ def load_fit_data(path: str | Path) -> FitData:
     }
     if provenance is not None:
         audit["measurement_provenance"] = provenance
+        audit["task_group_ids_by_split"] = _task_groups_by_split(rows)
         audit["planned_attempt_counts"] = list(planned_attempt_counts)
         if len(planned_attempt_counts) == 1:
             attempts = planned_attempt_counts[0]
@@ -294,6 +304,8 @@ def load_demo_data(path: str | Path) -> FitData:
             for name in (DataSplit.TRAIN, DataSplit.VALIDATION)
         },
     }
+    if rows and rows[0].get("schema_version") == DA_VERSION:
+        audit["task_group_ids_by_split"] = _task_groups_by_split(rows)
     return FitData(
         tuple(splits[DataSplit.TRAIN]),
         tuple(splits[DataSplit.VALIDATION]),
@@ -307,10 +319,13 @@ def load_demo_data(path: str | Path) -> FitData:
 def load_study_data(args: argparse.Namespace) -> tuple[FitData, FitData | None]:
     """Require the same checked demonstration base for all D/N/T/U arms."""
     arm = Arm(args.arm)
-    if arm in (Arm.UNSCALED, Arm.SCALED):
+    if arm in {Arm.UNSCALED, Arm.SCALED, *VERSIONED_SCALE_ARMS}:
         if getattr(args, "demo_data", None) is not None:
-            raise ValueError("legacy arms do not accept a demonstration mix")
-        return load_fit_data(args.data), None
+            raise ValueError("calibration-only arms do not accept a demonstration mix")
+        data = load_fit_data(args.data)
+        if arm in VERSIONED_SCALE_ARMS and "measurement_provenance" not in data.audit:
+            raise ValueError("this scale arm requires checked carl-dc-v2 measurements")
+        return data, None
     if not getattr(args, "demo_data", None):
         raise ValueError("D/N/T/U require --demo-data")
     demonstration = load_demo_data(args.demo_data)
@@ -334,6 +349,9 @@ def load_study_data(args: argparse.Namespace) -> tuple[FitData, FitData | None]:
                 "start_observation",
                 "task_goal",
                 "intent",
+                "source_id",
+                "task_group",
+                "task_group_id",
             )
         ):
             raise ValueError(

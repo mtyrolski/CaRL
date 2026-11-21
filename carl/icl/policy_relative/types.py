@@ -19,6 +19,17 @@ class Arm(StrEnum):
     MEASURED = "N"
     ABSOLUTE = "T"
     RELATIVE = "U"
+    ABSOLUTE_D = "absolute_d"
+    RATIO_D_OVER_AC = "ratio_d_over_ac"
+    OFFSET_RANK = "offset_rank"
+    NORMALIZED_OFFSET = "normalized_offset"
+    RELATIVE_U = "relative_u"
+
+
+VERSIONED_SCALE_ARMS = {
+    Arm.ABSOLUTE_D, Arm.RATIO_D_OVER_AC, Arm.OFFSET_RANK, Arm.NORMALIZED_OFFSET, Arm.RELATIVE_U,
+}
+SCALED_ARMS = {Arm.SCALED, Arm.RELATIVE, Arm.ABSOLUTE, *VERSIONED_SCALE_ARMS}
 
 
 class Mode(StrEnum):

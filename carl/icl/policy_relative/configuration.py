@@ -7,9 +7,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from carl.icl.intents.generation.checkpoint import (
+    CHECKPOINT_CRITERION, base_snapshot_identity, predicate_prompt_contract, verify_model_revision,
+)
+from carl.icl.intents.generation.data import predicate_record
 from carl.icl.intent_generator_experiment import DataSplit
 from carl.icl.intent_generator_experiment import file_sha256
-from carl.icl.policy_relative.prompts import encode_example
+from carl.icl.policy_relative.prompts import candidate_scale, encode_example, prompt_scale_arm
 from carl.icl.policy_relative.provenance import code_provenance
 from carl.icl.policy_relative.types import Arm
 from carl.icl.policy_relative.types import Context
@@ -17,22 +21,9 @@ from carl.icl.policy_relative.types import FitData
 
 
 def _model_revision(path: Path, revision: str) -> None:
-    # A Hugging Face revision is a 40-character commit, not a SHA-256.
-    if (
-        not path.is_dir()
-        or len(revision) != 40
-        or any(char not in "0123456789abcdef" for char in revision)
-    ):
-        raise ValueError(
-            "model must be a local directory with an exact 40-character revision"
-        )
-    metadata = path / "experiment_revision.json"
-    if path.name != revision and (
-        not metadata.is_file()
-        or json.loads(metadata.read_text()).get("revision") != revision
-    ):
-        raise ValueError("cannot verify the requested local model revision")
-    for name in ("model.safetensors", "config.json", "tokenizer.json"):
+    verify_model_revision(path, revision)
+    weights = "model.safetensors.index.json" if (path / "model.safetensors.index.json").is_file() else "model.safetensors"
+    for name in (weights, "config.json", "tokenizer.json"):
         if not (path / name).is_file():
             raise ValueError(f"local model snapshot is missing {name}")
 
@@ -64,11 +55,16 @@ def _configuration(
 ) -> dict[str, Any]:
     model = Path(args.model).resolve()
     data_path = args.data if Arm(args.arm) != Arm.DEMONSTRATION else args.demo_data
+    versioned = predicate_record(data.train[0].candidates[0].record)
+    base = base_snapshot_identity(model, args.revision) if versioned else None
     code_sha256, code_files_sha256 = code_provenance()
     comparable = {
         "data_sha256": file_sha256(data_path),
         "model_revision": args.revision,
-        "model_weights_sha256": file_sha256(model / "model.safetensors"),
+        "model_weights_sha256": (
+            base["files"].get("model.safetensors", base["files"].get("model.safetensors.index.json"))
+            if base else file_sha256(model / "model.safetensors")
+        ),
         "model_config_sha256": file_sha256(model / "config.json"),
         "tokenizer_sha256": file_sha256(model / "tokenizer.json"),
         "controller_hash": data.controller_hash,
@@ -78,12 +74,13 @@ def _configuration(
         "dtype": args.dtype,
         "threads": getattr(args, "threads", 8),
         "rank": args.rank,
-        "lora_targets": ["q_proj", "v_proj"],
+        "lora_targets": getattr(args, "lora_targets", None) or ["q_proj", "v_proj"],
         "accumulation": args.accumulation,
         "learning_rate": args.lr,
         "max_steps": args.max_steps,
         "eval_every": args.eval_every,
         "max_length": args.max_length,
+        "pad_to_length": getattr(args, "pad_to_length", 0) or None,
         "gradient_checkpointing": args.gradient_checkpointing,
         "min_informative_train_contexts": getattr(
             args, "min_informative_train_contexts", 4
@@ -128,6 +125,19 @@ def _configuration(
                 "validation_draws_per_pool": len(demonstration.validation),
             }
         )
+    explicit = "measurement_provenance" in data.audit
+    if explicit:
+        comparable["sampling"] = "equal contexts, uniform candidate draws weighted by candidate_count * w"
+        comparable["validation_sampling"] = (
+            "fixed context draws with measured candidate_count * w" if demonstration else "mean context loss with exact w"
+        )
+    if versioned:
+        comparable["base_snapshot"] = base
+        for key in ("train", "validation"):
+            comparable[f"{key}_task_groups"] = sorted({
+                group for pool in (data, demonstration) if pool is not None
+                for group in pool.audit.get("task_group_ids_by_split", {}).get(key, [])
+            })
     parity = hashlib.sha256(
         json.dumps(comparable, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -146,6 +156,9 @@ def _configuration(
         token_lengths["demonstration_validation"] = _candidate_lengths(
             tokenizer, demonstration.validation, Arm(args.arm), args.max_length
         )
+    padding = comparable["pad_to_length"]
+    if padding and any(stats["maximum"] > padding for stats in token_lengths.values()):
+        raise ValueError("complete example exceeds pad-to-length; no truncation performed")
     return {
         **comparable,
         "comparability_sha256": parity,
@@ -156,6 +169,8 @@ def _configuration(
         "enable_thinking": False,
         "command": sys.argv,
         "data_audit": data.audit,
+        **({"prompt": predicate_prompt_contract(prompt_scale_arm(Arm(args.arm))), "role": "generator",
+            "checkpoint_selection": CHECKPOINT_CRITERION} if versioned else {}),
     }
 
 
@@ -171,9 +186,17 @@ def require_scale_information(
         (DataSplit.TRAIN, minimum_train),
         (DataSplit.VALIDATION, minimum_validation),
     ):
-        count = data.audit["splits"][split]["contexts_with_distinct_success_durations"]
+        if Arm(arm) in (Arm.OFFSET_RANK, Arm.NORMALIZED_OFFSET):
+            count = sum(
+                len({candidate_scale(candidate, Arm(arm)) for candidate in context.candidates}) > 1
+                for context in getattr(data, split.value)
+            )
+            label = "demonstration offsets"
+        else:
+            count = data.audit["splits"][split]["contexts_with_distinct_success_durations"]
+            label = "measured successful durations"
         if count < minimum:
             raise ValueError(
                 f"scaled training needs at least {minimum} {split} contexts with two distinct "
-                f"measured successful durations; found {count}"
+                f"{label}; found {count}"
             )

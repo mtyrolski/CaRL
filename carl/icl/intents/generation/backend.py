@@ -1,12 +1,14 @@
 """Local causal-language-model loading, inference and training utilities."""
 
 import argparse
+import hashlib
 import resource
 import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from carl.icl.intents.generation.checkpoint import has_adapter_contract, verify_adapter_artifact, verify_model_revision
 from carl.icl.intents.generation.data import encode_example
 from carl.icl.intents.generation.data import prompt_messages
 
@@ -16,17 +18,42 @@ def sync_gpu(torch: Any) -> None:
         torch.cuda.synchronize()
 
 
+def local_snapshot(model: str, revision: str) -> Path:
+    """Resolve only a local directory or an already-cached pinned HF snapshot."""
+    source = Path(model).expanduser()
+    if not source.is_dir():
+        # Resolve before calling Transformers to avoid model-info HTTP requests.
+        from huggingface_hub import snapshot_download
+
+        source = Path(snapshot_download(model, revision=revision, local_files_only=True))
+    verify_model_revision(source, revision)
+    return source.resolve()
+
+
+def require_peft() -> Any:
+    """Import the optional PEFT extra only when training or loading an adapter."""
+    try:
+        import peft
+    except ModuleNotFoundError as error:
+        if error.name != "peft":
+            raise
+        raise RuntimeError("LoRA requires the optional extra. Run uv sync --locked --extra lora") from error
+    return peft
+
+
 def initialise(
     args: argparse.Namespace, adapter: str | None = None, train: bool = False
 ):
     import torch
-    from huggingface_hub import snapshot_download
     from transformers import AutoModelForCausalLM
     from transformers import AutoTokenizer
 
     torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    selected = "cuda" if getattr(args, "require_cuda", False) else getattr(args, "device", "auto")
+    device = ("cuda" if torch.cuda.is_available() else "cpu") if selected == "auto" else selected
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA required but unavailable; no silent CPU fallback")
     dtype = {
         "float32": torch.float32,
         "float16": torch.float16,
@@ -42,21 +69,19 @@ def initialise(
         raise ValueError("this CUDA device does not support bfloat16")
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    # Transformers 4.57.6 may call model_info for a hub identifier even when
-    # local_files_only is set.  Resolve the cached snapshot first and hand the
-    # resulting directory to both loaders, avoiding an accidental network call.
-    source = (
-        str(Path(args.model).resolve())
-        if Path(args.model).is_dir()
-        else snapshot_download(
-            args.model,
-            revision=args.revision,
-            local_files_only=True,
-        )
+    peft = require_peft() if train or adapter else None
+    source = local_snapshot(args.model, args.revision)
+    checkpoint = Path(adapter) if adapter else None
+    manifest = (
+        verify_adapter_artifact(checkpoint, base=source, revision=args.revision, role="generator")
+        if checkpoint and has_adapter_contract(checkpoint) else None
     )
-    tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
+    tokenizer_source = checkpoint / "tokenizer" if manifest is not None and checkpoint else source
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, local_files_only=True)
     if tokenizer.chat_template is None:
         raise ValueError("the selected tokenizer does not supply a chat template")
+    if manifest and hashlib.sha256(tokenizer.chat_template.encode()).hexdigest() != manifest["chat_template_sha256"]:
+        raise ValueError("adapter chat template differs from training")
     model: Any = AutoModelForCausalLM.from_pretrained(
         source,
         local_files_only=True,
@@ -66,29 +91,25 @@ def initialise(
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     if train:
-        from peft import LoraConfig
-        from peft import TaskType
-        from peft import get_peft_model
-
+        assert peft is not None
         model.config.use_cache = False
         if args.gradient_checkpointing:
             model.gradient_checkpointing_enable()
             model.enable_input_require_grads()
-        model = get_peft_model(
+        model = peft.get_peft_model(
             model,
-            LoraConfig(
+            peft.LoraConfig(
                 r=args.rank,
                 lora_alpha=2 * args.rank,
                 lora_dropout=0.0,
-                target_modules=["q_proj", "v_proj"],
+                target_modules=getattr(args, "lora_targets", None) or ["q_proj", "v_proj"],
                 bias="none",
-                task_type=TaskType.CAUSAL_LM,
+                task_type=peft.TaskType.CAUSAL_LM,
             ),
         )
     elif adapter:
-        from peft import PeftModel
-
-        model = PeftModel.from_pretrained(model, adapter, is_trainable=False)
+        assert peft is not None
+        model = peft.PeftModel.from_pretrained(model, adapter, is_trainable=False, local_files_only=True)
     return torch, tokenizer, model, device
 
 

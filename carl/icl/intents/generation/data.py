@@ -10,6 +10,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from carl.icl.predicate_prompts import generator_messages as predicate_messages
+
 SYSTEM = (
     "You propose one achievable, non-trivial Sokoban intent using only the current board. "
     "Rows and columns are zero-based. # is wall, - is floor, . is goal, $ is box, "
@@ -39,6 +41,7 @@ class GeneratorMethod(StrEnum):
 
 
 class RunMode(StrEnum):
+    INSPECT = "inspect"
     BENCHMARK = "benchmark"
     TRAIN = "train"
     EVALUATE = "evaluate"
@@ -61,6 +64,8 @@ def prompt_messages(record: dict[str, Any]) -> list[dict[str, str]]:
         raise ValueError("start_observation must be a nonempty list of board rows")
     if not isinstance(goal, str):
         raise ValueError("task_goal must be a string")
+    if predicate_record(record):
+        return predicate_messages(board, goal, None, "unscaled")
     return [
         {"role": "system", "content": SYSTEM},
         {
@@ -105,6 +110,7 @@ def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> No
     from carl.icl.intent_domain import TASK_GOAL, decode_intent, render_instruction
 
     layouts: dict[str, DataSplit] = {}
+    groups: dict[str, DataSplit] = {}
     records: set[str] = set()
     for row in rows:
         if row.get("schema_version") != version or row.get("intent_version") != SCHEMA_VERSION:
@@ -114,6 +120,9 @@ def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> No
             raise ValueError("checked annotation record IDs must be unique and nonempty")
         records.add(identifier)
         split = DataSplit(row.get("split"))
+        group = record_task_group(row)
+        if group is not None and groups.setdefault(group, split) != split:
+            raise ValueError("checked annotation task groups overlap across splits")
         board = row.get("start_observation")
         if not isinstance(board, list):
             raise ValueError("checked annotation start_observation must contain board rows")
@@ -133,6 +142,23 @@ def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> No
         context_id = context_identity(board)
         if row.get("context_id") != context_id or annotation_identity(context_id, intent) != identifier:
             raise ValueError("checked annotation identity differs from the board or intent")
+
+
+def predicate_record(record: dict[str, Any]) -> bool:
+    """Distinguish checked annotations from the historical JSONL format."""
+    from carl.icl.intent_annotations import DA_VERSION
+
+    return record.get("schema_version") == DA_VERSION
+
+
+def record_task_group(record: dict[str, Any]) -> str | None:
+    """Find the declared task group, falling back to the demonstration source."""
+    declared = [record[key] for key in ("task_group", "task_group_id") if key in record]
+    if any(not isinstance(group, str) or not group.strip() for group in declared) or (
+            len(declared) == 2 and declared[0] != declared[1]):
+        raise ValueError("task group fields must be nonempty and agree")
+    group = declared[0] if declared else record.get("source_id")
+    return group if isinstance(group, str) and group.strip() else None
 
 
 def same_prompt_layout(first: dict[str, Any], second: dict[str, Any]) -> bool:
@@ -165,8 +191,15 @@ def parse_json(text: str) -> Any:
 def encode_example(
     tokenizer: Any, record: dict[str, Any], max_length: int
 ) -> dict[str, list[int]]:
+    return encode_messages(tokenizer, prompt_messages(record), target_text(record), max_length)
+
+
+def encode_messages(
+    tokenizer: Any, messages: list[dict[str, str]], target: str, max_length: int,
+) -> dict[str, list[int]]:
+    """Encode an entire response with the visible chat prefix masked from loss."""
     prefix = tokenizer.apply_chat_template(
-        prompt_messages(record),
+        messages,
         tokenize=True,
         add_generation_prompt=True,
         enable_thinking=False,
@@ -174,7 +207,9 @@ def encode_example(
     if not isinstance(prefix, list):
         prefix = prefix.tolist()
     end = tokenizer.eos_token or ""
-    answer = tokenizer.encode(target_text(record) + end, add_special_tokens=False)
+    answer = tokenizer.encode(target + end, add_special_tokens=False)
+    if not answer:
+        raise ValueError("the complete intent response must contain tokens")
     ids = prefix + answer
     if len(ids) > max_length:
         raise ValueError(
