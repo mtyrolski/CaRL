@@ -428,6 +428,17 @@
             }
           ],
           "default": null
+        },
+        "planning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PredicatePlanningSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -518,6 +529,68 @@
         }
       },
       "title": "LocalRoleSettings",
+      "type": "object"
+    },
+    "PredicatePlanningSettings": {
+      "additionalProperties": false,
+      "description": "Proposal and rollout budgets for the three predicate planning modes.",
+      "properties": {
+        "scales": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scales"
+        },
+        "rollout_cap": {
+          "default": 16,
+          "minimum": 1,
+          "title": "Rollout Cap",
+          "type": "integer"
+        },
+        "max_proposals": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Max Proposals",
+          "type": "integer"
+        },
+        "trials_per_proposal": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Trials Per Proposal",
+          "type": "integer"
+        },
+        "value_checkpoint": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Checkpoint"
+        }
+      },
+      "title": "PredicatePlanningSettings",
       "type": "object"
     }
   },

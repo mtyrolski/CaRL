@@ -1,0 +1,15 @@
+{
+  "extends": "predicate_zero_shot.example.json",
+  "name": "sokoban_predicate_planning",
+  "action_budget": 12,
+  "max_expansions": 8,
+  "predicate_icl": {
+    "validation_id": "6b194a238b02c8cc68adaba4a517ca5556fbe0663010efff8d2f9f53c230ca4a",
+    "planning": {
+      "scales": [null],
+      "rollout_cap": 2,
+      "max_proposals": 1,
+      "trials_per_proposal": 1
+    }
+  }
+}

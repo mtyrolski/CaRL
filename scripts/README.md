@@ -6,6 +6,7 @@ Run modules from the repository root with `uv run --extra icl python -m`.
 | --- | --- |
 | Prepare, preview or run in-context search | `scripts.run_icl_search` |
 | Freeze, preview or run checked predicate prompting | `scripts.run_predicate_icl` |
+| Fit a value heuristic and compare predicate planners | `scripts.run_predicate_icl fit-value` and `search` |
 | Evaluate a local full-state Sokoban controller | `scripts.evaluate_full_state_policy` |
 | Plan or run action-budget sweeps | `scripts.run_budget_sweep` |
 | Evaluate saved runs offline | `scripts.evaluate_icl` |
@@ -41,6 +42,37 @@ Save a successful validation run with `--output` and pass it as
 `--validation-result` on the test split. Select `--mode mock` with fixture text
 in `--mock-response`, `--mode replay` with an existing cache, or `--mode openai`
 to use the configured live endpoint.
+
+## Planning with checked intents
+
+Use `scripts.run_predicate_icl search --planning-mode MODE` with the frozen
+support, query and execution mode used by `run`. Save one successful
+validation search per planning mode and pass its output as
+`--validation-result` on the test split. The comparison uses one policy and
+one action budget. `predicate_sokoban_search.example.json` shows the
+`predicate_icl.planning` settings.
+
+- `direct` asks π to achieve the task goal and uses neither G nor V.
+- `one-step` tries the configured candidates from the current snapshot and
+  memory, scores checked trials with discounted task reward plus the
+  nonterminal value, and executes the best intent afresh. The maximum local
+  work per decision is scales × `max_proposals` × `trials_per_proposal`
+  trial rollouts and one committed rollout, each limited by `rollout_cap`.
+- `full-search` pops `(node, scale)` pairs in decreasing order of scale and
+  V. An insertion counter resolves ties. A child carries a simulator snapshot,
+  action memory and a parent edge. The result reconstructs `action_path`
+  from those edges and records rejected trials separately.
+
+Run `scripts.run_predicate_icl fit-value --source DEMOS.json --output V.json
+--discount 0.99` to fit V from replay-verified solved training demonstrations.
+Set `predicate_icl.planning.value_checkpoint` and use the same `discount`
+in the experiment config. Without a fitted checkpoint, the two planning
+modes use `roles.value` and the configured API backend. Mock input supplies
+a `value` string such as `{"value":0.5}` for that backend.
+
+The JSON report separates `attempted_simulator_actions`, `executed_plan_actions`,
+queue expansions, logical calls, physical requests, API and local tokens,
+and elapsed time. Failed candidates and no-ops contribute to attempted actions.
 
 ## Local checkpoints and LoRA
 

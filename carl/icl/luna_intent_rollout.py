@@ -75,6 +75,23 @@ class ObservationPolicy(Protocol):
         ...
 
 
+@runtime_checkable
+class TaskObservationPolicy(Protocol):
+    """The same observation policy with the task goal as its instruction."""
+
+    def render_task_action(
+        self, observation: SokobanObservation, task_goal: str, memory: Sequence[ActionAttempt],
+    ) -> str:
+        """Render a direct decision request without sending it."""
+        ...
+
+    def choose_task_action(
+        self, observation: SokobanObservation, task_goal: str, memory: Sequence[ActionAttempt],
+    ) -> str:
+        """Return a direct response for the same action parser."""
+        ...
+
+
 class RolloutStatus(StrEnum):
     """Mutually exclusive termination reasons for an intent attempt."""
 
@@ -86,6 +103,7 @@ class RolloutStatus(StrEnum):
     INVALID_RESPONSE = "invalid_response"
     OUTPUT_LIMIT = "output_limit"
     API_ERROR = "api_error"
+    SIMULATOR_ERROR = "simulator_error"
     UNKNOWN = "unknown"
     BUDGET_EXHAUSTED = "budget_exhausted"
 
@@ -142,9 +160,10 @@ def _render_prompt(
     return f"{prompt}\n\n{json.dumps(question, sort_keys=True, separators=(',', ':'))}"
 
 
-def _observe(
+def observe_state(
     state: Board, observe: Callable[[Board], SokobanObservation] | None,
 ) -> SokobanObservation:
+    """Observe a copy of the state, allowing only faithful masking of cells."""
     actual = tuple(to_rows(state))
     if observe is None:
         return SokobanObservation(actual)
@@ -233,8 +252,8 @@ def _action(raw_response: str) -> int:
 def rollout(
     env: BoardEnvironment,
     state: Board,
-    intent: dict[str, Any],
-    decide: Callable[[str], str] | ObservationPolicy,
+    intent: dict[str, Any] | None,
+    decide: Callable[[str], str] | ObservationPolicy | TaskObservationPolicy,
     *,
     cap: int,
     task_goal: str,
@@ -242,6 +261,8 @@ def rollout(
     initial_memory: Sequence[ActionAttempt] = (),
     observe: Callable[[Board], SokobanObservation] | None = None,
     measured: bool = False,
+    before_action: Callable[[], None] | None = None,
+    on_state: Callable[[Board, tuple[ActionAttempt, ...]], None] | None = None,
 ) -> IntentRollout:
     """Attempt an intent until first satisfaction, violation, terminal or cap.
 
@@ -251,26 +272,33 @@ def rollout(
     action. Every valid attempted action, including a no-op, counts towards cap.
     ``on_event`` receives request, response/error and executed-action events.
     ``initial_memory`` is copied on every attempt. An observation may mask cells.
+    ``before_action`` is called once before each simulator transition. The
+    trusted ``on_state`` hook receives a private successor and immutable memory.
+    A missing intent gives the task goal directly to a typed observation policy.
     """
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
         raise ValueError("cap must be a positive integer")
     if not isinstance(task_goal, str) or not task_goal.strip():
         raise ValueError("task_goal must be a nonempty string")
     current = state.copy()
-    observation = _observe(current, observe)
+    observation = observe_state(current, observe)
     rows = list(observation.rows)
     solved = bool(env.is_solved(current))
-    checked, status, error = _initial_intent(intent, observation, current)
-    if status is not None:
-        return IntentRollout(status, False, solved, [], 0, rows, [], error)
+    checked = None
+    if intent is not None:
+        checked, status, error = _initial_intent(intent, observation, current)
+        if status is not None:
+            return IntentRollout(status, False, solved, [], 0, rows, [], error)
     if solved:
         return IntentRollout(RolloutStatus.TASK_SOLVED, False, True, [], 0, rows, [])
-    assert checked is not None
+    if checked is None and not isinstance(decide, TaskObservationPolicy):
+        raise ValueError("Direct execution requires a policy with task-goal instructions")
 
     actions: list[int] = []
     steps: list[dict[str, Any]] = []
     memory = list(initial_memory)
-    typed = isinstance(decide, ObservationPolicy)
+    status = None
+    error = None
 
     def emit(event: dict[str, Any]) -> None:
         if on_event is not None:
@@ -281,8 +309,19 @@ def rollout(
 
     holds: bool | None = False
     for index in range(cap):
-        prompt = (decide.render_action(observation, checked, memory) if typed
-                  else _render_prompt(observation, checked, task_goal, memory, measured=measured))
+        history = tuple(memory)
+        try:
+            if checked is None and isinstance(decide, TaskObservationPolicy):
+                prompt = decide.render_task_action(observation, task_goal, history)
+            elif checked is not None and isinstance(decide, ObservationPolicy):
+                prompt = decide.render_action(observation, checked, history)
+            else:
+                assert checked is not None and callable(decide)
+                prompt = _render_prompt(observation, checked, task_goal, history, measured=measured)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            status, event, error = _policy_failure(exc)
+            emit({"type": event, "index": index, "error": error})
+            break
         step: dict[str, Any] = {
             "index": index, "before": rows, "prompt": prompt, "raw_response": None,
             "action": None, "after": None, "no_op": None, "intent_holds": None,
@@ -291,12 +330,18 @@ def rollout(
         steps.append(step)
         emit({"type": "request", "index": index, "before": rows, "prompt": prompt})
         try:
-            raw = decide.choose_action(observation, checked, memory) if typed else decide(prompt)
+            if checked is None and isinstance(decide, TaskObservationPolicy):
+                raw = decide.choose_task_action(observation, task_goal, history)
+            elif checked is not None and isinstance(decide, ObservationPolicy):
+                raw = decide.choose_action(observation, checked, history)
+            else:
+                assert callable(decide)
+                raw = decide(prompt)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            failure, event, detail = _policy_failure(exc)
-            step["error"] = detail
-            emit({"type": event, "index": index, "error": detail})
-            return finish(failure, detail)
+            status, event, error = _policy_failure(exc)
+            step["error"] = error
+            emit({"type": event, "index": index, "error": error})
+            break
         step["raw_response"] = raw
         emit({"type": "response", "index": index, "raw_response": raw})
         try:
@@ -304,21 +349,42 @@ def rollout(
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             error = f"{type(exc).__name__}: {exc}"
             step["error"] = error
-            return finish(RolloutStatus.INVALID_RESPONSE, error)
+            status = RolloutStatus.INVALID_RESPONSE
+            break
 
-        previous = observation
-        current = np.asarray(env.next_state(current, action))
-        observation = _observe(current, observe)
+        if before_action is not None:
+            try:
+                before_action()
+            except BudgetExceeded as exc:
+                error = str(exc)
+                step["error"] = error
+                status = RolloutStatus.BUDGET_EXHAUSTED
+                break
+        try:
+            next_state = np.asarray(env.next_state(current.copy(), action))
+            next_observation = observe_state(next_state, observe)
+            next_solved = bool(env.is_solved(next_state))
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            error = f"{type(exc).__name__}: {exc}"
+            step["error"] = error
+            emit({"type": "simulator_error", "index": index, "error": error})
+            status = RolloutStatus.SIMULATOR_ERROR
+            break
+        if on_state is not None:
+            step["simulator_no_op"] = np.array_equal(current, next_state)
+        previous, observation = observation, next_observation
+        current, solved = next_state, next_solved
         rows = list(observation.rows)
         actions.append(action)
-        preserved = _holds(checked["preserve"], observation)
-        holds = _holds(checked["effects"], observation)
-        solved = bool(env.is_solved(current))
+        preserved = True if checked is None else _holds(checked["preserve"], observation)
+        holds = False if checked is None else _holds(checked["effects"], observation)
         step.update(action=action, after=rows, no_op=previous == observation,
                     intent_holds=holds, preservation_holds=preserved, task_solved=solved)
         memory.append(ActionAttempt(list(Action)[action], step["no_op"]))
+        if on_state is not None:
+            on_state(current.copy(), tuple(memory))
         emit({"type": "action", **{key: value for key, value in step.items() if key != "prompt"}})
-        terminal = _termination(preserved, holds, solved)
-        if terminal is not None:
-            return finish(terminal)
-    return finish(RolloutStatus.UNKNOWN if holds is None else RolloutStatus.ACTION_LIMIT)
+        status = _termination(preserved, holds, solved)
+        if status is not None:
+            break
+    return finish(status or (RolloutStatus.UNKNOWN if holds is None else RolloutStatus.ACTION_LIMIT), error)

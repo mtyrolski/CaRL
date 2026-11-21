@@ -1,7 +1,7 @@
 """Validated settings for prompted ICL experiments and generator snapshots."""
 import json
 from pathlib import Path
-from typing import Final, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from carl.icl.prompt_defaults import (
@@ -182,6 +182,18 @@ class LocalRoleSettings(Settings):
         return self
 
 
+class PredicatePlanningSettings(Settings):
+    """Proposal and rollout budgets for the three predicate planning modes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    scales: tuple[Annotated[float, Field(strict=True)] | None, ...] | None = Field(default=None, min_length=1)
+    rollout_cap: int = Field(default=16, ge=1, strict=True)
+    max_proposals: int = Field(default=1, ge=1, strict=True)
+    trials_per_proposal: int = Field(default=1, ge=1, strict=True)
+    value_checkpoint: str | None = Field(default=None, min_length=1)
+
+
 class PredicateICLSettings(Settings):
     """An opt-in prompting condition for the checked Sokoban intent path."""
 
@@ -196,6 +208,7 @@ class PredicateICLSettings(Settings):
     generator_prompt: str | None = Field(default=None, min_length=1)
     context_limit: int = Field(default=16000, ge=1, strict=True)
     local_roles: LocalRoleSettings | None = Field(default=None, exclude_if=lambda value: value is None)
+    planning: PredicatePlanningSettings | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def check_validation_scale(self) -> "PredicateICLSettings":
@@ -205,6 +218,16 @@ class PredicateICLSettings(Settings):
         if self.scale_arm in {"relative_u", "offset_rank"} and self.validation_scale is not None:
             if self.validation_scale >= 1:
                 raise ValueError("validation percentile must be strictly between zero and one")
+        if self.planning is not None and self.planning.scales is not None:
+            scales = self.planning.scales
+            percentiles = self.scale_arm in {"relative_u", "offset_rank"}
+            if self.scale_arm == "unscaled":
+                if scales != (None,):
+                    raise ValueError("unscaled planning requires exactly one null scale")
+            elif len(set(scales)) != len(scales) or any(
+                scale is None or scale <= 0 or (percentiles and scale >= 1) for scale in scales
+            ):
+                raise ValueError("planning scales must be distinct positive values within the configured scale arm")
         return self
 
 

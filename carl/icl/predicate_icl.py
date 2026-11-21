@@ -9,6 +9,7 @@ from carl.icl.config import ROOT, ExperimentConfig, PredicateICLSettings, Settin
 from carl.icl.experiment import create_inference_api, prepare_credentials
 from carl.icl.intent_domain import SokobanObservation
 from carl.icl.intent_support import FrozenSupport, load_support
+from carl.icl.intents.generation.data import file_sha256
 from carl.icl.llm_components.predicate import (
     PREDICATE_GENERATOR_PROMPT, PREDICATE_POLICY_PROMPT, PredicateComponents, create_predicate_components,
 )
@@ -25,6 +26,7 @@ def predicate_settings(config: ExperimentConfig) -> PredicateICLSettings:
 
 
 LocalModels = dict[Literal["policy", "generator"], LocalRoleModel]
+PredicateRole = Literal["policy", "generator"]
 
 
 def local_role_models(config: ExperimentConfig) -> LocalModels:
@@ -46,7 +48,7 @@ def selection_contract(config: ExperimentConfig, *, local_roles: LocalModels | N
     """Bind the validation choice to the actual role prompts and model routes."""
     settings = predicate_settings(config)
     roles = local_role_models(config) if local_roles is None else local_roles
-    return {
+    contract = {
         **settings.model_dump(mode="json"),
         "policy_prompt": settings.policy_prompt or PREDICATE_POLICY_PROMPT,
         "generator_prompt": settings.generator_prompt or PREDICATE_GENERATOR_PROMPT,
@@ -59,6 +61,22 @@ def selection_contract(config: ExperimentConfig, *, local_roles: LocalModels | N
         "action_budget": config.action_budget,
         "limits": config.limits.model_dump(mode="json"),
     }
+    if settings.planning is not None:
+        checkpoint = value_checkpoint(settings)
+        contract["planning_contract"] = {
+            "discount": config.discount, "max_expansions": config.max_expansions,
+            "value_tokens": config.value_tokens,
+            "value_model": config.role("value").identity() if checkpoint is None else None,
+            "value_checkpoint_sha256": None if checkpoint is None else file_sha256(checkpoint),
+        }
+    return contract
+
+
+def value_checkpoint(settings: PredicateICLSettings) -> Path | None:
+    """Resolve the fitted heuristic path using the same root as model paths."""
+    if settings.planning is None or settings.planning.value_checkpoint is None:
+        return None
+    return ROOT / Path(settings.planning.value_checkpoint).expanduser()
 
 
 def load_condition(
@@ -75,16 +93,18 @@ def load_condition(
 def components_for_predicate_run(
     config: ExperimentConfig, support: FrozenSupport, mode: str,
     *, preview_only: bool = False, calibration: bool = False, local_roles: LocalModels | None = None,
+    required_roles: tuple[PredicateRole, ...] | None = None, require_api_value: bool = False,
 ) -> PredicateComponents:
     """Build π and G with separate support and explicit local or API backends."""
     settings = predicate_settings(config)
     roles = local_role_models(config) if local_roles is None else local_roles
-    needed = {"policy"} if calibration else {"policy", "generator"}
+    needed = required_roles if required_roles is not None else ("policy",) if calibration else ("policy", "generator")
+    uses_api = require_api_value or any(role not in roles for role in needed)
     if mode == "local":
-        if not needed <= roles.keys():
-            raise ValueError("local mode requires local weights for each executed role")
+        if uses_api:
+            raise ValueError("local mode requires local weights or a fitted heuristic for each executed role")
     elif not preview_only:
-        if needed <= roles.keys():
+        if not uses_api:
             raise ValueError("use local mode when each executed role uses local weights")
         prepare_credentials(config, mode)
     api = create_inference_api(
