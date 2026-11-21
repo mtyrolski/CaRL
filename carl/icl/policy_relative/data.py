@@ -6,17 +6,60 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from carl.icl.intent_annotations import DA_VERSION
 from carl.icl.intent_data import validate_prediction
 from carl.icl.intent_generator_experiment import DataSplit
 from carl.icl.intent_generator_experiment import read_records
 from carl.icl.policy_relative.checks import _checked_context
+from carl.icl.policy_relative.checks import _digest_string
 from carl.icl.policy_relative.checks import _identity
 from carl.icl.policy_relative.checks import _intent_key
 from carl.icl.policy_relative.checks import _positive_int
+from carl.icl.policy_relative.labels import MEASUREMENT_VERSION
+from carl.icl.policy_relative.labels import contract_hash
+from carl.icl.policy_relative.labels import pool_identity
 from carl.icl.policy_relative.types import Arm
 from carl.icl.policy_relative.types import Candidate
 from carl.icl.policy_relative.types import Context
 from carl.icl.policy_relative.types import FitData
+
+
+def _versioned_provenance(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, tuple[int, ...]]:
+    measurements = [row.get("policy_measurements") for row in rows]
+    versions = [item.get("schema_version") if isinstance(item, dict) else None for item in measurements]
+    if all(version is None for version in versions):
+        return None, ()
+    if any(version != MEASUREMENT_VERSION for version in versions):
+        raise ValueError("measurement schemas cannot be mixed within a dataset")
+    provenance = rows[0].get("measurement_provenance")
+    if not isinstance(provenance, dict) or any(row.get("measurement_provenance") != provenance for row in rows):
+        raise ValueError("measurement provenance must match across the frozen pool")
+    _digest_string(provenance.get("data_sha256"), "data_sha256")
+    _digest_string(provenance.get("environment_sha256"), "environment_sha256")
+    controller = _digest_string(provenance.get("controller_hash"), "controller_hash")
+    pool = _digest_string(provenance.get("candidate_pool_hash"), "candidate_pool_hash")
+    planned: dict[str, int] = {}
+    for row, measurement in zip(rows, measurements, strict=True):
+        assert isinstance(measurement, dict)
+        contract = measurement.get("controller_contract")
+        if (not isinstance(contract, dict) or contract_hash(contract) != controller
+                or measurement.get("controller_hash") != controller):
+            raise ValueError("controller contract does not match the fingerprint")
+        if measurement.get("candidate_pool_hash") != pool:
+            raise ValueError("candidate pool hash disagrees with run provenance")
+        _positive_int(row.get("demonstration_offset"), "demonstration_offset")
+        if not isinstance(row.get("effect_type"), str) or not row["effect_type"]:
+            raise ValueError("a frozen calibration candidate needs an effect type")
+        planned[row["record_id"]] = _positive_int(measurement.get("planned_attempts"), "planned_attempts")
+    if pool_identity(rows, planned) != pool:
+        raise ValueError("candidate pool hash disagrees with the frozen records")
+    if "split_sha256" in provenance:
+        actual_split = contract_hash(sorted({(row["split"], row["layout_id"]) for row in rows}))
+        if provenance["split_sha256"] != actual_split:
+            raise ValueError("split provenance disagrees with the frozen records")
+    return provenance, tuple(sorted(set(planned.values())))
 
 
 def load_fit_data(path: str | Path) -> FitData:
@@ -49,8 +92,9 @@ def load_fit_data(path: str | Path) -> FitData:
         groups[context_id].append(row)
     if layouts[DataSplit.TRAIN] & layouts[DataSplit.VALIDATION]:
         raise ValueError("train and validation canonical layouts overlap")
+    provenance, planned_attempt_counts = _versioned_provenance(rows)
     split_contexts: dict[str, list[Context]] = defaultdict(list)
-    signatures: set[tuple[str, int, int]] = set()
+    signatures: set[tuple[str, int, int | None]] = set()
     empty = Counter()
     rejected = []
     for context_id in sorted(groups):
@@ -161,12 +205,20 @@ def load_fit_data(path: str | Path) -> FitData:
             for name in (DataSplit.TRAIN, DataSplit.VALIDATION)
         },
     }
+    if provenance is not None:
+        audit["measurement_provenance"] = provenance
+        audit["planned_attempt_counts"] = list(planned_attempt_counts)
+        if len(planned_attempt_counts) == 1:
+            attempts = planned_attempt_counts[0]
     return FitData(tuple(training), tuple(validation), controller, cap, attempts, audit)
 
 
 def load_demo_data(path: str | Path) -> FitData:
     """Read every checked demonstration, including unsuccessful measured candidates."""
-    rows = read_records(path)
+    rows = [
+        row for row in read_records(path)
+        if not (row.get("schema_version") == DA_VERSION and row.get("split") == DataSplit.TEST)
+    ]
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     identities: set[str] = set()
     visible_contexts: dict[tuple[tuple[str, ...], str], str] = {}

@@ -14,10 +14,11 @@ from typing import Any, Final
 
 import numpy as np
 
+from carl.icl.api import BudgetExceeded
 from carl.icl.boards import to_rows
-from carl.icl.intent_data import predicate_value
 from carl.icl.intent_data import validate_prediction
-from carl.icl.intent_domain import decode_intent
+from carl.icl.intent_domain import Intent, Predicate, SokobanObservation, UNKNOWN_TILE
+from carl.icl.intent_domain import decode_intent, predicate_truth, render_instruction
 from carl.icl.luna_components.formatting import board_coordinates
 from carl.icl.types import Board
 from carl.icl.types import BoardEnvironment
@@ -30,6 +31,14 @@ player_at(row,col) requires the player there; boxes_on_goals_at_least(count) req
 Every predicate in effects must hold simultaneously. Every predicate in preserve must remain true throughout.
 attempt_history lists earlier actions in this same attempt in order; no_op means an action did not change the board. Use this history to avoid repeating blocked moves unnecessarily.
 Respond with exactly one JSON object, with no other text: {"action":"UP"}, {"action":"DOWN"}, {"action":"LEFT"}, or {"action":"RIGHT"}."""
+
+MEASUREMENT_PROMPT_VERSION: Final = "sokoban-measurement-prompt-v1"
+ACTION_PARSER_VERSION: Final = "sokoban-one-action-json-v1"
+MEASUREMENT_PROMPT: Final = POLICY_PROMPT + (
+    "\nThe instruction describes the same intent as the predicates. "
+    "History starts with the restored controller memory. ? hides a cell, "
+    "and no_op means that the visible board did not change."
+)
 
 
 class Action(StrEnum):
@@ -60,6 +69,8 @@ class RolloutStatus(StrEnum):
     INVALID_RESPONSE = "invalid_response"
     OUTPUT_LIMIT = "output_limit"
     API_ERROR = "api_error"
+    UNKNOWN = "unknown"
+    BUDGET_EXHAUSTED = "budget_exhausted"
 
 
 class OutputLimitError(RuntimeError):
@@ -79,23 +90,108 @@ class IntentRollout:
     steps: list[dict[str, Any]]
     error: str | None = None
 
+    @property
+    def first_hit_actions(self) -> int | None:
+        """Report the first confirmed hit, counted from the restored snapshot."""
+        return len(self.actions) if self.achieved else None
+
 
 def build_prompt(state: Board, intent: dict[str, Any], task_goal: str,
-                 memory: Sequence[ActionAttempt] = ()) -> str:
+                 memory: Sequence[ActionAttempt] = (), *, measured: bool = False) -> str:
     """Render the current state and previous actions from this attempt only."""
+    observation = SokobanObservation(tuple(to_rows(state)))
+    checked = decode_intent({"effects": intent["effects"], "preserve": intent["preserve"], "instruction": None})
+    return _render_prompt(observation, checked, task_goal, memory, measured=measured)
+
+
+def _render_prompt(
+    observation: SokobanObservation, intent: Intent, task_goal: str,
+    memory: Sequence[ActionAttempt], *, measured: bool,
+) -> str:
     if any(not isinstance(item, ActionAttempt) or not isinstance(item.action, Action) or not isinstance(item.no_op, bool)
            for item in memory):
         raise ValueError("Memory must contain action attempts with a boolean no-op flag")
-    rows = to_rows(state)
-    checked = decode_intent({"effects": intent["effects"], "preserve": intent["preserve"], "instruction": None})
-    question = {
+    rows = list(observation.rows)
+    question: dict[str, Any] = {
         "state": rows,
-        "state_coordinates": board_coordinates(rows),
-        "intent": {"effects": checked["effects"], "preserve": checked["preserve"]},
+        "state_coordinates": None if observation.partial else board_coordinates(rows),
+        "intent": {"effects": intent["effects"], "preserve": intent["preserve"]},
         "task_goal": task_goal,
         "attempt_history": [{"action": item.action.value, "no_op": item.no_op} for item in memory],
     }
-    return f"{POLICY_PROMPT}\n\n{json.dumps(question, sort_keys=True, separators=(',', ':'))}"
+    if measured:
+        question["instruction"] = render_instruction(intent)
+    prompt = MEASUREMENT_PROMPT if measured else POLICY_PROMPT
+    return f"{prompt}\n\n{json.dumps(question, sort_keys=True, separators=(',', ':'))}"
+
+
+def _observe(
+    state: Board, observe: Callable[[Board], SokobanObservation] | None,
+) -> SokobanObservation:
+    actual = tuple(to_rows(state))
+    if observe is None:
+        return SokobanObservation(actual)
+    observation = observe(state.copy())
+    if len(observation.rows) != len(actual) or len(observation.rows[0]) != len(actual[0]):
+        raise ValueError("Observed board must have the simulator's dimensions")
+    if any(
+        visible not in (UNKNOWN_TILE, tile)
+        for original, masked in zip(actual, observation.rows, strict=True)
+        for tile, visible in zip(original, masked, strict=True)
+    ):
+        raise ValueError("Observation must preserve every visible simulator tile")
+    return observation
+
+
+def _holds(predicates: Sequence[Predicate], observation: SokobanObservation) -> bool | None:
+    values = [predicate_truth(predicate, observation) for predicate in predicates]
+    if False in values:
+        return False
+    return None if None in values else True
+
+
+def _unknown_initial(intent: Intent, observation: SokobanObservation) -> bool:
+    if not observation.partial:
+        return False
+    effects = [predicate_truth(predicate, observation) for predicate in intent["effects"]]
+    preserve = _holds(intent["preserve"], observation)
+    return True not in effects and preserve is not False and (None in effects or preserve is None)
+
+
+def _initial_intent(
+    intent: dict[str, Any], observation: SokobanObservation, state: Board,
+) -> tuple[Intent | None, RolloutStatus | None, str | None]:
+    try:
+        checked = decode_intent({**intent, "instruction": None})
+        if _unknown_initial(checked, observation):
+            return None, RolloutStatus.UNKNOWN, None
+    except (TypeError, ValueError, IndexError) as exc:
+        return None, RolloutStatus.INVALID_INTENT, str(exc)
+    errors = validate_prediction(intent, to_rows(state))
+    if errors:
+        return None, RolloutStatus.INVALID_INTENT, "; ".join(errors)
+    return checked, None, None
+
+
+def _policy_failure(exc: Exception) -> tuple[RolloutStatus, str, str]:
+    if isinstance(exc, BudgetExceeded):
+        return RolloutStatus.BUDGET_EXHAUSTED, "budget_exhausted", str(exc)
+    error = f"{type(exc).__name__}: {exc}"
+    if isinstance(exc, OutputLimitError):
+        return RolloutStatus.OUTPUT_LIMIT, "output_limit", error
+    return RolloutStatus.API_ERROR, "error", error
+
+
+def _termination(preserved: bool | None, holds: bool | None, solved: bool) -> RolloutStatus | None:
+    if preserved is False:
+        return RolloutStatus.PRESERVATION_VIOLATED
+    if preserved is None:
+        return RolloutStatus.UNKNOWN
+    if holds is True:
+        return RolloutStatus.ACHIEVED
+    if solved:
+        return RolloutStatus.UNKNOWN if holds is None else RolloutStatus.TASK_SOLVED
+    return None
 
 
 def _action(raw_response: str) -> int:
@@ -126,6 +222,9 @@ def rollout(
     cap: int,
     task_goal: str,
     on_event: Callable[[dict[str, Any]], None] | None = None,
+    initial_memory: Sequence[ActionAttempt] = (),
+    observe: Callable[[Board], SokobanObservation] | None = None,
+    measured: bool = False,
 ) -> IntentRollout:
     """Attempt an intent until first satisfaction, violation, terminal or cap.
 
@@ -134,23 +233,26 @@ def rollout(
     A failed or malformed response stops the attempt without fabricating an
     action. Every valid attempted action, including a no-op, counts towards cap.
     ``on_event`` receives request, response/error and executed-action events.
+    ``initial_memory`` is copied on every attempt. An observation may mask cells.
     """
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
         raise ValueError("cap must be a positive integer")
     if not isinstance(task_goal, str) or not task_goal.strip():
         raise ValueError("task_goal must be a nonempty string")
     current = state.copy()
-    rows = to_rows(current)
-    errors = validate_prediction(intent, rows)
+    observation = _observe(current, observe)
+    rows = list(observation.rows)
     solved = bool(env.is_solved(current))
-    if errors:
-        return IntentRollout(RolloutStatus.INVALID_INTENT, False, solved, [], 0, rows, [], "; ".join(errors))
+    checked, status, error = _initial_intent(intent, observation, current)
+    if status is not None:
+        return IntentRollout(status, False, solved, [], 0, rows, [], error)
     if solved:
         return IntentRollout(RolloutStatus.TASK_SOLVED, False, True, [], 0, rows, [])
+    assert checked is not None
 
     actions: list[int] = []
     steps: list[dict[str, Any]] = []
-    memory: list[ActionAttempt] = []
+    memory = list(initial_memory)
 
     def emit(event: dict[str, Any]) -> None:
         if on_event is not None:
@@ -159,8 +261,9 @@ def rollout(
     def finish(status: RolloutStatus, error: str | None = None) -> IntentRollout:
         return IntentRollout(status, status == RolloutStatus.ACHIEVED, solved, actions, len(steps), rows, steps, error)
 
+    holds: bool | None = False
     for index in range(cap):
-        prompt = build_prompt(current, intent, task_goal, memory)
+        prompt = _render_prompt(observation, checked, task_goal, memory, measured=measured)
         step: dict[str, Any] = {
             "index": index, "before": rows, "prompt": prompt, "raw_response": None,
             "action": None, "after": None, "no_op": None, "intent_holds": None,
@@ -170,16 +273,11 @@ def rollout(
         emit({"type": "request", "index": index, "before": rows, "prompt": prompt})
         try:
             raw = decide(prompt)
-        except OutputLimitError as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            step["error"] = error
-            emit({"type": "output_limit", "index": index, "error": error})
-            return finish(RolloutStatus.OUTPUT_LIMIT, error)
-        except Exception as exc:  # Preserve earlier actions when a transport fails.
-            error = f"{type(exc).__name__}: {exc}"
-            step["error"] = error
-            emit({"type": "error", "index": index, "error": error})
-            return finish(RolloutStatus.API_ERROR, error)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            failure, event, detail = _policy_failure(exc)
+            step["error"] = detail
+            emit({"type": event, "index": index, "error": detail})
+            return finish(failure, detail)
         step["raw_response"] = raw
         emit({"type": "response", "index": index, "raw_response": raw})
         try:
@@ -189,21 +287,19 @@ def rollout(
             step["error"] = error
             return finish(RolloutStatus.INVALID_RESPONSE, error)
 
-        previous = current
+        previous = observation
         current = np.asarray(env.next_state(current, action))
-        rows = to_rows(current)
+        observation = _observe(current, observe)
+        rows = list(observation.rows)
         actions.append(action)
-        preserved = all(predicate_value(predicate, rows) for predicate in intent["preserve"])
-        holds = all(predicate_value(predicate, rows) for predicate in intent["effects"])
+        preserved = _holds(checked["preserve"], observation)
+        holds = _holds(checked["effects"], observation)
         solved = bool(env.is_solved(current))
-        step.update(action=action, after=rows, no_op=bool(np.array_equal(previous, current)),
+        step.update(action=action, after=rows, no_op=previous == observation,
                     intent_holds=holds, preservation_holds=preserved, task_solved=solved)
         memory.append(ActionAttempt(list(Action)[action], step["no_op"]))
         emit({"type": "action", **{key: value for key, value in step.items() if key != "prompt"}})
-        if not preserved:
-            return finish(RolloutStatus.PRESERVATION_VIOLATED)
-        if holds:
-            return finish(RolloutStatus.ACHIEVED)
-        if solved:
-            return finish(RolloutStatus.TASK_SOLVED)
-    return finish(RolloutStatus.ACTION_LIMIT)
+        terminal = _termination(preserved, holds, solved)
+        if terminal is not None:
+            return finish(terminal)
+    return finish(RolloutStatus.UNKNOWN if holds is None else RolloutStatus.ACTION_LIMIT)

@@ -1,7 +1,7 @@
 """Policy-relative calibration on distinct verified training-trajectory targets."""
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 CALIBRATION_VERSION = 'policy-relative-exact-v2'
 
 
-def weighted_percentiles(times: list[float], hits: list[int]) -> tuple[np.ndarray, np.ndarray]:
-    """Assign tied successful times the midpoint of their shared weighted CDF interval."""
+def weighted_percentiles(times: Sequence[float], hits: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
+    """Assign tied durations their weighted CDF midpoint using positive masses."""
     times_array, counts = np.asarray(times, float), np.asarray(hits, float)
     if (len(times_array) == 0 or len(times_array) != len(counts)
             or not np.isfinite(times_array).all() or not np.isfinite(counts).all() or np.any(counts <= 0)):

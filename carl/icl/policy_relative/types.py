@@ -35,6 +35,7 @@ class AttemptStatus(StrEnum):
     TASK_SOLVED = "task_solved"
     PRESERVATION_VIOLATED = "preservation_violated"
     INVALID_RESPONSE = "invalid_response"
+    UNKNOWN = "unknown"
 
 
 class PredictionStatus(StrEnum):
