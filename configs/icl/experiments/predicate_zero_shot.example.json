@@ -1,0 +1,15 @@
+{
+  "name": "sokoban_predicate_zero_shot",
+  "model": "gpt-6-luna",
+  "response_format": "json_schema",
+  "seed": 73,
+  "generator_tokens": 256,
+  "action_budget": 1,
+  "predicate_icl": {
+    "validation_id": "290c54222415846563711c2c4ef7fe38444170a2f414b250d129f1b882aba01a",
+    "scale_arm": "unscaled",
+    "policy_shots": 0,
+    "generator_shots": 0,
+    "context_limit": 8192
+  }
+}

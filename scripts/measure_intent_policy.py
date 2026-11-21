@@ -8,9 +8,15 @@ from typing import Any
 
 from carl.icl.config import ExperimentConfig, load_config
 from carl.icl.experiment import create_inference_api
+from carl.icl.intent_domain import SokobanObservation
+from carl.icl.intent_support import task_group_id
+from carl.icl.llm_components.predicate import PredicatePolicy
 from carl.icl.luna_intent_rollout import Action, ActionAttempt
 from carl.icl.policy_relative.measurements import MeasurementSettings, measure
-from carl.icl.policy_relative.rollout import ReplayIntentPolicy
+from carl.icl.policy_relative.rollout import PolicyFactory, ReplayIntentPolicy
+from carl.icl.predicate_icl import components_for_predicate_run, load_condition
+
+RIGHT = '{"action":"RIGHT"}'
 
 
 def _read_mapping(path: Path | None) -> dict[str, int]:
@@ -35,7 +41,32 @@ def _memory(path: Path | None) -> tuple[ActionAttempt, ...]:
 
 def _mock_right(_seed: int) -> Callable[[str], str]:
     """A deterministic fixture policy that repeatedly chooses RIGHT."""
-    return lambda _prompt: '{"action":"RIGHT"}'
+    return lambda _prompt: RIGHT
+
+
+def _predicate_policy(
+    config: ExperimentConfig, args: argparse.Namespace,
+) -> tuple[dict[str, Any], PolicyFactory, Callable[[dict[str, Any]], None]]:
+    support = load_condition(
+        config, args.support_data or args.data, args.support_manifest,
+        policy_data=args.policy_data, policy_audit=args.policy_audit,
+    )
+    mode = "mock" if args.mock else "replay"
+    components = components_for_predicate_run(config, support, mode, calibration=True)
+    controller = {
+        "id": f"predicate-{mode}-policy-v1", "deterministic": args.mock,
+        "predicate_policy": components.contract("policy"),
+        "limits": components.api.limits.model_dump(),
+        "cache_dir": str(config.path("cache_dir").resolve()),
+    }
+
+    def factory(seed: int) -> PredicatePolicy:
+        return components.policy_factory(seed, mock=(lambda _: RIGHT) if args.mock else None)
+
+    def check(row: dict[str, Any]) -> None:
+        support.assert_policy_holdout(SokobanObservation(tuple(row["start_observation"])), task_group=task_group_id(row))
+
+    return controller, factory, check
 
 
 def main() -> int:
@@ -54,6 +85,11 @@ def main() -> int:
     parser.add_argument("--offset-denominator", type=float, default=8.0)
     parser.add_argument("--initial-memory", type=Path, help="JSON list of initial action/no_op records")
     parser.add_argument("--cache-dir", type=Path, help="Override the query cache for replay")
+    parser.add_argument("--predicate-config", type=Path, help="Use the frozen predicate policy config in mock mode")
+    parser.add_argument("--support-manifest", type=Path, help="Frozen predicate ICL support manifest")
+    parser.add_argument("--support-data", type=Path, help="Dataset used to freeze support, defaults to --data")
+    parser.add_argument("--policy-data", type=Path, help="Separate checked D_A used to freeze π support")
+    parser.add_argument("--policy-audit", type=Path, help="Override the action audit used to freeze π support")
     args = parser.parse_args()
     try:
         settings = MeasurementSettings(
@@ -62,17 +98,29 @@ def main() -> int:
             planned_attempts=_read_mapping(args.attempt_plan), quota=_read_mapping(args.quota),
             offset_denominator=args.offset_denominator,
         )
+        if args.mock and args.cache_dir is not None:
+            raise ValueError("--cache-dir requires --replay")
+        if args.predicate_config is not None and not args.mock:
+            raise ValueError("--predicate-config is for --mock; pass a predicate config directly to --replay")
+        config_path = args.predicate_config if args.mock else args.replay
+        config = load_config(config_path) if config_path is not None else None
+        if config is not None and args.cache_dir is not None:
+            config = ExperimentConfig.model_validate({**config.model_dump(), "cache_dir": str(args.cache_dir)})
+        typed = config is not None and config.predicate_icl is not None
+        if typed != (args.support_manifest is not None):
+            raise ValueError("a predicate config and --support-manifest are required together")
+        if not typed and (args.support_data or args.policy_data or args.policy_audit or args.predicate_config):
+            raise ValueError("predicate support input requires a predicate config and manifest")
         controller: dict[str, Any]
-        factory: Callable[[int], Callable[[str], str]]
-        if args.mock:
-            if args.cache_dir is not None:
-                raise ValueError("--cache-dir requires --replay")
+        factory: PolicyFactory
+        check = None
+        if config is not None and typed:
+            controller, factory, check = _predicate_policy(config, args)
+        elif args.mock:
             controller = {"id": "mock-right-v1", "deterministic": True}
             factory = _mock_right
         else:
-            config = load_config(args.replay)
-            if args.cache_dir is not None:
-                config = ExperimentConfig.model_validate({**config.model_dump(), "cache_dir": str(args.cache_dir)})
+            assert config is not None
             policy = config.role("policy")
             api = create_inference_api(config, "replay")
             controller = {
@@ -90,7 +138,7 @@ def main() -> int:
             factory = replay_factory
         result = measure(
             args.data, args.output, settings=settings, controller=controller, policy_factory=factory,
-            initial_memory=_memory(args.initial_memory), resume=args.resume,
+            initial_memory=_memory(args.initial_memory), resume=args.resume, candidate_check=check,
         )
     except (OSError, ValueError) as error:
         parser.exit(1, f"Policy measurement failed: {error}\n")

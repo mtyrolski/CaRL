@@ -40,6 +40,7 @@ class _Demonstration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source_id: str = Field(min_length=1)
+    task_group: str | None = Field(default=None, pattern=r"\S")
     split: DataSplit
     start_observation: tuple[str, ...]
     actions: tuple[ActionIndex, ...] = Field(min_length=1)
@@ -135,12 +136,16 @@ def _json(value: object) -> str:
 def _load_traces(payload: bytes) -> tuple[list[_Trace], dict[DataSplit, list[str]]]:
     source = _Source.model_validate_json(payload)
     layout_split: dict[str, DataSplit] = {}
+    group_split: dict[str, DataSplit] = {}
     source_ids: set[str] = set()
     traces = []
     for demonstration in sorted(source.trajectories, key=lambda item: item.source_id):
         if not demonstration.source_id.strip() or demonstration.source_id in source_ids:
             raise ValueError("source_id must be nonempty and unique")
         source_ids.add(demonstration.source_id)
+        group = demonstration.task_group or demonstration.source_id
+        if group_split.setdefault(group, demonstration.split) != demonstration.split:
+            raise ValueError(f"Task group overlaps splits: {group}")
         try:
             snapshot = SokobanSnapshot(demonstration.start_observation)
             layout_id = canonical_layout_id(from_rows(list(snapshot.rows)))
@@ -253,6 +258,8 @@ def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[Annota
                 "observations": [observation.rows for observation in observations],
             },
         }
+        if demonstration.task_group is not None:
+            row["task_group"] = demonstration.task_group
         if result.intent is not None:
             row["intent"] = result.intent
         if result.status == "accepted" and result.intent is not None:

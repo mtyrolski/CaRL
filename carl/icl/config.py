@@ -151,6 +151,34 @@ class Limits(Settings):
     timeout_seconds: float = Field(default=60, gt=0)
 
 
+PredicateScale = Literal["unscaled", "absolute_d", "ratio_d_over_ac", "offset_rank", "normalized_offset", "relative_u"]
+
+
+class PredicateICLSettings(Settings):
+    """An opt-in prompting condition for the checked Sokoban intent path."""
+
+    model_config = ConfigDict(frozen=True)
+
+    validation_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    validation_scale: float | None = Field(default=None, gt=0, strict=True)
+    scale_arm: PredicateScale = "unscaled"
+    policy_shots: int = Field(default=2, ge=0, strict=True)
+    generator_shots: int = Field(default=2, ge=0, strict=True)
+    policy_prompt: str | None = Field(default=None, min_length=1)
+    generator_prompt: str | None = Field(default=None, min_length=1)
+    context_limit: int = Field(default=16000, ge=1, strict=True)
+
+    @model_validator(mode="after")
+    def check_validation_scale(self) -> "PredicateICLSettings":
+        """Bind the nominated condition to a scale on its validation query."""
+        if (self.scale_arm == "unscaled") != (self.validation_scale is None):
+            raise ValueError("validation_scale is required only for scaled predicate prompts")
+        if self.scale_arm in {"relative_u", "offset_rank"} and self.validation_scale is not None:
+            if self.validation_scale >= 1:
+                raise ValueError("validation percentile must be strictly between zero and one")
+        return self
+
+
 class Calibration(Settings):
     """Independent reference population, rollout and calibration budget settings."""
 
@@ -205,6 +233,7 @@ class ExperimentConfig(Settings):
     name: str = "luna_relative"
     model: str = DEFAULT_MODEL
     roles: RoleSettings | None = Field(default=None, exclude_if=lambda value: value is None)
+    predicate_icl: PredicateICLSettings | None = Field(default=None, exclude_if=lambda value: value is None)
     reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
     policy_reasoning_effort: Literal["none", "low", "medium", "high"] | None = None
     json_max_retries: int = Field(default=0, ge=0, le=1)

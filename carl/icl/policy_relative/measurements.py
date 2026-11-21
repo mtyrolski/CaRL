@@ -20,7 +20,9 @@ from carl.icl.intents.generation.data import file_sha256, read_records
 from carl.icl.intents.provenance import component_hashes
 from carl.icl.luna_intent_rollout import MEASUREMENT_PROMPT, Action, ActionAttempt
 from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, contract_hash, label_candidates, pool_identity
-from carl.icl.policy_relative.rollout import ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, run_measurement_attempt
+from carl.icl.policy_relative.rollout import (
+    ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, PolicyFactory, run_measurement_attempt,
+)
 
 COMPLETE_STATUSES = frozenset({
     "achieved", "action_limit", "task_solved", "preservation_violated", "invalid_response", "unknown",
@@ -66,12 +68,13 @@ def _policy_contract(controller: dict[str, Any], memory: Sequence[ActionAttempt]
     if any(not isinstance(item, ActionAttempt) or not isinstance(item.action, Action) or not isinstance(item.no_op, bool)
            for item in memory):
         raise ValueError("initial memory must contain typed action attempts")
+    component = controller.get("predicate_policy", {})
     return {
         "controller": json.loads(json.dumps(controller, allow_nan=False)),
         "initial_memory": [{"action": item.action.value, "no_op": item.no_op} for item in memory],
-        "prompt_version": MEASUREMENT_PROMPT_VERSION,
-        "prompt_sha256": hashlib.sha256(MEASUREMENT_PROMPT.encode()).hexdigest(),
-        "parser_version": ACTION_PARSER_VERSION,
+        "prompt_version": component.get("prompt_version", MEASUREMENT_PROMPT_VERSION),
+        "prompt_sha256": component.get("prompt_sha256", hashlib.sha256(MEASUREMENT_PROMPT.encode()).hexdigest()),
+        "parser_version": component.get("parser_version", ACTION_PARSER_VERSION),
         "sampling": "per-candidate-and-attempt-sha256-v1",
         "code": component_hashes(("luna_intent_rollout.py", "policy_relative/rollout.py")),
     }
@@ -96,6 +99,7 @@ def _select_pool(rows: list[dict[str, Any]], settings: MeasurementSettings) -> l
 
 def _freeze(
     data: Path, settings: MeasurementSettings, controller: dict[str, Any], memory: Sequence[ActionAttempt],
+    candidate_check: Callable[[dict[str, Any]], None] | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, int]]:
     data_hash = file_sha256(data)
     rows = read_records(data)
@@ -104,6 +108,9 @@ def _freeze(
     if file_sha256(data) != data_hash:
         raise ValueError("D_A changed while loading the candidate pool")
     pool = _select_pool(rows, settings)
+    if candidate_check is not None:
+        for row in pool:
+            candidate_check(row)
     planned = {row["record_id"]: settings.planned_attempts.get(row["record_id"], settings.trials) for row in pool}
     policy = _policy_contract(controller, memory)
     environment_root = Path(__file__).resolve().parents[2] / "environment/sokoban"
@@ -242,7 +249,7 @@ def _publish(
 def _run_pool(
     output: Path, pool: list[dict[str, Any]], completed: dict[str, dict[int, dict[str, Any]]],
     *, planned: dict[str, int], settings: MeasurementSettings, memory: Sequence[ActionAttempt],
-    policy_factory: Callable[[int], Callable[[str], str]],
+    policy_factory: PolicyFactory,
 ) -> None:
     for row in pool:
         identifier = row["record_id"]
@@ -264,12 +271,13 @@ def _run_pool(
 
 def measure(
     data: Path, output: Path, *, settings: MeasurementSettings, controller: dict[str, Any],
-    policy_factory: Callable[[int], Callable[[str], str]],
+    policy_factory: PolicyFactory,
     initial_memory: Sequence[ActionAttempt] = (), resume: bool = False,
+    candidate_check: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Freeze a pool, run independent attempts, and publish checked V2 measurements."""
     memory = tuple(initial_memory)
-    frozen, pool, planned = _freeze(data, settings, controller, memory)
+    frozen, pool, planned = _freeze(data, settings, controller, memory, candidate_check)
     output.mkdir(parents=True, exist_ok=True)
     try:
         with FileLock(output / ".measurement.lock", timeout=0):

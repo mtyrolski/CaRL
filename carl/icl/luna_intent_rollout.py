@@ -10,7 +10,7 @@ from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Final
+from typing import Any, Final, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -56,6 +56,23 @@ class ActionAttempt:
 
     action: Action
     no_op: bool
+
+
+@runtime_checkable
+class ObservationPolicy(Protocol):
+    """A controller that consumes the visible observation and its own action history."""
+
+    def render_action(
+        self, observation: SokobanObservation, intent: Intent, memory: Sequence[ActionAttempt],
+    ) -> str:
+        """Render the action request for the rollout trace without calling the model."""
+        ...
+
+    def choose_action(
+        self, observation: SokobanObservation, intent: Intent, memory: Sequence[ActionAttempt],
+    ) -> str:
+        """Return the raw response for the shared action parser."""
+        ...
 
 
 class RolloutStatus(StrEnum):
@@ -217,7 +234,7 @@ def rollout(
     env: BoardEnvironment,
     state: Board,
     intent: dict[str, Any],
-    decide: Callable[[str], str],
+    decide: Callable[[str], str] | ObservationPolicy,
     *,
     cap: int,
     task_goal: str,
@@ -253,6 +270,7 @@ def rollout(
     actions: list[int] = []
     steps: list[dict[str, Any]] = []
     memory = list(initial_memory)
+    typed = isinstance(decide, ObservationPolicy)
 
     def emit(event: dict[str, Any]) -> None:
         if on_event is not None:
@@ -263,7 +281,8 @@ def rollout(
 
     holds: bool | None = False
     for index in range(cap):
-        prompt = _render_prompt(observation, checked, task_goal, memory, measured=measured)
+        prompt = (decide.render_action(observation, checked, memory) if typed
+                  else _render_prompt(observation, checked, task_goal, memory, measured=measured))
         step: dict[str, Any] = {
             "index": index, "before": rows, "prompt": prompt, "raw_response": None,
             "action": None, "after": None, "no_op": None, "intent_holds": None,
@@ -272,7 +291,7 @@ def rollout(
         steps.append(step)
         emit({"type": "request", "index": index, "before": rows, "prompt": prompt})
         try:
-            raw = decide(prompt)
+            raw = decide.choose_action(observation, checked, memory) if typed else decide(prompt)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             failure, event, detail = _policy_failure(exc)
             step["error"] = detail

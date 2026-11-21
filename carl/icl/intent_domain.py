@@ -11,7 +11,7 @@ import numpy as np
 from carl.icl.boards import SYMBOLS, from_rows, to_rows, validate_subgoal
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.intent_augmentation import TRANSFORM_INVARIANT_TASK
-from carl.icl.intent_data import SCHEMA_VERSION, SokobanPredicate, validate_intent
+from carl.icl.intent_data import SCHEMA_VERSION, SokobanPredicate, validate_intent, validate_prediction
 from carl.icl.intents.representation.formats import Representation, parse_representation, render_representation
 from carl.icl.types import Board
 
@@ -289,6 +289,24 @@ def check_intent(intent: Intent, observations: Sequence[SokobanObservation]) -> 
         return _check_partial(intent, observations)
     errors = validate_intent(intent, [list(observation.rows) for observation in observations])
     return IntentCheck("rejected", tuple(errors)) if errors else IntentCheck("accepted")
+
+
+def validate_intent_proposal(intent: Intent, observation: SokobanObservation) -> tuple[str, ...]:
+    """Check whether a proposal is legal and nontrivial using only its visible start."""
+    if not observation.partial:
+        return tuple(validate_prediction(intent, list(observation.rows)))
+    problems = _check_partial_legality(intent, _partial_layout((observation,)))
+    if problems:
+        return problems
+    errors: list[str] = []
+    for group, required in (("effects", False), ("preserve", True)):
+        for index, predicate in enumerate(intent[group]):
+            truth = predicate_truth(predicate, observation)
+            if truth is None:
+                errors.append(f"{group}[{index}]: unknown at start")
+            elif truth != required:
+                errors.append(f"{group}[{index}]: {'preservation false' if required else 'effect already true'} at start")
+    return tuple(errors)
 
 
 def replay_fragment(start: SokobanSnapshot, actions: Sequence[int]) -> tuple[SokobanSnapshot, ...]:

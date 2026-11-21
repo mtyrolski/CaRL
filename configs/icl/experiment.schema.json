@@ -338,6 +338,92 @@
       },
       "title": "RoleSettings",
       "type": "object"
+    },
+    "PredicateICLSettings": {
+      "additionalProperties": false,
+      "description": "An opt-in prompting condition for the checked Sokoban intent path.",
+      "properties": {
+        "validation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Validation Id",
+          "type": "string"
+        },
+        "validation_scale": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validation Scale"
+        },
+        "scale_arm": {
+          "default": "unscaled",
+          "enum": [
+            "unscaled",
+            "absolute_d",
+            "ratio_d_over_ac",
+            "offset_rank",
+            "normalized_offset",
+            "relative_u"
+          ],
+          "title": "Scale Arm",
+          "type": "string"
+        },
+        "policy_shots": {
+          "default": 2,
+          "minimum": 0,
+          "title": "Policy Shots",
+          "type": "integer"
+        },
+        "generator_shots": {
+          "default": 2,
+          "minimum": 0,
+          "title": "Generator Shots",
+          "type": "integer"
+        },
+        "policy_prompt": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Prompt"
+        },
+        "generator_prompt": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generator Prompt"
+        },
+        "context_limit": {
+          "default": 16000,
+          "minimum": 1,
+          "title": "Context Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "validation_id"
+      ],
+      "title": "PredicateICLSettings",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -724,6 +810,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/RoleSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "predicate_icl": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PredicateICLSettings"
         },
         {
           "type": "null"

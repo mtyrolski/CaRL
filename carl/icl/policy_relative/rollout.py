@@ -2,18 +2,22 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from carl.icl.config import ModelSettings
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.intent_domain import Intent, SokobanObservation, SokobanSnapshot
 from carl.icl.luna_action_format import action_text_format
-from carl.icl.luna_intent_rollout import ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, ActionAttempt, rollout
+from carl.icl.luna_intent_rollout import (
+    ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, ActionAttempt, ObservationPolicy, rollout,
+)
 from carl.icl.responses import is_token_count, text_message
 from carl.icl.types import Board
 
 __all__ = ["ACTION_PARSER_VERSION", "MEASUREMENT_PROMPT_VERSION", "ReplayIntentPolicy", "run_measurement_attempt"]
+
+PolicyFactory: TypeAlias = Callable[[int], Callable[[str], str] | ObservationPolicy]
 
 
 @dataclass(frozen=True)
@@ -73,7 +77,7 @@ def run_measurement_attempt(
     cap: int,
     seed: int,
     initial_memory: Sequence[ActionAttempt],
-    policy_factory: Callable[[int], Callable[[str], str]],
+    policy_factory: PolicyFactory,
     observe: Callable[[Board], SokobanObservation] | None = None,
 ) -> dict[str, Any]:
     """Restore the simulator and construct a fresh, seeded controller per trial."""
