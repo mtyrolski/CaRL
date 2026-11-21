@@ -14,7 +14,7 @@ RUN_CONFIG_FILE = $(RUN_DIR)/$(RUN_NAME).yaml
 .PHONY: help pylint-icl icl-check icl-eval icl-eval-demo \
 	check lint typecheck format ruff pyright mypy test \
 	run_local_cpu run_local_gpu run_local_solve run_local_solve_gpu \
-	validate_run_config
+	validate_run_config show_active_experiments
 
 help: ## Show available targets and common examples
 	@printf "CaRL Make Targets\n\n"
@@ -55,6 +55,9 @@ run_local_gpu: validate_run_config ## Run a local config on GPU (requires dir=..
 run_local_solve: run_local_cpu ## Backward-compatible alias for run_local_cpu
 
 run_local_solve_gpu: run_local_gpu ## Backward-compatible alias for run_local_gpu
+
+show_active_experiments: ## Show supervised local runs, progress and report paths
+	@python3 -m scripts.show_active_experiments $(EXPERIMENT_ARGS)
 
 test: ## Run tests
 	$(UV_RUN) --extra icl pytest tests

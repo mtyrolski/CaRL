@@ -16,3 +16,12 @@ The `--mock` and `--replay` modes do not submit live inference requests.
 
 The structured-intent generator is available as
 `python -m carl.icl.intent_generator_experiment --help`.
+
+## Monitoring local experiments
+
+Run `make show_active_experiments` to see supervised runs, progress, recorded
+results and report paths. It only reads run manifests under `analysis/` and
+verifies visible process identities; it does not discover arbitrary processes.
+Use `watch -n 10 make show_active_experiments` for a refreshing view, or
+`make show_active_experiments EXPERIMENT_ARGS=--all` to include completed and
+unverified manifests. For machine-readable output, pass `EXPERIMENT_ARGS=--json`.
