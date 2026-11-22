@@ -3,7 +3,7 @@
 import json
 import random
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -28,6 +28,7 @@ from carl.icl.intent_domain import (
     check_intent,
     context_identity,
     decode_intent,
+    predicate_truth,
     render_instruction,
     replay_fragment,
 )
@@ -65,6 +66,24 @@ class AnnotationRequest:
 
 
 @dataclass(frozen=True)
+class SegmentSelection:
+    """An evaluator-only selection of a fragment's original endpoints."""
+
+    source_id: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class UnlabelledAnnotation:
+    """Preserve an annotator abstention or a malformed raw response in the audit."""
+
+    status: Literal["abstained", "malformed"]
+    reason: str
+    json_valid: bool = True
+
+
+@dataclass(frozen=True)
 class _Trace:
     demonstration: _Demonstration
     layout_id: str
@@ -88,9 +107,10 @@ class _Fragment:
 @dataclass(frozen=True)
 class _Decision:
     intent: Intent | None
-    status: Literal["accepted", "rejected", "unknown"]
+    status: Literal["accepted", "rejected", "unknown", "abstained", "malformed"]
     reasons: tuple[str, ...]
     json_valid: bool
+    first_hit: int | None = None
 
 
 def _positions(rows: tuple[str, ...], symbols: str) -> set[tuple[int, int]]:
@@ -174,18 +194,37 @@ def _fragments(traces: list[_Trace], max_offset: int, seed: int) -> Iterator[_Fr
         yield from candidates
 
 
-def _check(sketch: object, observations: tuple[SokobanObservation, ...]) -> _Decision:
+def _selected_fragments(traces: list[_Trace], selections: Sequence[SegmentSelection]) -> Iterator[_Fragment]:
+    by_source = {trace.demonstration.source_id: trace for trace in traces}
+    for selection in selections:
+        trace = by_source.get(selection.source_id)
+        if trace is None or not 0 <= selection.start < selection.end < len(trace.snapshots):
+            raise ValueError("Selected fragment references an invalid source or bounds")
+        yield _Fragment(trace, selection.start, selection.end - selection.start)
+
+
+def _check(sketch: object, observations: tuple[SokobanObservation, ...], *, first_hit: bool = False) -> _Decision:
+    if isinstance(sketch, UnlabelledAnnotation):
+        return _Decision(None, sketch.status, (sketch.reason,), sketch.json_valid)
     try:
         if isinstance(sketch, str):
             parse_json(sketch)
         else:
             annotation_json(sketch)
     except (TypeError, ValueError) as error:
-        return _Decision(None, "rejected", (f"invalid JSON: {error}",), False)
+        return _Decision(None, "malformed" if first_hit else "rejected", (f"invalid JSON: {error}",), False)
     try:
         intent = decode_intent(sketch)
     except (TypeError, ValueError) as error:
-        return _Decision(None, "rejected", (f"invalid intent: {error}",), True)
+        return _Decision(None, "malformed" if first_hit else "rejected", (f"invalid intent: {error}",), True)
+    if first_hit:
+        endpoints = check_intent({**intent, "preserve": []}, (observations[0], observations[-1]))
+        if endpoints.status != "accepted":
+            return _Decision(intent, endpoints.status, endpoints.errors, True)
+        hit = next(i for i, observation in enumerate(observations)
+                   if all(predicate_truth(effect, observation) is True for effect in intent["effects"]))
+        prefix = check_intent(intent, observations[:hit + 1])
+        return _Decision(intent, prefix.status, prefix.errors, True, hit if prefix.status == "accepted" else None)
     check = check_intent(intent, observations)
     return _Decision(intent, check.status, check.errors, True)
 
@@ -207,12 +246,15 @@ def _effect_type(intent: Intent, endpoint: SokobanObservation) -> EffectType:
     return EffectType.WALK_ONLY
 
 
-def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[AnnotationRequest], object]) -> Iterator[dict[str, Any]]:
+def _annotation_rows(
+    fragments: Iterator[_Fragment], annotator: Callable[[AnnotationRequest], object], *, first_hit: bool = False,
+) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     for fragment in fragments:
         observations = fragment.observations
         start, end = observations[0], observations[-1]
-        result = _check(annotator(AnnotationRequest(start, end)), observations)
+        result = _check(annotator(AnnotationRequest(start, end)), observations, first_hit=first_hit)
+        offset = fragment.offset if result.first_hit is None else result.first_hit
         demonstration = fragment.trace.demonstration
         context_id = context_identity(start.rows)
         row: dict[str, Any] = {
@@ -224,7 +266,7 @@ def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[Annota
             "start_observation": start.rows,
             "task_goal": TASK_GOAL,
             "source_id": demonstration.source_id,
-            "demonstration_offset": fragment.offset,
+            "demonstration_offset": offset,
             "validation": {
                 "accepted": result.status == "accepted",
                 "status": result.status,
@@ -236,10 +278,15 @@ def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[Annota
                     annotation_json((demonstration.source_id, fragment.start, fragment.offset)).encode(),
                 ),
                 "start_index": fragment.start,
-                "actions": demonstration.actions[fragment.start : fragment.start + fragment.offset],
-                "observations": [observation.rows for observation in observations],
+                "actions": demonstration.actions[fragment.start : fragment.start + offset],
+                "observations": [observation.rows for observation in observations[:offset + 1]],
             },
         }
+        if first_hit:
+            row["evidence"].update(
+                original_end_index=fragment.start + fragment.offset, original_end_observation=end.rows,
+                first_verified_hit_offset=result.first_hit,
+            )
         if demonstration.task_group is not None:
             row["task_group"] = demonstration.task_group
         if result.intent is not None:
@@ -255,7 +302,7 @@ def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[Annota
                 )
             else:
                 seen.add(record_id)
-                row["effect_type"] = _effect_type(intent, end)
+                row["effect_type"] = _effect_type(intent, observations[offset])
                 row["instruction"] = render_instruction(intent)
         yield row
 
@@ -268,6 +315,7 @@ def prepare_annotations(
     seed: int,
     annotator: Callable[[AnnotationRequest], object] = mock_annotator,
     annotator_id: str = DEFAULT_ANNOTATOR,
+    selections: Sequence[SegmentSelection] | None = None,
 ) -> dict[str, Any]:
     """Replay demonstrations, check pair-only drafts, and publish a complete dataset."""
     if not isinstance(max_offset, int) or isinstance(max_offset, bool) or max_offset < 1:
@@ -284,7 +332,8 @@ def prepare_annotations(
         stage = Path(directory)
         data_file, audit_file = stage / "D_A.jsonl", stage / "annotation_audit.jsonl"
         with data_file.open("w", encoding="utf-8") as accepted, audit_file.open("w", encoding="utf-8") as audit:
-            for row in _annotation_rows(_fragments(traces, max_offset, seed), annotator):
+            fragments = _fragments(traces, max_offset, seed) if selections is None else _selected_fragments(traces, selections)
+            for row in _annotation_rows(fragments, annotator, first_hit=selections is not None):
                 status = row["validation"]["status"]
                 counts[status] += 1
                 audit.write(annotation_json(row) + "\n")
@@ -313,6 +362,9 @@ def prepare_annotations(
             )),
             "files_sha256": {path.name: file_sha256(path) for path in (data_file, audit_file)},
         }
+        if selections is not None:
+            manifest["abstained"] = counts["abstained"]
+            manifest["malformed"] = counts["malformed"]
         manifest_file = stage / "manifest.json"
         manifest_file.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         output.mkdir()

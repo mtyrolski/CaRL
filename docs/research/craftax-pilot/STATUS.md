@@ -132,3 +132,59 @@ This reads the frozen split package and bound ledger. It writes the current bala
 ### Next prompt — 03
 
 Read the contract and status, then run the resume command. Prepare replay-checked annotation inputs for both domains from the frozen train-support episodes. Validate the unsealed Sokoban witnesses and collect native Craftax transitions on their pinned worlds with restorable snapshots. Use Codex's own typed annotations and keep annotation evidence, automatic ticks and unknown outcomes in the audit. Reserve calibration and validation data for their declared roles and keep fixture traces and sealed chains out of training and model inputs. Record preparation costs, artefacts, the result and the next exact resume command in this journal.
+
+## Prompt 03 — First checked demonstrations, 2026-11-22
+
+Complete on the intake checkout `61b990963f2f6a0dd111ec78dbc6480ae89cd9ed`. Each domain supplies **24 accepted train-support fragments** from eight independent groups, with three endpoints per chosen start. A separate set of four Sokoban layout groups and two Craftax chains supplies validation.
+
+| Domain | Independent support groups | Raw packets | Accepted train | Accepted validation | False | Unknown | Malformed | Duplicate | Abstained |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Sokoban | 8 | 36 | 24 | 12 | 0 | 0 | 0 | 0 | 0 |
+| Craftax | 8 | 30 | 24 | 5 | 0 | 0 | 0 | 1 | 0 |
+
+### Native inputs and annotation
+
+- Sokoban replays 12 complete frozen local witnesses, covering 1,577 source actions. The eight independent support units are distinct source episodes and canonical layouts within the original real four-box source family. The archived witnesses supplied the full target yield. Twenty-two accepted training rows fill at least one new goal and verify that an already occupied goal stays occupied through the first hit.
+- Craftax replayed 39 scripted native actions over ten seeded worlds, then reproduced each episode from its reset and staged snapshot. The support collection plan freezes the eight worlds and crafting chains before collection. It binds to the base split and excludes withheld worlds, chains, and withheld chains embedded in a support sequence. Two previously frozen validation worlds supply the remaining packets. The first collection used the wrong facing direction on a validation world. The corrected demonstrator reads the stone direction from the frozen scenario. The failed run, its original plan, and the successful retry remain in the ledger and artefacts.
+- Codex read the endpoint packets in four Sokoban batches of nine and five Craftax batches of six, then authored one raw JSONL response per packet in this session. The prompt is saved verbatim with SHA-256 `8ba9e04b8b69e174d448799f6c2568389657fcef2c8177ab2197511be9ff207e`. The manifests record Codex, GPT-6 family, and an unknown exact build. The observed annotation windows were 180 seconds for Sokoban and 144 for Craftax, in separate preparation rows. Per-session tokens are unknown. Sokoban witnesses, the Craftax scripts and Codex labels have distinct provenance. All 66 labels came from Codex.
+
+Each `D_A.jsonl` has partial predicate intents with model-visible start observations. The evaluator audit retains original endpoints, the verified prefixes, snapshot and memory references, and reasons for rejected rows. Sokoban uses the actual per-packet responses through the `prepare_annotations` callback. Craftax uses `CraftaxIntent` and the replayed native inventory at every tick. There are no measured scale labels. The duplicate came from two different facing observations that support the same sword-tier intent in the same validation context.
+
+### Outputs and verification
+
+Each domain directory under `analysis/intent-pilot/annotations/` contains `D_A.jsonl`, `annotations.raw.jsonl`, `annotation_audit.jsonl`, `split_manifest.json`, `manifest.json`, and the hashed blinded packets. The protected `private/` directories contain complete native traces, script or source provenance, and the packet-to-trajectory index. Representative accepted rows are in `annotations/labelled-yield.json`.
+
+| Domain | Split manifest SHA-256 | Checked dataset SHA-256 |
+| --- | --- | --- |
+| Sokoban | `f6ced20885d191b02d152e22d02b592bb9f85790c0df9b170d6d7651272e0694` | `a6e815621d10b5c7661ff53920929c8e1a0253610a28db997a1683fa6228b940` |
+| Craftax | `fd62e3f96be616ad198bddff87ad6c9e6cfe20bfa6fda7725ebb52f595116331` | `9c45ef41a9df8c011e88735d6baa807358438994d6cc114e5b7d71f760213ae0` |
+
+The executed collection entry point was `python -m scripts.intent_pilot annotations collect --domain DOMAIN` inside the locked environment and the Prompt 03 preparation ledger. The executed rebuild entry point was `python -m scripts.intent_pilot annotations build --domain DOMAIN`. Both domains passed `annotations verify`, which independently rebuilds the checked bytes from the frozen evidence and raw responses and compares them to the saved outputs.
+
+The targeted locked regression run passed 33 tests. It covered the legacy annotation and policy-measurement consumers, selected-prefix preservation with an independently checked original endpoint, missing Craftax tick evidence, and rejection of extra scale fields. Ruff and `git diff --check` passed.
+
+### Reconciled budget
+
+Prompt 03 charged **308.863 preparation worker-seconds**, including 147.547 for the failed Craftax collection and 94.964 for its retry. Cumulative preparation is 593.801 seconds. **6,606.199 worker-seconds remain**, with **4,806.199 available before Prompt 09** and **1,800 protected for Prompt 09**. Outstanding reservations, inference worker-seconds, and metered USD are zero. Exact invocations and costs are in `analysis/intent-pilot/stage03-budget.json`. Stage logs are under `analysis/intent-pilot/logs/stage03-*.log`.
+
+### Exact resume command
+
+From the CaRL checkout, read the contract and journal, then verify the base split and both checked datasets with the same ledger.
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.intent_pilot verify \
+  > analysis/intent-pilot/stage04-input-check.json
+for domain in sokoban craftax; do
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+    --prompt 4 --domain "$domain" --phase preparation --activity verify-checked-demonstrations --seconds 90 -- \
+    uv run --locked --offline --no-sync python -m scripts.intent_pilot annotations verify --domain "$domain" \
+    > "analysis/intent-pilot/stage04-$domain-dataset-check.json" || break
+done
+```
+
+The inputs are the locked split and ledger, the per-domain packet manifests, actual raw responses and private replay evidence. The checks write the current budget and verified dataset hashes without copying private trace contents. `stage03-resume.json` and the per-domain verify logs record the completed checks for this stage.
+
+### Next prompt — 04
+
+Read both documents and verify the checked datasets. Use the `train-support` rows for demonstration support and the frozen `train-measurement` cohort for controller trials. Pin each real local controller's model, tokenizer, action interface, memory and decoding before measuring. Record the currently unresolved Qwen3-1.7B snapshot as a preparation dependency. Keep validation and sealed groups separate, then append the actual inputs, commands, output paths, results and reconciled budget to this journal.

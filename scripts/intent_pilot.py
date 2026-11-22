@@ -19,6 +19,9 @@ def main() -> int:
     replay = commands.add_parser("replay", help="Check checkpoint replay on a public integration fixture")
     replay.add_argument("--domain", required=True, choices=("sokoban", "craftax"))
     replay.add_argument("--output", type=Path, required=True)
+    data = commands.add_parser("annotations", help="Collect, rebuild or verify the checked pilot datasets")
+    data.add_argument("operation", choices=("collect", "build", "verify"))
+    data.add_argument("--domain", choices=("sokoban", "craftax"), required=True)
     run = commands.add_parser("run", help="Reserve worker time and execute a local command")
     run.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     run.add_argument("--domain", default="both", choices=DOMAINS)
@@ -48,6 +51,17 @@ def main() -> int:
 
             run_replay(args.domain, args.output)
             print(args.output)
+            return 0
+        if args.action == "annotations":
+            from carl.icl.experiments import intent_pilot_annotations as annotations
+
+            if verify(root)["split_sha256"] != ledger.split_digest():
+                raise ValueError("The split manifest does not match the campaign ledger")
+            if args.operation == "collect":
+                result = annotations.collect(root, args.domain)
+            else:
+                result = annotations.build(root, args.domain, verify_only=args.operation == "verify")
+            print(json.dumps(result, indent=2))
             return 0
         if args.action == "record-preparation":
             ledger.record_preparation(
