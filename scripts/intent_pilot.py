@@ -36,6 +36,8 @@ def main() -> int:
     comparison_parser = commands.add_parser("comparison", help="Run or inspect the paired validation diagnostic")
     comparison_parser.add_argument("operation", choices=("freeze", "run", "report"))
     comparison_parser.add_argument("--wall-seconds", type=int, default=60)
+    comparison_parser.add_argument("--recovery", action="store_true",
+                                   help="Run or report the held-out development recovery at 60 seconds per arm")
     job = commands.add_parser("run", help="Reserve worker time and execute a local command")
     job.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     job.add_argument("--domain", default="both", choices=DOMAINS)
@@ -134,8 +136,11 @@ def main() -> int:
             from carl.icl.experiments import intent_pilot_compare as comparison
 
             if args.operation == "freeze":
-                comparison.freeze_validation(root)
-            result = comparison.run(root, args.wall_seconds) if args.operation == "run" else comparison.publish(root)
+                comparison.freeze_validation(root, recovery=args.recovery)
+            if args.operation == "run":
+                result = comparison.run(root, args.wall_seconds, recovery=args.recovery)
+            else:
+                result = comparison.publish(root, recovery=args.recovery)
             print(json.dumps(result, indent=2))
             return 0
         if args.action == "freeze":

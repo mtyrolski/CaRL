@@ -280,7 +280,7 @@ def _records(directory: Path) -> list[JSONObject]:
 
 def _run_slot(
     directory: Path, run_id: str, metadata: JSONObject, case: JSONObject, candidate: JSONObject,
-    adapter: CraftaxAdapter, roots: dict[str, CraftaxSnapshot], decide: LocalDecider, remaining: float,
+    adapter: CraftaxAdapter | None, roots: dict[str, CraftaxSnapshot], decide: LocalDecider, remaining: float,
 ) -> JSONObject:
     path = directory / "private/trials" / run_id / f"{metadata['slot_id']}.json"
     h = candidate["intent"]
@@ -290,6 +290,7 @@ def _run_slot(
         physical = future = digest(list(start.rows))
         session = IntentSession(SokobanDirect(start, decode_intent(h)), case["task_goal"], budget)
     else:
+        assert adapter is not None
         root = roots[case["context_id"]]
         physical = root.physical_fingerprint
         fork = adapter.fork_future(root, metadata["stream"])
@@ -312,6 +313,57 @@ def _run_slot(
         raise ValueError("Attempt started from a different state or controller memory")
     checkpoint(result)
     return {**identity, **result}
+
+
+def recover_sokoban(root: Path, wall_seconds: int) -> JSONObject:
+    """Fill the original Qwen3/Sokoban slots without rewriting the initial release."""
+    import torch
+    from carl.icl.experiments.intent_pilot_measure_report import publish
+
+    started = time.monotonic()
+    base = root / "measurements"
+    directory = root / "final/calibration"
+    private = directory / "private"
+    private.mkdir(parents=True, exist_ok=True)
+    model, domain = MODELS[0], "sokoban"
+    with FileLock(str(private / "run.lock"), timeout=0):
+        plan, pool_hash = load_plan(root)
+        policy = plan["policies"][model]
+        freeze(private / "resume.json", {
+            "schema": "carl-pilot-calibration-recovery-v1", "model": model, "domain": domain,
+            "pool_sha256": pool_hash, "policy_sha256": policy["sha256"],
+            "base_manifest_sha256": file_sha256(base / model / domain / "manifest.json"),
+        })
+        saved = [*_records(base), *_records(directory)]
+        complete = {row["slot_id"] for row in saved if row["status"] in ELIGIBLE}
+        pending = [(case, candidate, _slot(model, domain, case, candidate, 0))
+                   for case in plan["contexts"][domain] for candidate in case["candidates"]]
+        pending = [(case, candidate, slot) for case, candidate, slot in pending if slot["slot_id"] not in complete]
+        if not pending:
+            return publish(root, recovery=True)
+        config = read(root / "direct" / f"{model}.json")
+        torch.set_num_threads(config["threads"])
+        torch.set_num_interop_threads(1)
+        torch.use_deterministic_algorithms(True)
+        torch.manual_seed(SEED)
+        role = bind_local_role(LocalModelSettings.model_validate(config["local"]), "policy")
+        if (role.identity() != policy["contract"]["model"]
+                or torch.get_num_threads() != policy["contract"]["threads"]):
+            raise ValueError("The recovery requires the original controller and effort")
+        cache = private / "cache" / policy["sha256"]
+        freeze(cache / "greedy-check.json", read(base / "private/cache" / policy["sha256"] / "greedy-check.json"))
+        decide = LocalDecider(role, cache)
+        run_id = uuid4().hex
+        for case, candidate, slot in pending:
+            remaining = wall_seconds - (time.monotonic() - started)
+            if remaining <= 15:
+                break
+            slot.update(pool_sha256=pool_hash, policy_sha256=policy["sha256"])
+            row = _run_slot(directory, run_id, slot, case, candidate, None, {}, decide, remaining)
+            print(model, domain, case["context_id"][:10], candidate["type"],
+                  row["status"], row["first_hit"], flush=True)
+            publish(root, progress_only=True, recovery=True)
+        return publish(root, recovery=True)
 
 
 def run(root: Path, wall_seconds: int) -> JSONObject:

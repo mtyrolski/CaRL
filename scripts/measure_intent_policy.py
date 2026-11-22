@@ -159,24 +159,28 @@ def main() -> int:
 
 
 def _pilot(argv: list[str]) -> int:
-    from carl.icl.experiments.intent_pilot_measure import freeze_plan, run
+    from carl.icl.experiments.intent_pilot_measure import freeze_plan, recover_sokoban, run
     from carl.icl.experiments.intent_pilot_measure_report import publish
 
     parser = argparse.ArgumentParser(description="Measure the bounded native pilot from the frozen training groups")
     parser.add_argument("operation", choices=("freeze", "run", "report"))
     parser.add_argument("--root", type=Path, default=Path("analysis/intent-pilot"))
     parser.add_argument("--wall-seconds", type=int, default=1000)
+    parser.add_argument("--recovery", action="store_true", help="Recover the original Qwen3/Sokoban slots into a separate report")
     args = parser.parse_args(argv)
     try:
         if args.operation == "freeze":
+            if args.recovery:
+                raise ValueError("Recovery uses the existing frozen pool")
             result = freeze_plan(args.root)
             publish(args.root, progress_only=True)
         elif args.operation == "run":
             if args.wall_seconds < 1:
                 raise ValueError("Specify a positive block deadline")
-            result = run(args.root, args.wall_seconds)
+            runner = recover_sokoban if args.recovery else run
+            result = runner(args.root, args.wall_seconds)
         else:
-            result = publish(args.root)
+            result = publish(args.root, recovery=args.recovery)
     except (OSError, ValueError) as error:
         parser.exit(1, f"Pilot policy measurement failed: {error}\n")
     print(json.dumps(result, indent=2))

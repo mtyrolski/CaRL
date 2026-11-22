@@ -90,7 +90,9 @@ def _menu(rows: list[str], task: JSONObject) -> list[JSONObject]:
     return _options(DOMAIN, rows, intents)
 
 
-def freeze_validation(root: Path) -> tuple[JSONObject, FittedIntentValue, list[JSONObject]]:
+def freeze_validation(
+    root: Path, *, recovery: bool = False,
+) -> tuple[JSONObject, FittedIntentValue, list[JSONObject]]:
     directory = root / "generator-v2"
     selection = read(directory / "selection.json")
     source = directory / "private/plan.json"
@@ -136,16 +138,29 @@ def freeze_validation(root: Path) -> tuple[JSONObject, FittedIntentValue, list[J
             skill_hits["push_while_preserving_goal"].append(file_sha256(path))
     if not all(skill_hits.values()):
         raise ValueError("The frozen controller has no independent evidence for a required skill")
-    freeze(root / "comparison/private/plan.json", {
+    destination = _destination(root, recovery)
+    plan = {
         "schema": "carl-pilot-paired-validation-v1", "split_sha256": split["base_split_sha256"],
         "selection_sha256": file_sha256(directory / "selection.json"), "episodes_sha256": file_sha256(episodes),
         "value": selection["value_fingerprint"], "value_target": TASK_GOAL, "policy_sha256": cell["policy_sha256"],
         "runner_sha256": file_sha256(Path(__file__)), "skill_hit_sha256": skill_hits,
         "other_cells": {name: settings["arms"] for name, settings in generator["cells"].items() if name != CELL},
-        "relative_status": selection["comparative_scale_status"], "limits": {**COUNT_LIMITS, "wall_seconds": CASE_SECONDS},
+        "relative_status": selection["comparative_scale_status"],
+        "limits": {**COUNT_LIMITS, "wall_seconds": 60.0 if recovery else CASE_SECONDS},
         "commit_wall_reserve": COMMIT_SECONDS, "commit_count_reserve_fraction": 0.5, "cases": cases,
-    })
+    }
+    if recovery:
+        original = read(root / "comparison/private/plan.json")
+        for key in ("cases", "policy_sha256", "selection_sha256", "value"):
+            if plan[key] != original[key]:
+                raise ValueError(f"Validation recovery changes the original {key}")
+        plan["original_sha256"] = file_sha256(root / "comparison/private/plan.json")
+    freeze(destination / "private/plan.json", plan)
     return cell, value, cases
+
+
+def _destination(root: Path, recovery: bool) -> Path:
+    return root / ("final/validation" if recovery else "comparison")
 
 
 class _GoalEnvironment(SokobanEnv):
@@ -400,14 +415,15 @@ class _Episode:
         self.save()
 
 
-def run(root: Path, wall_seconds: int) -> JSONObject:
+def run(root: Path, wall_seconds: int, *, recovery: bool = False) -> JSONObject:
     """Reserve once externally. A completed or interrupted assigned episode is immutable."""
     started = time.monotonic()
-    if wall_seconds <= CASE_SECONDS:
+    case_seconds = 60.0 if recovery else CASE_SECONDS
+    if wall_seconds <= case_seconds:
         raise ValueError("The comparison deadline must admit at least one full warmed episode")
-    directory = root / "comparison"
-    cell, value, cases = freeze_validation(root)
-    publish(root)
+    directory = _destination(root, recovery)
+    cell, value, cases = freeze_validation(root, recovery=recovery)
+    publish(root, recovery=recovery)
     print("Frozen paired validation cases:", ", ".join(case["case_id"] for case in cases), flush=True)
     import torch
 
@@ -421,7 +437,7 @@ def run(root: Path, wall_seconds: int) -> JSONObject:
     if role.identity() != policy["model"]:
         raise ValueError("The actual local weights differ from the frozen policy")
     setup = time.monotonic()
-    with _within(started + wall_seconds - CASE_SECONDS):
+    with _within(started + wall_seconds - case_seconds):
         _ = role._stack
         _ = role._tokenizer
     write_json(directory / "private/warmup.json", {
@@ -434,15 +450,17 @@ def run(root: Path, wall_seconds: int) -> JSONObject:
             path = directory / "private/episodes" / f"{case['case_id']}-{arm}.json"
             if path.exists():
                 continue
-            seconds = min(CASE_SECONDS, started + wall_seconds - time.monotonic())
+            seconds = min(case_seconds, started + wall_seconds - time.monotonic())
+            if recovery and seconds < case_seconds:
+                return publish(root, recovery=recovery)
             if seconds <= COMMIT_SECONDS:
-                return publish(root)
+                return publish(root, recovery=recovery)
             budget = IntentBudget(COUNT_LIMITS["primitives"], COUNT_LIMITS["requests"], COUNT_LIMITS["native_ticks"], seconds)
             episode = _Episode(case, arm, role, cell["examples"], value, path, budget)
             episode.execute()
             print(case["case_id"], arm, episode.trace["status"], episode.trace["first_hit"], flush=True)
-            publish(root)
-    return publish(root)
+            publish(root, recovery=recovery)
+    return publish(root, recovery=recovery)
 
 
 def _episode_summary(row: JSONObject, *, interrupted: bool) -> JSONObject:
@@ -469,12 +487,13 @@ def _episode_summary(row: JSONObject, *, interrupted: bool) -> JSONObject:
     }
 
 
-def publish(root: Path) -> JSONObject:
+def publish(root: Path, *, recovery: bool = False) -> JSONObject:
     """Preserve paired denominators, including undispatched or unavailable episodes."""
-    directory = root / "comparison"
+    directory = _destination(root, recovery)
     plan = read(directory / "private/plan.json")
     ledger = PilotLedger(root).status()
-    jobs = [job for job in ledger["jobs"] if job["prompt"] == 7 and job["activity"] == "paired-validation"]
+    prompt, activity = (9, "prerequisite-paired-validation") if recovery else (7, "paired-validation")
+    jobs = [job for job in ledger["jobs"] if job["prompt"] == prompt and job["activity"] == activity]
     interrupted = bool(jobs and jobs[-1]["status"] in ("timed_out", "failed", "launch_failed"))
     runs: list[JSONObject] = []
     for case in plan["cases"]:

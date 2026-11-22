@@ -64,14 +64,16 @@ def _observed_root(domain: str, case: JSONObject, native: JSONObject) -> tuple[o
     return root["observation"], root["physical_start_id"], root["future_ids"]
 
 
-def publish(root: Path, *, progress_only: bool = False) -> JSONObject:
+def publish(root: Path, *, progress_only: bool = False, recovery: bool = False) -> JSONObject:
     plan, pool_hash = load_plan(root)
-    directory = root / "measurements"
-    path = directory / "private/native-starts.json"
+    base = root / "measurements"
+    directory = root / "final/calibration" if recovery else base
+    path = base / "private/native-starts.json"
     native = read(path) if path.is_file() else {}
     records: dict[str, list[JSONObject]] = defaultdict(list)
-    for record in _records(directory):
-        records[record["slot_id"]].append(record)
+    for source in (base, directory) if recovery else (base,):
+        for record in _records(source):
+            records[record["slot_id"]].append(record)
     recognized = set()
     cells = []
     for model in MODELS:
