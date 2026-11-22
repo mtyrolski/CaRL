@@ -2,6 +2,8 @@ import sys
 import math
 import time
 from collections.abc import Callable
+from copy import deepcopy
+from hashlib import sha256
 from typing import Any
 
 import numpy as np
@@ -55,8 +57,12 @@ class Solver:
     @staticmethod
     def _hash_state(state: State) -> str:
         if isinstance(state, np.ndarray):
-            return str(hash(state.tobytes()))
-        return str(hash(state))
+            digest = sha256(f"array:{state.dtype.str}:{state.shape}:".encode())
+            digest.update(state.tobytes())
+        else:
+            digest = sha256(b"text:")
+            digest.update(state.encode())
+        return str(int.from_bytes(digest.digest()[:8], "big", signed=True))
 
     def _mark_reached_proposal_events(self, search_info: SearchInfo, solving_node: SearchTreeNode | None) -> None:
         if solving_node is None or not search_info.proposal_events:
@@ -73,7 +79,9 @@ class Solver:
             if isinstance(event_id, int):
                 event["reached"] = event_id in reached_event_ids
 
-    def _compute_post_solve_metrics(self, search_info: SearchInfo, solving_node: SearchTreeNode | None) -> None:
+    def _compute_post_solve_metrics(
+        self, search_info: SearchInfo, solving_node: SearchTreeNode | None, initial_snapshot: State,
+    ) -> None:
         accepted = search_info.proposal_acceptances or 0
         rejected = search_info.proposal_rejections or 0
         denom = accepted + rejected
@@ -101,10 +109,12 @@ class Solver:
 
         segment_lengths: list[int] = []
         segment_budgets: list[int] = []
+        segment_actions: list[list[int]] = []
         current = solving_node
         while current.parent_node is not None:
             low_level_path = current.low_level_path or []
             segment_lengths.append(len(low_level_path))
+            segment_actions.append(low_level_path)
             if current.next_expand_with_k_generator is not None:
                 segment_budgets.append(int(current.next_expand_with_k_generator))
             current = current.parent_node
@@ -127,28 +137,22 @@ class Solver:
             search_info.progress_per_segment_mean = 0.0
             search_info.detour_ratio = 0.0
 
-        # Reconstruct low-level solving state path to estimate repeated-state backtracking.
+        # Some simulators mutate their input arrays. Replay only on a detached environment and state.
         env = getattr(self.validator, "env", None)
         if env is None:
             return
         try:
-            from carl.solver.nodes import get_solving_path_data
-            _, _, _, _, state_path = get_solving_path_data(solving_node, include_state_path=True, env=env)
+            replay_env = deepcopy(env)
+            replay_env.restore_full_state_from_np_array_version(initial_snapshot)
+            seen = {self._hash_state(replay_env.get_state())}
+            for segment in reversed(segment_actions):
+                for action in segment:
+                    state, _, _, _ = replay_env.step(action)
+                    seen.add(self._hash_state(state))
         except Exception:
-            state_path = None
-
-        if state_path is not None and len(state_path) > 1:
-            seen: set[str] = set()
-            revisits = 0
-            for state in state_path:
-                state_key = self._hash_state(state)
-                if state_key in seen:
-                    revisits += 1
-                else:
-                    seen.add(state_key)
-            search_info.backtracking_ratio = revisits / len(state_path)
-        elif state_path is not None:
-            search_info.backtracking_ratio = 0.0
+            return
+        state_count = sum(segment_lengths) + 1
+        search_info.backtracking_ratio = (state_count - len(seen)) / state_count
 
     def construct_networks(self) -> None:
         self.subgoal_generator.construct_network()
@@ -158,6 +162,7 @@ class Solver:
     def solve(self, initial_state: State) -> Experience:
         ensure_high_recursion_limit()
         start_time = time.perf_counter()
+        initial_snapshot = self._copy_state_for_logging(initial_state)
 
         self.planner = self.planner_class(
             initial_state)    #, dead_end_finder=DeadEndFinder(self.subgoal_generator.env, 4))
@@ -283,7 +288,7 @@ class Solver:
         search_info.runtime_seconds = time.perf_counter() - start_time
         search_info.solving_node = solving_node
         self._mark_reached_proposal_events(search_info, solving_node)
-        self._compute_post_solve_metrics(search_info, solving_node)
+        self._compute_post_solve_metrics(search_info, solving_node, initial_snapshot)
 
         # The computational budget is over.
         return self.planner.get_solution_data(solving_node, search_info)

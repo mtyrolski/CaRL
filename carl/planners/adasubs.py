@@ -64,7 +64,7 @@ class AdasubsPlanner(Planner):
             self.seen_states.add(tuple(node.state.flatten()))
 
         for k in self.generators_k_list:
-            metadata = {'depth': node.parent_node.metadata['depth'] + 1}
+            metadata = {**node.metadata, 'depth': node.parent_node.metadata['depth'] + 1}
             new_node = SearchTreeNode(node.state, node.value, node.low_level_path, node.parent_node, k, metadata)
             self.nodes_queue.put(data=new_node, key=(-k, -node.value))
             self.subgoals_added[k] += 1
