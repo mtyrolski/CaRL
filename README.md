@@ -288,7 +288,6 @@ uv run --locked python -m carl.run --config-dir configs/solve/npuzzle --config-n
 ```
 
 This method is suitable for quick tests or environments where a Jupyter Notebook is unavailable.
-See the [archive guide](configs/archive/README.md) for Hydra overrides and recovering historical runs.
 
 #### Via Makefile Shortcut
 For convenience, you can invoke a local solve using the Makefile targets:

@@ -33,8 +33,7 @@ out*
 /validation
 
 # Keep local experiment inputs and outputs out of source control.
-/analysis/*
-!/analysis/README.md
+/analysis/
 /local/experiments/
 /configs/icl/campaign_budget.json
 
