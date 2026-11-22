@@ -569,3 +569,75 @@ cat analysis/intent-pilot/search-extension/RESULTS.md
 ### Next prompt — 09
 
 Read both campaign documents and the extension report. The available Prompt 09 reserve is 1,800 worker-seconds. Carry forward the incomplete primary validation and missing scale evidence when determining which frozen settings qualify for sealed evaluation. Full search and Plan-and-Act have no validation outcomes from this extension.
+
+## Prompt 09 — Sealed evaluation blocked at validation
+
+The public predicate test entry requires a successful validation result for the identical frozen condition and mode. The receipt binds the role and support contracts, planning settings, validation anchor and hash of the actual result. Planning requires `solved`. Single-intent inference requires `achieved`. The base controllers use no LoRA checkpoint. The repo's separate adapter selection gate requires `best.json` with matching fingerprint, step and validation loss when an adapter is used.
+
+### Recovery on development data
+
+The Prompt 09 reserve funded paired validation on the two frozen Prompt 07 starts. The recovery used the same Qwen3-0.6B weights, policies, observations, support examples, preservation requirements and action limits. Both arms had 60 seconds per warmed case, 48 executed primitives and native ticks, 16 logical requests and 16,000 charged tokens. Each direct arm stopped at the wall limit. Depth-one without scale made four speculative transitions and found no verified intent to commit. Both starts stayed within the existing validation partition.
+
+| Validation start | Direct outcome and work | Depth-one unlabelled outcome and work |
+| --- | --- | --- |
+| `generated_12x12x10_validation_1` | Wall cutoff, 6 committed actions, 7 requests | No verified probe, 3 speculative actions, 5 requests |
+| `generated_12x12x10_validation_2` | Wall cutoff, 3 committed actions, 4 requests | No verified probe, 1 speculative action, 3 requests |
+
+Direct solved 0/2 and unlabelled solved 0/2. There are two matched development comparisons for these arms and no evidence for the relative contrast. The recovery report and raw attempts are in `analysis/intent-pilot/final/validation/`.
+
+The calibration recovery filled all four missing Qwen3/Sokoban slots from the original pool. The resulting 9/9 eligible trials include four successes, each with a one-action first hit. All three contexts are complete and none has distinct successful durations. No informative `u` was produced. The other three cells have no eligible successes under their frozen directed policies. The versioned evidence is in `analysis/intent-pilot/final/calibration/`. The original measurement files and Prompt 06 selection retain their original hashes.
+
+### Qualification and holdout
+
+| Controller | Domain | Direct | Unlabelled | Relative |
+| --- | --- | --- | --- | --- |
+| Qwen3-0.6B | Sokoban | 0/2 composition successes | 0/2 composition successes | No informative scale labels |
+| Qwen3-0.6B | Craftax | No matching composition validation | No reached examples or matching validation | No informative scale labels |
+| Qwen2.5-1.5B-Instruct | Sokoban | No matching composition validation | No reached examples or matching validation | No informative scale labels |
+| Qwen2.5-1.5B-Instruct | Craftax | No matching composition validation | No reached examples or matching validation | No informative scale labels |
+
+All 12 arm/cell decisions are ineligible. Both sealed rosters remain unopened. The 24 prospective slots have reproducible seeds and zero assigned cases. Each cell has zero observed direct-versus-relative and relative-versus-unlabelled pairs. Absolute successes, wins, losses, ties and paired uncertainty are missing. The read-only bundle at `analysis/intent-pilot/final/sealed-report/` includes hashes for splits, checkpoint identities, role prompts, examples, manifests, scale status and data, budget, task definitions, evaluated source and the prospective RNG schedule. Its checksum file covers the eligibility and pair tables. The evaluated code is `ba23c14` and the manifest SHA-256 is `398020374606e3426a27728c07abd8b31367a84270be9b233705c0d59e0a5091`.
+
+### Executed recovery commands
+
+```bash
+source analysis/intent-pilot/env.sh
+export OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 OPENBLAS_NUM_THREADS=1
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 9 --domain sokoban --phase inference --activity prerequisite-paired-validation --seconds 340 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot comparison run --recovery --wall-seconds 318
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 9 --domain sokoban --phase inference --activity prerequisite-calibration --seconds 540 -- \
+  uv run --locked --offline --no-sync python -m scripts.measure_intent_policy pilot run --recovery --wall-seconds 505
+```
+
+### Verification and settled budget
+
+The focused locked run passed 38 tests across `test_predicate_icl_pilot.py`, `test_predicate_intent_search.py` and `test_policy_measurement_pipeline.py`. Full `make test UV_RUN='uv run --locked --offline --no-sync'` passed **639 tests with 1 skipped**. Ruff, Mypy, Pyright, the independent evidence audit and all six bundle checksums passed. The focused and full logs are `analysis/intent-pilot/final/gate-tests.log` and `analysis/intent-pilot/final/full-test.log`.
+
+| Ledger job | Phase | Charged worker-seconds |
+| --- | --- | ---: |
+| Prerequisite paired validation | Inference | 257.834 |
+| Prerequisite calibration | Inference | 239.670 |
+| Gate and measurement regression | Preparation | 28.425 |
+| Full `make test` | Preparation | 373.781 |
+
+Prompt 09 charged **899.710 worker-seconds** including 497.504 inference and 402.206 preparation. Each overlapping worker was metered separately. The campaign has **901.927 seconds remaining**, including **900.290 unused seconds from the Prompt 09 reserve**. There are zero outstanding reservations and USD 0 in metered charges. Codex usage is recorded as unknown.
+
+### Exact resume command
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python analysis/intent-pilot/final/audit.py
+(cd analysis/intent-pilot/final/sealed-report && sha256sum -c SHA256SUMS)
+```
+
+### Next prompt — 10
+
+Use the original validation evidence to assess the empty-action failures of the substitute controller. Keep the sealed report read-only. The additional test would require untouched development groups and new directed measurements for any changed policy.
+
+## Prompt 10 — Optional extension skipped
+
+All eight original Qwen2.5 direct validation cases contained at least one empty action batch, with seven empty batches in Sokoban and eight in Craftax. The same symptom caused all 12 invalid-response stops in the directed block, four in Sokoban and eight in Craftax. The one candidate intervention is a controller response contract that enforces a nonempty list of legal actions. A changed output contract needs a new policy identity and new `D_C`. The original pilot used all four Sokoban validation layouts and all four Craftax validation worlds across two chain groups. Neither frozen validation split has an untouched group. There was no further tuning or new test claim.
+
+The Sokoban-only forecast for the intervention is about 1,056 worker-seconds for nine directed slots at up to 12 one-action decisions per slot, using the previously observed 8.391-second median, plus two 60-second validation slots and 30 seconds of setup. Collection of new disjoint groups would add cost. Prompt 10 logged zero experiment worker-seconds and unknown Codex usage. The final available total was **901.927 worker-seconds**. The evidence and estimate are in `analysis/intent-pilot/final/diagnostic.json` and can be checked with the same resume command.
