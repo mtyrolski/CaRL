@@ -6,11 +6,13 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from carl.icl.api import write_json
 from carl.icl.boards import from_rows
 from carl.icl.boards import to_rows
+from carl.icl.config import Calibration
 from carl.icl.config import ExperimentConfig
-from carl.icl.config import load_config
 from carl.icl.datasets import environment
+from carl.icl.experiment import matrix_configs
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
 from carl.icl.types import BoardEnvironment
@@ -93,11 +95,30 @@ def test_offset_denominator_is_fixed_config_not_a_test_board_statistic(tmp_path:
     assert "16" in a["input"][0]["content"][0]["text"]
 
 
-def test_campaign_mode_configs_share_frozen_policy_and_calibration() -> None:
-    configs = [load_config(f"configs/icl/campaign_data/{method}.json") for method in METHODS]
-    assert len({config.locked_policy_fingerprint for config in configs}) == 1
-    assert len({config.calibration.model_dump_json() for config in configs}) == 1
-    assert all(config.data_dir == "data/icl/campaign_dataset_v2" for config in configs)
+def test_campaign_mode_configs_share_frozen_policy_and_calibration(tmp_path: Path) -> None:
+    fingerprint = "a" * 64
+    calibration = Calibration(trials=2)
+    data_dir = "data/icl/fixture_campaign"
+    write_json(tmp_path / "base.json", {
+        "locked_policy_fingerprint": fingerprint,
+        "calibration": {"trials": calibration.trials},
+        "data_dir": data_dir,
+    })
+    config_paths = [f"{method}.json" for method in METHODS]
+    for method, path in zip(METHODS, config_paths, strict=True):
+        write_json(tmp_path / path, {
+            "extends": "base.json",
+            "name": method,
+            "method": method,
+            "scales": [0.75, 0.5] if method == "relative_u" else [2.0, 1.0],
+        })
+    matrix = tmp_path / "matrix.json"
+    write_json(matrix, {"configs": config_paths})
+    configs = matrix_configs(matrix)
+    assert [config.method for config in configs] == list(METHODS)
+    assert all(config.locked_policy_fingerprint == fingerprint for config in configs)
+    assert all(config.calibration == calibration for config in configs)
+    assert all(config.data_dir == data_dir for config in configs)
 
 
 @pytest.mark.usefixtures("deterministic_token_estimates")
