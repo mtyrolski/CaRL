@@ -27,6 +27,8 @@ def main() -> int:
     direct.add_argument("--controller", type=Path)
     direct.add_argument("--output", type=Path)
     direct.add_argument("--resume", action="store_true", help="Continue the missing starts of a partial direct report")
+    hindsight = commands.add_parser("hindsight", help="Collect assigned intents and freeze checked hindsight support")
+    hindsight.add_argument("operation", choices=("plan", "collect", "packets", "freeze", "verify"))
     run = commands.add_parser("run", help="Reserve worker time and execute a local command")
     run.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     run.add_argument("--domain", default="both", choices=DOMAINS)
@@ -81,6 +83,24 @@ def main() -> int:
                 if args.controller is None or args.output is None:
                     raise ValueError("Direct run requires --controller and --output")
                 result = run_validation(root, args.controller, args.output, resume=args.resume)
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.action == "hindsight":
+            split = verify(root)["split_sha256"]
+            if split != ledger.split_digest():
+                raise ValueError("The split manifest does not match the campaign ledger")
+            if args.operation in ("plan", "collect"):
+                from carl.icl.experiments.intent_pilot_attempts import collect, plan
+
+                result = plan(root, split) if args.operation == "plan" else collect(root, split)
+            else:
+                from carl.icl.experiments.intent_pilot_hindsight import build, packets
+
+                result = packets(root, split) if args.operation == "packets" else build(root, split, args.operation == "verify")
+                if args.operation == "freeze":
+                    ledger.bind_candidate_pool(result["pool_version"], result["pool_sha256"])
+                elif args.operation == "verify" and ledger.candidate_pool_digest(result["pool_version"]) != result["pool_sha256"]:
+                    raise ValueError("The candidate pool does not match its campaign ledger binding")
             print(json.dumps(result, indent=2))
             return 0
         if args.action == "record-preparation":

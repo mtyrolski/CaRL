@@ -96,6 +96,19 @@ class PilotLedger:
             row = conn.execute("SELECT value FROM contract WHERE key = 'split_sha256'").fetchone()
             return str(row[0]) if row else None
 
+    def bind_candidate_pool(self, version: int, digest: str) -> None:
+        """Record a pool version without allowing an existing edition to change."""
+        key = f"candidate_pool_v{version}_sha256"
+        with self._connection(write=True) as conn:
+            conn.execute("INSERT OR IGNORE INTO contract VALUES (?, ?)", (key, digest))
+            if conn.execute("SELECT value FROM contract WHERE key = ?", (key,)).fetchone()[0] != digest:
+                raise ValueError("This campaign is already bound to a different candidate pool for this version")
+
+    def candidate_pool_digest(self, version: int) -> str | None:
+        with self._connection() as conn:
+            row = conn.execute("SELECT value FROM contract WHERE key = ?", (f"candidate_pool_v{version}_sha256",)).fetchone()
+            return str(row[0]) if row else None
+
     def _reserve(
         self, prompt: int, domain: str, phase: str, activity: str,
         command: list[str], seconds: int, workers: int,
