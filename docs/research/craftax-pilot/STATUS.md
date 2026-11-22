@@ -541,3 +541,31 @@ The report, CSV, JSON, archived executed source, frozen plan, last request and s
 ### Next prompt — 08
 
 Read both campaign documents and the partial Prompt 07 report. The validation comparison has zero completed pairs. Full search remains gated on a completed validation comparison and sufficient campaign time. Relative generation also requires independently measured informative ranks. Preserve the sealed inputs and Prompt 09 reserve.
+
+## Prompt 08 — Full search and Plan-and-Act blocked
+
+The Prompt 07 audit passed on `intents` at `f33fc40`. The three-arm comparison still has zero completed pairs, and relative generation lacks informative ranks. The frozen inputs remain `generated_12x12x10_validation_1` and `generated_12x12x10_validation_2` with plan SHA-256 `098e2493611930eaca7ec8e55da71adbce034a4aa474e9afabba1c5b475daea9`.
+
+### Checked interfaces and accounting
+
+Both public `--help` calls succeeded. The Sokoban `search` command exposes `direct`, `one-step` and `full-search`. Its current planner entry requires the all-boxes-on-goals task. The Prompt 07 compositions instead use a partial goal with preservation. The Craftax CLI exposes the `plan-and-act-on-failure` adaptation through its mock planner. The Craftax local entry accepts direct execution. The Sokoban Plan-and-Act adapter was outside the available budget.
+
+The full-search engine orders its queue by decreasing `(u,V)` and marks `solved` when it admits a successful speculative child. The archived Craftax mock fixture independently confirms the existing accounting behavior. It publishes a five-action solved path and every attempt is in the `search` phase. Its `solved` flag describes the found path. An independent live commitment would need its own trace and outcome under the original case budget. Same-RNG replay would remain a separately metered diagnostic. Prompt 08 has zero dispatched trials and no observed `plan_found`, `same_rng_replay` or `live_success` values. The requested divergence test remains pending with the live commitment path.
+
+### Budget and artifacts
+
+Prompt 08 charged USD 0 and 0 experiment worker-seconds. The ledger has **1.637 worker-seconds available before Prompt 09**, below the **2-second minimum reservation**. It retains **1,801.637 worker-seconds total**, including all **1,800 seconds reserved for Prompt 09**, with zero outstanding reservations. Codex usage is recorded as unknown.
+
+The blocker report, CSV, JSON, and ledger snapshot are under `analysis/intent-pilot/search-extension/`. The CSV contains readiness rows for the three extensions with zero dispatches and missing outcomes. All prior comparison artifacts were audited in place.
+
+### Exact resume command
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python analysis/intent-pilot/comparison/audit.py
+cat analysis/intent-pilot/search-extension/RESULTS.md
+```
+
+### Next prompt — 09
+
+Read both campaign documents and the extension report. The available Prompt 09 reserve is 1,800 worker-seconds. Carry forward the incomplete primary validation and missing scale evidence when determining which frozen settings qualify for sealed evaluation. Full search and Plan-and-Act have no validation outcomes from this extension.
