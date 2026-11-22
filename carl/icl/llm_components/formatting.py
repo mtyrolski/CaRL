@@ -1,7 +1,7 @@
-"""Shared formatting, re-exported from the frozen historical implementation.
+"""Shared prompt formatting for model-neutral ICL components.
 
-The legacy file is an input to an existing dataset freeze and must remain
-byte-for-byte reproducible. All model-neutral components use this namespace.
+Import formatters from this module. Recorded Luna runs hash the source at
+``carl.icl.luna_components.formatting``, which stays frozen for replay.
 """
 from carl.icl.luna_components.formatting import (
     FIELDS,

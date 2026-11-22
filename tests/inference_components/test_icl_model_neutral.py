@@ -2,6 +2,7 @@
 
 import json
 import pickle
+from hashlib import sha256
 
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from carl.icl.boards import from_rows
 from carl.icl.boards import to_rows
 from carl.icl.components import ICLComponents
 from carl.icl.config import ExperimentConfig
+from carl.icl.config import ROOT
 from carl.icl.datasets import environment
 from carl.icl.llm_components.base import LLMComponentBase
 from carl.icl.llm_components.formatting import task
@@ -53,6 +55,9 @@ def test_legacy_and_neutral_imports_share_class_identity():
     assert task is legacy_task
     assert pickle.loads(b'ccarl.icl.luna_components.policy\nLunaPolicy\n.') is GoalConditionedPolicy
     assert ExperimentConfig().model == "gpt-6-luna"
+    # The archived Luna manifests hash this path to validate replay inputs.
+    frozen_formatter = ROOT / "carl/icl/luna_components/formatting.py"
+    assert sha256(frozen_formatter.read_bytes()).hexdigest() == "4b6a6aaa71f5aa5b61a9f8183a9e0c1a69c34cf71444f763aa033f835271ca00"
 
 
 def test_model_and_policy_settings_change_fingerprints_and_cache_keys():

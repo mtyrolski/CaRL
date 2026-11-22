@@ -20,7 +20,7 @@ from carl.icl.boards import to_rows
 from carl.icl.intent_data import validate_prediction
 from carl.icl.intent_domain import Intent, Predicate, SokobanObservation, UNKNOWN_TILE
 from carl.icl.intent_domain import decode_intent, predicate_truth, render_instruction
-from carl.icl.luna_components.formatting import board_coordinates
+from carl.icl.llm_components.formatting import board_coordinates
 from carl.icl.types import Board
 from carl.icl.types import BoardEnvironment
 
