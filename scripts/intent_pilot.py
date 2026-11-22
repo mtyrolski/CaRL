@@ -22,6 +22,11 @@ def main() -> int:
     data = commands.add_parser("annotations", help="Collect, rebuild or verify the checked pilot datasets")
     data.add_argument("operation", choices=("collect", "build", "verify"))
     data.add_argument("--domain", choices=("sokoban", "craftax"), required=True)
+    direct = commands.add_parser("direct", help="Run the matched real-local direct baseline")
+    direct.add_argument("operation", choices=("freeze", "run"))
+    direct.add_argument("--controller", type=Path)
+    direct.add_argument("--output", type=Path)
+    direct.add_argument("--resume", action="store_true", help="Continue the missing starts of a partial direct report")
     run = commands.add_parser("run", help="Reserve worker time and execute a local command")
     run.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     run.add_argument("--domain", default="both", choices=DOMAINS)
@@ -61,6 +66,21 @@ def main() -> int:
                 result = annotations.collect(root, args.domain)
             else:
                 result = annotations.build(root, args.domain, verify_only=args.operation == "verify")
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.action == "direct":
+            from carl.icl.experiments.intent_pilot_direct import freeze_validation, run_validation
+
+            if verify(root)["split_sha256"] != ledger.split_digest():
+                raise ValueError("The split manifest does not match the campaign ledger")
+            if args.operation == "freeze":
+                if args.resume:
+                    raise ValueError("--resume is available for direct run")
+                result = freeze_validation(root)
+            else:
+                if args.controller is None or args.output is None:
+                    raise ValueError("Direct run requires --controller and --output")
+                result = run_validation(root, args.controller, args.output, resume=args.resume)
             print(json.dumps(result, indent=2))
             return 0
         if args.action == "record-preparation":

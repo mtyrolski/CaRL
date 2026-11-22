@@ -2,7 +2,8 @@
 
 import hashlib
 import json
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -165,6 +166,7 @@ class LocalRoleModel:
 
     def complete_chat(
         self, messages: Sequence[dict[str, str]], *, output_tokens: int, context_limit: int,
+        on_payload: Callable[[JSONObject], None] | None = None,
     ) -> tuple[str, int, int]:
         """Generate locally and return the completion and exact input/output token counts."""
         if not is_token_count(output_tokens) or not output_tokens or not is_token_count(context_limit) or not context_limit:
@@ -172,10 +174,32 @@ class LocalRoleModel:
         tokens = self._encode(messages)
         if len(tokens) + output_tokens > self.context_limit(context_limit):
             raise BudgetExceeded(f"Local {self.role} context window exceeded")
+        cold_load = "_stack" not in self.__dict__
+        load_started = time.perf_counter()
         torch, model = self._stack
+        load_seconds = time.perf_counter() - load_started if cold_load else 0.0
         ids = torch.tensor([tokens], device=self.settings.device)
         tokenizer = self._tokenizer
         pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        if on_payload is not None:
+            rendered = tokenizer.apply_chat_template(
+                list(messages), tokenize=False, add_generation_prompt=True, enable_thinking=False,
+            )
+            actual_ids = ids[0].tolist()
+            if tokenizer(rendered, add_special_tokens=False)["input_ids"] != actual_ids:
+                raise ValueError("Rendered local chat does not match the actual input tensor")
+            with_thinking = tokenizer.apply_chat_template(
+                list(messages), tokenize=False, add_generation_prompt=True, enable_thinking=True,
+            )
+            parameter = next(model.parameters())
+            on_payload({
+                "rendered": rendered, "input_ids": actual_ids, "enable_thinking": False,
+                "template_changes_with_thinking": rendered != with_thinking,
+                "chat_template_sha256": hashlib.sha256(tokenizer.chat_template.encode()).hexdigest(),
+                "dtype": str(parameter.dtype), "device": str(parameter.device),
+                "cold_load": cold_load, "load_seconds": load_seconds,
+                "max_new_tokens": output_tokens, "do_sample": False, "use_cache": True,
+            })
         with torch.inference_mode():
             output = model.generate(
                 input_ids=ids, attention_mask=torch.ones_like(ids), max_new_tokens=output_tokens,

@@ -15,7 +15,7 @@ from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.intents.generation.data import file_sha256
 from carl.icl.planning.craftax_execution import CraftaxActionAttempt, CraftaxIntentExecutor
 from carl.icl.planning.craftax_tasks import (
-    CraftaxIntent, load_tasks, mock_action, mock_proposals, mock_value, render_instruction,
+    CraftaxIntent, CraftaxTask, load_tasks, mock_action, mock_proposals, mock_value, render_instruction,
 )
 from carl.icl.planning.intent_search import IntentSearchRuntime, IntentSearchSettings, SearchMode, search_domain_intents
 from carl.icl.planning.plan_and_act import PLAN_AND_ACT_VARIANT, decode_plan, mock_plan
@@ -97,7 +97,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tasks", type=Path, default=ROOT / "configs/icl/craftax/tasks.json")
     parser.add_argument("--task", default="wood-to-stone-pickaxe")
     parser.add_argument("--planning-mode", choices=(*SearchMode, "all"), default="all")
-    parser.add_argument("--mode", choices=("mock",), required=True)
+    parser.add_argument("--mode", choices=("mock", "local"), required=True)
+    parser.add_argument("--local-controller", type=Path, help="Pinned base controller JSON for local direct execution")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--action-budget", type=int, default=20)
     parser.add_argument("--rollout-cap", type=int, default=5)
@@ -113,6 +114,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(args: argparse.Namespace) -> int:
     """Run all modes from one immutable starting state and publish their matched results."""
     task = load_tasks(args.tasks).by_id(args.task)
+    if args.mode == "local":
+        return _run_local(args, task)
     if not 0 < args.scale < 1:
         raise ValueError("Craftax relative scale must be strictly between zero and one")
     settings = IntentSearchSettings(
@@ -159,3 +162,28 @@ def run(args: argparse.Namespace) -> int:
     write_json(args.output, artifact)
     print(args.output)
     return 0 if all(result["solved"] for result in results.values()) else 2
+
+
+def _run_local(args: argparse.Namespace, task: CraftaxTask) -> int:
+    from carl.icl.planning.local_direct import CraftaxDirect, DirectLimits, load_direct_controller, run_direct
+
+    if args.planning_mode != "direct" or args.local_controller is None:
+        raise ValueError("Craftax local mode requires --planning-mode direct and --local-controller")
+    role, identity = load_direct_controller(args.local_controller)
+    started = time.perf_counter()
+    adapter = CraftaxAdapter(max_steps=args.max_steps, map_size=args.map_size)
+    snapshot = adapter.stage(adapter.reset(task.seed), **task.scenario.model_dump())
+    warmup = adapter.step(snapshot, "NOOP")
+    preparation = {"seconds": time.perf_counter() - started, "warmup_native_ticks": warmup.native_ticks}
+    intent = task.goal.model_dump(mode="json")
+    goal = {"instruction": render_instruction(task.goal), "effects": intent["effects"], "preserve": intent["preserve"]}
+    limits = DirectLimits(decisions=args.max_requests, primitive_actions=args.action_budget,
+                          native_ticks=args.max_steps, wall_seconds=args.wall_seconds)
+    result = run_direct(role, CraftaxDirect(adapter, snapshot, task.goal), goal, limits)
+    write_json(args.output, {
+        "domain": "craftax", "environment_version": CRAFTAX_VERSION, "execution_mode": "local",
+        "task_id": task.task_id, "model": identity, "limits": asdict(limits), "preparation": preparation,
+        "results": {"direct": result},
+    })
+    print(args.output)
+    return 0 if result["success"] else 2

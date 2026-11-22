@@ -1,6 +1,6 @@
 # Sokoban and Craftax intent pilot contract
 
-This campaign uses native Sokoban and Craftax transitions. Codex is the offline annotator for both domains. The two frozen controller arms are Qwen3-0.6B and Qwen3-1.7B. Run both from verified local checkpoints. Keep the base revision, tokenizer, prompt, decoding, action parser, memory protocol and device settings in the controller fingerprint. Report each arm separately.
+This campaign uses native Sokoban and Craftax transitions. Codex is the offline annotator for both domains. The two requested controller arms are Qwen3-0.6B and Qwen3-1.7B. Use verified local checkpoints. When local recovery fails, identify the pinned substitute by its actual model and record the failed recovery. Keep the base revision, tokenizer, prompt, decoding, action parser, memory protocol and device settings in the controller fingerprint. Report each actual arm separately.
 
 The local proposal's Method and Evaluation sections guide the pilot. The starting checkout is `intents` at `5ddd4cb7bcde591fdcf7a0f32b0aa41b460e8b0c`. The checkout inspected at `2a60ff91b5767a06dfff83166e91d80afad3a13a` and the earlier queue at `313a57c403ce9531aea321155bb85fa228d42d65` are points in its history. [Status and resume instructions](STATUS.md)
 
@@ -34,6 +34,8 @@ For controller measurements, freeze the candidate types and IDs before sampling.
 Measure first-hit duration from the restored checkpoint in executed primitive actions. A dispatched primitive that leaves the observation unchanged still counts. A Craftax request overridden by a sleeping or resting tick is recorded as a request and as automatic native work. Preserve separate counters for decisions, role calls, requested actions, executed primitives and automatic ticks. Check required preservation before acting and at every native tick boundary. Missing intermediate evidence yields an unknown preservation result unless an observed state already establishes a violation. Restore policy memory with the checkpoint. Changing the Craftax future transition key leaves the starting physical state fixed and is independent of the policy seed.
 
 Report task success and intent progress separately. Count all simulator decisions and model calls, including warm-up, invalid/no-op actions, speculative branches, failures and retries. Report preparation and inference costs separately. Checkpointing, prompt selection and stopping decisions use the declared validation split. Open the sealed group only for the matched final evaluation. Treat the public integration fixtures as plumbing results.
+
+The local direct validation uses the same frozen starts and action contract per domain for each model. A decision carries one to four named primitive actions and may include a short intent. The runner checks the task, preservation and limits after each native transition. An interruption drops the rest of the batch. The next decision sees the new public observation, its previous intent and bounded executed action history. Pin the chat template with `enable_thinking=False` and greedy decoding. Save the actual input token IDs, first-hit and stop events, and cold and warm timings.
 
 ## Budget and handoff
 

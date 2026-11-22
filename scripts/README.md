@@ -180,6 +180,38 @@ and charges replanning to the generator budget. The task split, observation
 contract and comparison with the published method are in [the task
 manifest documentation](../configs/icl/craftax/README.md).
 
+The same Craftax entry point supports a pinned local base policy for direct
+execution. Keep the CPU Craftax runtime on `PYTHONPATH` and install CaRL's
+locked `icl` extra. Create a controller JSON with this shape and
+replace the model path and revision with those of your cached snapshot.
+
+```json
+{
+  "model_id": "Qwen/Qwen3-0.6B",
+  "threads": 6,
+  "local": {
+    "model": "/path/to/Qwen3-0.6B",
+    "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+    "device": "cpu",
+    "dtype": "float32"
+  }
+}
+```
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 JAX_PLATFORMS=cpu \
+  uv run --locked --offline --no-sync python -m scripts.run_predicate_icl \
+  craftax --mode local --planning-mode direct --task collect-wood \
+  --local-controller "$work/controller.json" --max-requests 1 --action-budget 4 \
+  --output "$work/craftax/direct-local.json"
+```
+
+Each decision returns up to four primitive actions and can include a short
+intent. The next decision receives the live observation and bounded action
+history. The report records interrupted suffixes, exact local token counts,
+warm-up and first verified hit. A run that reaches its limit without meeting
+the task still saves its report and exits with status 2.
+
 The isolated `carl.icl.transfer.discobench` entry point publishes public
 benchmark pins and a synthetic transfer contract smoke with its own
 provenance. Its public runtime uses a separate Python environment.
