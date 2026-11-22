@@ -1,10 +1,9 @@
 """Build checked Sokoban intent labels from offline demonstration fragments."""
 
-import hashlib
 import json
 import random
 from collections import Counter
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,7 +12,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from carl.icl.boards import canonical_layout_id, from_rows
-from carl.icl.intent_data import EffectType, SCHEMA_VERSION, SokobanPredicate
+from carl.icl.intent_data import DA_VERSION, EffectType, SCHEMA_VERSION, SokobanPredicate
 from carl.icl.intent_domain import (
     DOMAIN_SPEC,
     DOMAIN_VERSION,
@@ -23,7 +22,11 @@ from carl.icl.intent_domain import (
     Predicate,
     SokobanObservation,
     SokobanSnapshot,
+    annotation_digest,
+    annotation_identity,
+    annotation_json,
     check_intent,
+    context_identity,
     decode_intent,
     render_instruction,
     replay_fragment,
@@ -31,7 +34,6 @@ from carl.icl.intent_domain import (
 from carl.icl.intents.generation.data import DataSplit, file_sha256, parse_json
 from carl.icl.intents.provenance import component_hashes
 
-DA_VERSION = "carl-da-v1"
 DEFAULT_ANNOTATOR = "deterministic-mock-v1"
 ActionIndex = Annotated[int, Field(strict=True, ge=0, le=3)]
 
@@ -125,14 +127,6 @@ def mock_annotator(request: AnnotationRequest) -> Intent:
     return {"effects": effects, "preserve": preserve, "instruction": None}
 
 
-def _digest(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
 def _load_traces(payload: bytes) -> tuple[list[_Trace], dict[DataSplit, list[str]]]:
     source = _Source.model_validate_json(payload)
     layout_split: dict[str, DataSplit] = {}
@@ -185,7 +179,7 @@ def _check(sketch: object, observations: tuple[SokobanObservation, ...]) -> _Dec
         if isinstance(sketch, str):
             parse_json(sketch)
         else:
-            _json(sketch)
+            annotation_json(sketch)
     except (TypeError, ValueError) as error:
         return _Decision(None, "rejected", (f"invalid JSON: {error}",), False)
     try:
@@ -213,20 +207,6 @@ def _effect_type(intent: Intent, endpoint: SokobanObservation) -> EffectType:
     return EffectType.WALK_ONLY
 
 
-def context_identity(rows: Sequence[str]) -> str:
-    """Identify the visible oriented board and its fixed task."""
-    return _digest(_json({"board": list(rows), "task_goal": TASK_GOAL}).encode())
-
-
-def annotation_identity(context_id: str, intent: Intent) -> str:
-    """Identify a conjunction independently of the order of its predicates."""
-    semantic = {
-        "effects": sorted(map(_json, intent["effects"])),
-        "preserve": sorted(map(_json, intent["preserve"])),
-    }
-    return _digest(_json({"context_id": context_id, **semantic}).encode())
-
-
 def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[AnnotationRequest], object]) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     for fragment in fragments:
@@ -252,7 +232,9 @@ def _annotation_rows(fragments: Iterator[_Fragment], annotator: Callable[[Annota
                 "json_valid": result.json_valid,
             },
             "evidence": {
-                "fragment_id": _digest(_json((demonstration.source_id, fragment.start, fragment.offset)).encode()),
+                "fragment_id": annotation_digest(
+                    annotation_json((demonstration.source_id, fragment.start, fragment.offset)).encode(),
+                ),
                 "start_index": fragment.start,
                 "actions": demonstration.actions[fragment.start : fragment.start + fragment.offset],
                 "observations": [observation.rows for observation in observations],
@@ -305,9 +287,9 @@ def prepare_annotations(
             for row in _annotation_rows(_fragments(traces, max_offset, seed), annotator):
                 status = row["validation"]["status"]
                 counts[status] += 1
-                audit.write(_json(row) + "\n")
+                audit.write(annotation_json(row) + "\n")
                 if status == "accepted":
-                    accepted.write(_json({key: value for key, value in row.items() if key != "evidence"}) + "\n")
+                    accepted.write(annotation_json({key: value for key, value in row.items() if key != "evidence"}) + "\n")
         manifest = {
             "schema_version": DA_VERSION,
             "intent_version": SCHEMA_VERSION,
@@ -316,7 +298,7 @@ def prepare_annotations(
             "seed": seed,
             "max_offset": max_offset,
             "source": str(source.resolve()),
-            "source_sha256": _digest(payload),
+            "source_sha256": annotation_digest(payload),
             "source_ids": [trace.demonstration.source_id for trace in traces],
             "layout_ids_by_split": layouts,
             "attempted": counts.total(),

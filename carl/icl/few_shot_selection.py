@@ -7,6 +7,7 @@ import hashlib
 import json
 from collections import Counter
 from functools import lru_cache
+from typing import TypedDict
 
 import numpy as np
 
@@ -20,6 +21,16 @@ OFFSETS = (1, 2, 4, 8, 12, 16)
 SELECTION_SEED = 20261104
 # Fixed round-robin ensures 8 is a prefix of 32, itself a prefix of 64.
 CATEGORIES = tuple((action, push) for action in range(4) for push in (False, True))
+
+
+class _Candidate(TypedDict):
+    context_index: int
+    layout: str
+    anchor: int
+    offset: int
+    source_hash: str
+    target_hash: str
+    rank: str
 
 
 def _push(state, action):
@@ -74,7 +85,7 @@ def _select(serialized, count):
     if len({item[3] for item in prepared}) < 8:
         raise ValueError("diverse_training_v2 requires at least eight distinct canonical training layouts")
 
-    pools = {category: [] for category in CATEGORIES}
+    pools: dict[tuple[int, bool], list[_Candidate]] = {category: [] for category in CATEGORIES}
     seen_pool = set()
     for ci, (context, actions, states, layout) in enumerate(prepared):
         for anchor, action in enumerate(actions):
@@ -95,7 +106,9 @@ def _select(serialized, count):
 
     selected = []
     used_pairs, used_sources = set(), set()
-    layout_counts, horizon_counts, category_layout_counts = Counter(), Counter(), Counter()
+    layout_counts: Counter[str] = Counter()
+    horizon_counts: Counter[int] = Counter()
+    category_layout_counts: Counter[tuple[tuple[int, bool], str]] = Counter()
     for index in range(count):
         category = CATEGORIES[index % len(CATEGORIES)]
         candidates = [item for item in pools[category] if (item["source_hash"], item["target_hash"]) not in used_pairs]
@@ -103,7 +116,7 @@ def _select(serialized, count):
             raise ValueError(f"Insufficient unique training pairs for category {category} after {index} demonstrations")
         # Prefer previously unseen sources, then underrepresented horizons and
         # layouts; the final hash is a fixed seed tie-break, not outcome tuning.
-        item = min(candidates, key=lambda x: (x["source_hash"] in used_sources,
+        item = min(candidates, key=lambda x, category=category: (x["source_hash"] in used_sources,
                    horizon_counts[x["offset"]], layout_counts[x["layout"]],
                    category_layout_counts[(category, x["layout"])], x["rank"]))
         selected.append((category, item))

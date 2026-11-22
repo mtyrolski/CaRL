@@ -1,5 +1,6 @@
 """The observable Sokoban intent contract and deterministic fragment checker."""
 
+import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -49,6 +50,30 @@ class Intent(TypedDict):
     effects: list[Predicate]
     preserve: list[Predicate]
     instruction: None
+
+
+def annotation_digest(data: bytes) -> str:
+    """Hash an annotation's canonical payload."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def annotation_json(value: object) -> str:
+    """Serialize annotation data consistently across producers and readers."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def context_identity(rows: Sequence[str]) -> str:
+    """Identify the visible oriented board and its fixed task."""
+    return annotation_digest(annotation_json({"board": list(rows), "task_goal": TASK_GOAL}).encode())
+
+
+def annotation_identity(context_id: str, intent: Intent) -> str:
+    """Identify a conjunction independently of the order of its predicates."""
+    semantic = {
+        "effects": sorted(map(annotation_json, intent["effects"])),
+        "preserve": sorted(map(annotation_json, intent["preserve"])),
+    }
+    return annotation_digest(annotation_json({"context_id": context_id, **semantic}).encode())
 
 
 @dataclass(frozen=True)
@@ -299,8 +324,8 @@ def validate_intent_proposal(intent: Intent, observation: SokobanObservation) ->
     if problems:
         return problems
     errors: list[str] = []
-    for group, required in (("effects", False), ("preserve", True)):
-        for index, predicate in enumerate(intent[group]):
+    for group, predicates, required in (("effects", intent["effects"], False), ("preserve", intent["preserve"], True)):
+        for index, predicate in enumerate(predicates):
             truth = predicate_truth(predicate, observation)
             if truth is None:
                 errors.append(f"{group}[{index}]: unknown at start")

@@ -12,6 +12,7 @@ from carl.icl.boards import from_rows
 from carl.icl.boards import validate_subgoal
 
 SCHEMA_VERSION = "sokoban-intent-v1"
+DA_VERSION = "carl-da-v1"
 
 
 class SokobanPredicate(StrEnum):
@@ -43,9 +44,7 @@ def predicate_value(predicate: dict[str, Any], rows: list[str]) -> bool:
 
 
 def _predicate_errors(item: Any, rows: list[str], where: str) -> list[str]:
-    if not isinstance(item, dict):
-        return [f"{where}: unsupported predicate"]
-    name = item.get("predicate")
+    name = item.get("predicate") if isinstance(item, dict) else None
     if not isinstance(name, str) or name not in PREDICATES:
         return [f"{where}: unsupported predicate"]
     expected = {"predicate", "count"
@@ -67,24 +66,32 @@ def _predicate_errors(item: Any, rows: list[str], where: str) -> list[str]:
     return []
 
 
+def _intent_structure_error(intent: Any) -> str | None:
+    if not isinstance(intent, dict):
+        return "intent is not an object"
+    if set(intent) - {"effects", "preserve", "instruction"}:
+        return "unexpected intent fields"
+    effects = intent.get("effects")
+    if not isinstance(effects, list) or not effects:
+        return "effects must be a nonempty array"
+    if not isinstance(intent.get("preserve"), list):
+        return "preserve must be an array"
+    if intent.get("instruction") is not None and not isinstance(intent["instruction"], str):
+        return "instruction must be a string or null"
+    return None
+
+
 def validate_prediction(intent: Any, start_rows: list[str]) -> list[str]:
     """Check syntax and non-triviality using *only* the current board."""
     try:
         from_rows(start_rows)
     except (TypeError, ValueError) as exc:
         return [f"invalid start board: {exc}"]
-    if not isinstance(intent, dict):
-        return ["intent is not an object"]
-    if set(intent) - {"effects", "preserve", "instruction"}:
-        return ["unexpected intent fields"]
-    effects = intent.get("effects")
-    preserve = intent.get("preserve")
-    if not isinstance(effects, list) or not effects:
-        return ["effects must be a nonempty array"]
-    if not isinstance(preserve, list):
-        return ["preserve must be an array"]
-    if intent.get("instruction") is not None and not isinstance(intent["instruction"], str):
-        return ["instruction must be a string or null"]
+    structure_error = _intent_structure_error(intent)
+    if structure_error:
+        return [structure_error]
+    effects = intent["effects"]
+    preserve = intent["preserve"]
     errors: list[str] = []
     for group, predicates in (("effects", effects), ("preserve", preserve)):
         seen = set()

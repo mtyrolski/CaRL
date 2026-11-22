@@ -37,10 +37,9 @@ def symmetry_parameters(symmetry: BoardSymmetry | str) -> tuple[bool, int]:
 
 def transform_coordinate(row: int, col: int, size: int, symmetry: BoardSymmetry | str) -> tuple[int, int]:
     """Transform a zero-based (row, column) without clipping invalid inputs."""
-    if (not isinstance(size, int) or isinstance(size, bool) or size < 1
-            or not isinstance(row, int) or isinstance(row, bool)
-            or not isinstance(col, int) or isinstance(col, bool)
-            or not 0 <= row < size or not 0 <= col < size):
+    if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+        raise ValueError("coordinate is outside the square board")
+    if any(not isinstance(value, int) or isinstance(value, bool) or not 0 <= value < size for value in (row, col)):
         raise ValueError("coordinate is outside the square board")
     reflect, rotations = symmetry_parameters(symmetry)
     if reflect:

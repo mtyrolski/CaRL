@@ -10,6 +10,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from carl.icl.intent_data import DA_VERSION
 from carl.icl.predicate_prompts import generator_messages as predicate_messages
 
 SYSTEM = (
@@ -88,8 +89,6 @@ def target_text(record: dict[str, Any]) -> str:
 
 def read_records(path: str | Path, split: str | None = None) -> list[dict[str, Any]]:
     """Read legacy rows and validate versioned annotations before selecting a split."""
-    from carl.icl.intent_annotations import DA_VERSION
-
     rows = []
     with Path(path).open(encoding="utf-8") as source:
         for line in source:
@@ -105,9 +104,8 @@ def read_records(path: str | Path, split: str | None = None) -> list[dict[str, A
 
 def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> None:
     from carl.icl.boards import canonical_layout_id, from_rows
-    from carl.icl.intent_annotations import annotation_identity, context_identity
     from carl.icl.intent_data import SCHEMA_VERSION, validate_prediction
-    from carl.icl.intent_domain import TASK_GOAL, decode_intent, render_instruction
+    from carl.icl.intent_domain import TASK_GOAL, annotation_identity, context_identity, decode_intent, render_instruction
 
     layouts: dict[str, DataSplit] = {}
     groups: dict[str, DataSplit] = {}
@@ -119,7 +117,10 @@ def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> No
         if not isinstance(identifier, str) or not identifier or identifier in records:
             raise ValueError("checked annotation record IDs must be unique and nonempty")
         records.add(identifier)
-        split = DataSplit(row.get("split"))
+        raw_split = row.get("split")
+        if not isinstance(raw_split, str):
+            raise ValueError(f"{raw_split!r} is not a valid DataSplit")
+        split = DataSplit(raw_split)
         group = record_task_group(row)
         if group is not None and groups.setdefault(group, split) != split:
             raise ValueError("checked annotation task groups overlap across splits")
@@ -146,8 +147,6 @@ def _check_versioned_annotations(rows: list[dict[str, Any]], version: str) -> No
 
 def predicate_record(record: dict[str, Any]) -> bool:
     """Distinguish checked annotations from the historical JSONL format."""
-    from carl.icl.intent_annotations import DA_VERSION
-
     return record.get("schema_version") == DA_VERSION
 
 
@@ -163,14 +162,13 @@ def record_task_group(record: dict[str, Any]) -> str | None:
 
 def same_prompt_layout(first: dict[str, Any], second: dict[str, Any]) -> bool:
     """Also check canonical wall and goal identity with versioned support data."""
-    from carl.icl.boards import canonical_layout_id, from_rows
-    from carl.icl.intent_annotations import DA_VERSION
-
     if DA_VERSION in (first.get("schema_version"), second.get("schema_version")):
+        from carl.icl.boards import canonical_layout_id, from_rows
+
         return canonical_layout_id(from_rows(first["start_observation"])) == canonical_layout_id(
             from_rows(second["start_observation"]),
         )
-    return first["layout_id"] == second["layout_id"]
+    return bool(first["layout_id"] == second["layout_id"])
 
 
 def file_sha256(path: str | Path) -> str:
