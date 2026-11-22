@@ -14,9 +14,10 @@ from carl.solver.subgoal_search import Solver
 
 
 def test_saved_state_identifier_is_stable_and_includes_array_shape() -> None:
-    assert Solver._hash_state("fixture") == "7980458649832224936"  # pylint: disable=protected-access
-    state = np.array([0, 1, 2, 3], dtype=np.int8)
     identify = Solver._hash_state  # pylint: disable=protected-access
+    assert identify("fixture") == "-4431358843294443104"
+    assert identify(1) != identify("1")
+    state = np.array([0, 1, 2, 3], dtype=np.int8)
     assert identify(state) != identify(state.reshape(2, 2))
 
 

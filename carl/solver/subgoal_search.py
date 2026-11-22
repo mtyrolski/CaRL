@@ -55,13 +55,12 @@ class Solver:
         return state
 
     @staticmethod
-    def _hash_state(state: State) -> str:
+    def _hash_state(state: object) -> str:
         if isinstance(state, np.ndarray):
             digest = sha256(f"array:{state.dtype.str}:{state.shape}:".encode())
             digest.update(state.tobytes())
         else:
-            digest = sha256(b"text:")
-            digest.update(state.encode())
+            digest = sha256(f"{type(state).__name__}:{state}".encode())
         return str(int.from_bytes(digest.digest()[:8], "big", signed=True))
 
     def _mark_reached_proposal_events(self, search_info: SearchInfo, solving_node: SearchTreeNode | None) -> None:
