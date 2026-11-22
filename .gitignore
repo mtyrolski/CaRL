@@ -1,6 +1,5 @@
 *.pyc
 *.jl
-.neptune
 /.idea
 /.venv
 *.sif
