@@ -2,10 +2,13 @@
 
 import json
 
+import pytest
+
 from carl.icl.experiments.intent_pilot_hindsight import _full_prefix
 from carl.icl.intent_domain import TASK_GOAL, SokobanSnapshot, decode_intent
 from carl.icl.planning.active_intent import IntentBudget, IntentSession
 from carl.icl.planning.local_direct import SokobanDirect
+from carl.icl.planning.paired_generator import messages, proposals
 from carl.icl.types import JSONObject
 
 
@@ -88,3 +91,38 @@ def test_craftax_hindsight_checks_preservation_after_the_first_hit() -> None:
     assert decision.status == "rejected" and "state 2" in decision.errors[0]
     uncertain = _full_prefix("craftax", intent, frames[:2], [{"native_ticks": 2}])
     assert uncertain.status == "unknown"
+
+
+def test_paired_generator_keeps_support_and_diversity_without_scale_proxies() -> None:
+    effects = [{"effects": [{"predicate": "player_at", "row": target, "col": 1}], "preserve": [], "instruction": None}
+               for target in (2, 3)]
+    options = [{"id": tag, "intent": intent} for tag, intent in zip(("A", "B"), effects, strict=True)]
+    support = [{"observation": list(BOARD.rows), "task": TASK_GOAL, "intent": h, "measured_u": u,
+                "selection_weight": 0.5, "duration": 314, "demonstration_offset": 159}
+               for u, h in zip((0.25, 0.75), effects, strict=True)]
+    left = messages("sokoban", "unlabelled", list(BOARD.rows), TASK_GOAL, support, options)
+    right = messages("sokoban", "relative", list(BOARD.rows), TASK_GOAL, support, options)
+    baseline, relative = (json.loads(wire[1]["content"]) for wire in (left, right))
+    assert relative.pop("requested_u") == [0.25, 0.75]
+    assert [example.pop("u") for example in relative["examples"]] == [0.25, 0.75]
+    assert baseline == relative
+    assert all(set(example) == {"observation", "task", "intent"} for example in baseline["examples"])
+    assert "scale" not in left[0]["content"].lower()
+    with pytest.raises(ValueError, match="distinct measured scale"):
+        messages("sokoban", "relative", list(BOARD.rows), TASK_GOAL, support[:1], options)
+
+    for arm in ("relative", "unlabelled"):
+        pair = proposals("sokoban", arm, '{"choices":["A","B"]}', list(BOARD.rows), options)
+        hit_actions = []
+        for slot in pair["slots"]:
+            assert slot["status"] == "valid"
+            session = _session(slot["intent"], IntentBudget(12, 12, 12, 60))
+            result = session.attempt("fixture", slot["intent"], lambda _messages: _response("DOWN", "DOWN"))
+            hit_actions.append(result["first_hit"])
+        assert hit_actions == [1, 2]
+
+    first = {**effects[0], "instruction": "move down"}
+    second = {**effects[0], "instruction": "achieve the same tile with different wording"}
+    duplicate = proposals("sokoban", "relative", json.dumps([first, second]), list(BOARD.rows), options)
+    assert [slot["status"] for slot in duplicate["slots"]] == ["valid", "duplicate"]
+    assert duplicate["distinct_effects"] == 1 and duplicate["within_overlap"]

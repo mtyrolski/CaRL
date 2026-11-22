@@ -425,3 +425,61 @@ These are the two checked publication commands. They rebuild the reports from th
 ### Next prompt — 06
 
 Read the contract and journal, then run the publication and audit commands. Keep the checked `D_A` lineage and exact `D_C` coverage for all four cells. Use only rows with informative measured scale for a relative arm. This block produced none, so carry that result into any matched comparison. Preserve the original pool, the remaining budget and the held-out partitions.
+
+## Prompt 06 — Matched generators and validation, 2026-11-22
+
+The intake was `73d51be` on `intents`. The stage bound all four generator profiles to the audited `D_C` cells, the original split and the corresponding frozen controller fingerprints. The only positive directed results were Qwen3-0.6B's two Sokoban successes. All four cells had zero rows with `scale_supervision=true`. Both requested relative scales are marked `no_informative_scale`. The three controller/domain cells without a reached example are marked `no_reached_examples` for the unlabelled run.
+
+Both arms use one call with two slots, the same typed option menu, sampled support, weights, score and fixed slot-interleaved rollout scheduler. The relative arm exposes `u=0.25` and `u=0.75` in order with measured scale labels in the support. Every unlabelled example contains just its observation, task and typed outcome. Option order is hashed independently of requested scale. Semantic duplicate effects are recorded and evaluated once for a proposal call. A controlled native test exercises both wires, two distinct hit durations and the duplicate check.
+
+Qwen3-0.6B's Sokoban diagnostic sampled two `D_A` examples at uniform weight and both reached `D_C` examples at observed `p=1`. Both measured examples lack comparative weights. The sampler records that it used observed probabilities for this diagnostic. The role has an empty generator history and shares one frozen weight instance with the policy. The policy only receives the current observation, task, assigned typed intent and its own action history. The actual policy keeps Prompt 05's 12-action cap and strict invalid-response handling.
+
+The two fresh validation observations were from `generated_12x12x10_validation_3` and `generated_12x12x10_validation_0`. Each differs from the earlier direct and annotation observations. The menus use only visible move and push opportunities. The value is a ridge fit to `0.99 ** remaining_actions` from eight checked training trajectories and 429 states. It passed the layout and task-group holdout checks. Its fingerprint is `0ecd5899bab253e0be9877067cf20d2efd076cc8b9fee40a138ccd6e2c3e2a26`. Both arms use discounted endpoint value for verified hits and zero for completed failures. The configured Craftax fallback is a shared constant `V=0.5`. Neither validation run used that fallback.
+
+### Measured validation and selection
+
+| Diagnostic | Valid distinct / slots | Hits / eligible | First hits | G calls | G tokens in / out | Physical policy calls | Policy tokens in / out |
+| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |
+| Initial instruction | 0 / 4 | — | — | 2 | 1,474 / 16 | 0 | 0 / 0 |
+| Copy actual option IDs | 4 / 4 | 3 / 4 | 1, 1, 1 | 2 | 1,468 / 30 | 14 | 6,263 / 240 |
+
+Both initial replies copied `ID1` and `ID2` from the format example. A second frozen edition removed the placeholders and requested a two-string JSON array of actual IDs. Both new replies chose two admissible effects. The original and revised user payloads, support, weights, context, decoder and option menus match exactly. Native replay verified the three first hits and the fourth attempt's 12-action timeout. There were zero duplicate effects within the two revised calls. Cross-arm overlap and success by requested scale remain unmeasured. The revised policy issued 15 logical calls, including one exact cache hit.
+
+The validation selection binds the revised **unlabelled diagnostic** to config SHA-256 `456c8e25a01f3acbe5b05b8023aac7ed1691386496e3c84cedd19299516d4cbd`. Its manifest is `analysis/intent-pilot/generator-v2/selection.json`. The comparative status is `unavailable_no_informative_u`. The sealed test has no run in this stage. The measured prompt source is archived with its original hash. The final typed parser strips incidental prose from direct intent payloads before checking predicates. The audit replayed the measured prompts and proposals under the final parser and verified identical slots.
+
+### Executed entry points
+
+```bash
+source analysis/intent-pilot/env.sh
+export OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 OPENBLAS_NUM_THREADS=1
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 6 --phase preparation --activity generator-freeze --seconds 45 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot generator freeze
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 6 --domain sokoban --phase inference --activity generator-validation --seconds 245 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot generator run --wall-seconds 225
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 6 --phase preparation --activity generator-copy-ids-freeze --seconds 35 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot generator freeze --edition 2
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 6 --domain sokoban --phase inference --activity generator-copy-ids-validation --seconds 225 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot generator run --edition 2 --wall-seconds 205
+```
+
+The first focused test exposed a prose normalization gap in duplicate detection. The corrected focused run passed all 23 checks. Ruff, Mypy, Pyright and `git diff --check` passed. The initial results and raw calls are in `analysis/intent-pilot/generator/`. The selected run, tables, value fit, per-slot results, raw generator calls, native rollouts and audit logs are in `analysis/intent-pilot/generator-v2/`.
+
+### Reconciled budget
+
+Prompt 06 charged **177.515 inference worker-seconds** and **80.879 preparation worker-seconds**, including the unsuccessful first instruction, the test correction and all audits. Every job settled with zero metered USD. **1,866.034 worker-seconds remain**. Of these, **66.034 are available before Prompt 09** and **1,800 are protected for it**. The export is `analysis/intent-pilot/generator-v2/budget.json`.
+
+### Exact resume command
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.intent_pilot generator report --edition 2
+uv run --locked --offline --no-sync python analysis/intent-pilot/generator-v2/audit.py
+```
+
+### Next prompt — 07
+
+Read both documents and verify the frozen validation selection. Carry forward the unlabelled Sokoban diagnostic with the exact Qwen3 policy and fitted value identities. Treat policy-relative scale control as unmeasured and preserve the four `D_C` masks, sealed split and protected budget.

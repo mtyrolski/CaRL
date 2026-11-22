@@ -29,6 +29,10 @@ def main() -> int:
     direct.add_argument("--resume", action="store_true", help="Continue the missing starts of a partial direct report")
     hindsight = commands.add_parser("hindsight", help="Collect assigned intents and freeze checked hindsight support")
     hindsight.add_argument("operation", choices=("plan", "collect", "packets", "freeze", "verify"))
+    generator = commands.add_parser("generator", help="Freeze, validate and report matched native generator arms")
+    generator.add_argument("operation", choices=("freeze", "run", "report"))
+    generator.add_argument("--wall-seconds", type=int, default=235)
+    generator.add_argument("--edition", type=int, choices=(1, 2), default=1)
     run = commands.add_parser("run", help="Reserve worker time and execute a local command")
     run.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     run.add_argument("--domain", default="both", choices=DOMAINS)
@@ -101,6 +105,21 @@ def main() -> int:
                     ledger.bind_candidate_pool(result["pool_version"], result["pool_sha256"])
                 elif args.operation == "verify" and ledger.candidate_pool_digest(result["pool_version"]) != result["pool_sha256"]:
                     raise ValueError("The candidate pool does not match its campaign ledger binding")
+            print(json.dumps(result, indent=2))
+            return 0
+        if args.action == "generator":
+            from carl.icl.experiments.intent_pilot_generate import freeze_plan, run
+            from carl.icl.experiments.intent_pilot_generate_report import publish
+
+            if args.operation == "freeze":
+                result = freeze_plan(root, edition=args.edition)
+                publish(root, edition=args.edition)
+            elif args.operation == "run":
+                if args.wall_seconds <= 0:
+                    raise ValueError("Set a positive generator validation deadline")
+                result = run(root, args.wall_seconds, edition=args.edition)
+            else:
+                result = publish(root, edition=args.edition)
             print(json.dumps(result, indent=2))
             return 0
         if args.action == "record-preparation":
