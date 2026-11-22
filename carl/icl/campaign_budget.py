@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeGuard
 from uuid import uuid4
@@ -26,6 +27,14 @@ SUPPORTED_ROUTES = {
 
 class CampaignLimitExceeded(RuntimeError):
     """A shared campaign or stage spending ceiling would be exceeded."""
+
+
+class _ReservationStatus(StrEnum):
+    """Persisted states of a physical request reservation."""
+
+    RESERVED = "reserved"
+    SETTLED = "settled"
+    UNKNOWN = "unknown"
 
 
 def _nanos(value: Decimal) -> int:
@@ -305,7 +314,8 @@ class CampaignLedger:
             db.execute("BEGIN IMMEDIATE")
             if protect_request and db.execute(
                 "SELECT 1 FROM attempts WHERE provider=? AND endpoint=? AND request_hash=? "
-                "AND status IN ('reserved','unknown') LIMIT 1", (provider, endpoint, digest)
+                "AND status IN (?,?) LIMIT 1",
+                (provider, endpoint, digest, _ReservationStatus.RESERVED, _ReservationStatus.UNKNOWN),
             ).fetchone():
                 raise CampaignLimitExceeded("An earlier physical attempt requires reconciliation")
             charged = "COALESCE(charged_nanos, reserved_nanos)"
@@ -316,7 +326,8 @@ class CampaignLedger:
                 raise CampaignLimitExceeded("Campaign or stage budget would be exceeded")
             db.execute("INSERT INTO attempts(id,stage,tag,endpoint,model,request_hash,reserved_nanos,status,provider,payload_hash) "
                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                       (identifier, stage, tag, endpoint, model, digest, reserved, "reserved", provider, wire_hash))
+                       (identifier, stage, tag, endpoint, model, digest, reserved, _ReservationStatus.RESERVED,
+                        provider, wire_hash))
         return identifier
 
     def settle(self, identifier: str, usage: dict[str, Any], payload: dict[str, Any]) -> bool:
@@ -333,7 +344,7 @@ class CampaignLedger:
                 "SELECT reserved_nanos,status,provider,endpoint,model,payload_hash FROM attempts WHERE id=?",
                 (identifier,),
             ).fetchone()
-            if attempt is None or attempt[1] != "reserved":
+            if attempt is None or attempt[1] != _ReservationStatus.RESERVED:
                 raise ValueError("Campaign reservation is missing or already settled")
             reserved, _, provider, endpoint, model, wire_hash = attempt
             if payload.get("model") != model or (wire_hash and _payload_hash(payload) != wire_hash):
@@ -351,16 +362,17 @@ class CampaignLedger:
                 input_multiplier, output_multiplier = price.multipliers(total_in)
                 cost = input_cost * input_multiplier + price.output * output * output_multiplier
             charged = _nanos(cost * price.regional / MILLION)
-            settled = bool(charged <= reserved)
-            if settled:
-                db.execute("UPDATE attempts SET charged_nanos=?,status='settled',usage_json=? WHERE id=?",
-                           (charged, json.dumps(usage, sort_keys=True), identifier))
-        return settled
+            if charged > reserved:
+                return False
+            db.execute("UPDATE attempts SET charged_nanos=?,status=?,usage_json=? WHERE id=?",
+                       (charged, _ReservationStatus.SETTLED, json.dumps(usage, sort_keys=True), identifier))
+        return True
 
     def mark_unknown(self, identifier: str) -> None:
         """Mark a failed attempt as uncertain without releasing its reservation."""
         with self._transaction() as db:
-            db.execute("UPDATE attempts SET status='unknown' WHERE id=? AND status='reserved'", (identifier,))
+            db.execute("UPDATE attempts SET status=? WHERE id=? AND status=?",
+                       (_ReservationStatus.UNKNOWN, identifier, _ReservationStatus.RESERVED))
 
     def summary(self) -> dict[str, Any]:
         """Return aggregate costs and unsettled reservations, never prompts or credentials."""

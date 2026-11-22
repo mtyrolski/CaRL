@@ -14,6 +14,8 @@ import pytest
 from carl.environment.craftax import CraftaxAdapter
 from carl.icl.config import ROOT
 from carl.icl.experiment_api import ExperimentAPI
+from carl.icl.planning.active_intent import IntentBudget, IntentSession
+from carl.icl.planning.craftax_execution import CraftaxDirect
 from carl.icl.planning.craftax_tasks import (
     CraftaxTaskManifest, conjunction, decode_intent, intent_is_admissible, load_tasks, mock_action, mock_proposals,
     render_instruction,
@@ -103,6 +105,33 @@ def test_native_craftax_death_terminates_before_the_episode_limit(adapter: Craft
     transition = adapter.step(snapshot, "NOOP")
     assert transition.observation["health"] == 0
     assert transition.terminated and not transition.truncated
+
+
+def test_native_active_intent_preserves_checkpoints_and_separate_task_goal(adapter: CraftaxAdapter) -> None:
+    snapshot = adapter.stage(adapter.reset(6), inventory={"wood": 2}, facing="RIGHT", tiles={"RIGHT": "TREE"})
+    preserve = [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]
+    task = decode_intent({"effects": [{"predicate": "inventory_at_least", "item": "wood", "count": 3}], "preserve": preserve})
+    assigned = decode_intent({"effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 1}], "preserve": preserve})
+    domain = CraftaxDirect(adapter, snapshot, task, task=task)
+    session = IntentSession(domain, render_instruction(task), IntentBudget(6, 6, 6, 60))
+
+    def decide(messages: list[dict[str, str]]) -> JSONObject:
+        query = json.loads(messages[-1]["content"])
+        assert set(query["observation"]) == {"neighbors", "inventory", "facing", "health", "sleeping", "resting"}
+        assert query["assigned_intent"] == assigned.model_dump(mode="json")
+        assert query["history"] == [] and query["previous_intent"] is None
+        return {"response": '{"actions":["DO","NOOP"],"intent":"collect wood"}'}
+
+    speculative = session.attempt("probe", assigned.model_dump(mode="json"), decide, speculative=True)
+    assert domain.snapshot == snapshot and not session.history
+    live = session.attempt("commit", assigned.model_dump(mode="json"), decide)
+    assert speculative["states"] == live["states"]
+    assert speculative["continuation"] == live["states"][0]
+    assert set(live["states"][0]) == {"state_id", "memory_id", "memory", "observation", "native"}
+    assert live["states"][0]["native"] == adapter.snapshot_record(snapshot)
+    assert live["continuation"]["memory"]["note"] == "collect wood"
+    assert live["status"] == "task_solved" and live["task_solved"] and live["first_hit"] is None
+    assert live["decisions"][0]["discarded_suffix"] == ["NOOP"] and session.budget.actions == 2
 
 
 def test_manifest_rejects_reused_seed_and_threshold_only_chain_variants() -> None:

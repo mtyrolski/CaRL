@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Final, Literal, Protocol, TypeGuard
 
-from carl.icl.types import JSONObject
+from carl.icl.types import JSONObject, JSONValue
 
 if TYPE_CHECKING:
     from openai.types.responses import Response, ResponseStreamEvent
@@ -58,7 +58,7 @@ def request_options(effort: str, output_format: JSONObject) -> JSONObject:
     }
 
 
-def is_token_count(value: object) -> TypeGuard[int]:
+def is_token_count(value: JSONValue) -> TypeGuard[int]:
     """Recognize nonnegative integral usage and limit fields."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 

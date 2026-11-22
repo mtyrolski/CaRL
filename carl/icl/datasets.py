@@ -23,6 +23,7 @@ from carl.icl.types import (
     Candidate,
     Instance,
     JSONObject,
+    JSONValue,
     TrainingContext,
     TrainingData,
     ValueExample,
@@ -233,7 +234,7 @@ PRIVATE_FIELDS: Final = frozenset({"actions", "witness", "witnesses", "solution"
                                   "future_states", "subgoal", "subgoals", "target", "targets", "action_path"})
 
 
-def _reject_private_fields(value: object) -> None:
+def _reject_private_fields(value: JSONValue) -> None:
     if isinstance(value, dict):
         if PRIVATE_FIELDS.intersection(value):
             raise ValueError("Public evaluation manifest contains private or future data")

@@ -1,6 +1,6 @@
 """Execute and check Craftax intents with private native snapshots."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -9,7 +9,69 @@ from carl.icl.api import BudgetExceeded, RequestFailed
 from carl.icl.luna_intent_rollout import IntentRollout, RolloutStatus
 from carl.icl.planning.craftax_tasks import CraftaxIntent, conjunction, intent_is_admissible, render_instruction
 from carl.icl.planning.intent_execution import DomainExecutionOutcome, DomainExecutionState
+from carl.icl.planning.local_direct import DirectStep, TaskStatus
 from carl.icl.types import JSONObject
+
+
+CRAFTAX_RULES = (
+    "UP, DOWN, LEFT and RIGHT set facing. DO harvests a nearby tree or mines stone in the facing direction. "
+    "MAKE_WOOD_SWORD crafts a wooden sword with one wood while adjacent to a crafting table. "
+    "MAKE_WOOD_PICKAXE crafts a wooden pickaxe with one wood at a table. Read the inventory and nearby terrain."
+)
+
+
+class CraftaxDirect:
+    """Project native Craftax transitions onto the local direct controller contract."""
+
+    rules = CRAFTAX_RULES
+
+    def __init__(
+        self, adapter: CraftaxAdapter, snapshot: CraftaxSnapshot, intent: CraftaxIntent, *,
+        task: CraftaxIntent | None = None,
+    ) -> None:
+        self.adapter = adapter
+        self.snapshot = adapter.restore(snapshot)
+        self.intent = intent
+        self.task = task
+        self.action_names = adapter.action_names
+
+    def observe(self) -> JSONObject:
+        visible = self.adapter.observe(self.snapshot)
+        return {key: visible[key] for key in ("neighbors", "inventory", "facing", "health", "sleeping", "resting")}
+
+    def check(self) -> tuple[bool | None, bool | None]:
+        facts = self.adapter.inventory(self.snapshot)
+        return conjunction(self.intent.effects, facts), conjunction(self.intent.preserve, facts)
+
+    def assign_intent(self, requested: JSONObject) -> tuple[JSONObject, str]:
+        self.intent = CraftaxIntent.model_validate(requested)
+        return self.intent.model_dump(mode="json"), render_instruction(self.intent)
+
+    def task_status(self) -> TaskStatus:
+        facts = self.adapter.inventory(self.snapshot)
+        task = self.task
+        solved = task is not None and conjunction((*task.effects, *task.preserve), facts) is True
+        return TaskStatus(solved, self.snapshot.terminated or self.snapshot.truncated)
+
+    def checkpoint(self) -> tuple[str, JSONObject]:
+        snapshot = self.snapshot
+        return snapshot.fingerprint, {
+            "observation": self.adapter.observe(snapshot), "native": self.adapter.snapshot_record(snapshot),
+        }
+
+    def loop_key(self) -> Hashable:
+        return self.adapter.loop_key(self.snapshot)
+
+    def step(self, action: str) -> DirectStep:
+        before = self.observe()
+        outcome = self.adapter.step(self.snapshot, action)
+        self.snapshot = outcome.snapshot
+        changed = any(before[key] != outcome.observation[key] for key in ("inventory", "health", "sleeping", "resting"))
+        return DirectStep(
+            self.action_names[outcome.native_action], outcome.primitive_action_executed,
+            outcome.native_ticks, outcome.automatic_ticks, outcome.no_op or action == "NOOP", changed,
+            outcome.terminated or outcome.truncated,
+        )
 
 
 @dataclass(frozen=True)
@@ -98,6 +160,7 @@ class CraftaxIntentExecutor:
         solved, effects, preserve = self._check(snapshot, intent)
         status = _termination(snapshot, solved, effects, preserve) or RolloutStatus.ACTION_LIMIT
         instruction = goal if intent is None else render_instruction(intent)
+        has_preservation = bool(self.goal.preserve or (intent is not None and intent.preserve))
         for _ in range(cap):
             if status != RolloutStatus.ACTION_LIMIT:
                 break
@@ -106,6 +169,8 @@ class CraftaxIntentExecutor:
                 action = self.adapter.action_id(self.controller(
                     self.adapter.observe(snapshot), instruction, tuple(history), intent, seed=seed,
                 ))
+                step: JSONObject = {"requested_action": action, "action": None}
+                steps.append(step)
                 if before_action is not None:
                     before_action()
             except BudgetExceeded as exc:
@@ -127,8 +192,14 @@ class CraftaxIntentExecutor:
             actions.append(action)
             rewards.append(transition.reward)
             solved, effects, preserve = self._check(snapshot, intent)
-            steps.append({"action": action, "no_op": transition.no_op, "preservation_holds": preserve,
-                          "intent_holds": effects, "task_solved": solved, "reward": transition.reward})
+            if has_preservation and transition.native_ticks != 1 and preserve is not False:
+                preserve = None
+            step.update(
+                action=action, native_action=transition.native_action, native_ticks=transition.native_ticks,
+                automatic_ticks=transition.automatic_ticks, primitive_action_executed=transition.primitive_action_executed,
+                no_op=transition.no_op, preservation_holds=preserve,
+                intent_holds=effects, task_solved=solved, reward=transition.reward,
+            )
             status = _termination(snapshot, solved, effects, preserve) or RolloutStatus.ACTION_LIMIT
         return DomainExecutionOutcome(
             DomainExecutionState(snapshot, tuple(history)),

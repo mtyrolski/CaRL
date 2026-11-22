@@ -1,1 +1,0 @@
-{"extends": "../experiments/relative.json", "name": "demo_relative", "instances": 1, "repeat_seeds": [11], "action_budget": 16, "max_expansions": 16}

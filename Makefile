@@ -105,8 +105,7 @@ icl-pilot: ## Run the paired 12x12 and 32x32 pilot via API after calibration
 icl-eval: ## Build offline Plotly HTML/JSON evaluation from the prepared demo runs
 	$(UV_RUN) --extra icl python -m scripts.evaluate_icl
 
-icl-eval-demo: ## Recreate the mock comparison and Plotly dashboard (requires prepared data)
+icl-eval-demo: ## Recreate the small mock comparison and dashboard (requires prepared data)
 	$(UV_RUN) --extra icl python -m scripts.run_icl_search calibrate --mock
 	$(UV_RUN) --extra icl python -m scripts.run_icl_search matrix --mock --matrix configs/icl/experiments/matrix_smoke.json --output analysis/luna_icl/evaluation_demo_runs/easy
-	$(UV_RUN) --extra icl python -m scripts.run_icl_search matrix --mock --matrix configs/icl/evaluation/demo_matrix.json --output analysis/luna_icl/evaluation_demo_runs/full
-	$(MAKE) icl-eval
+	$(UV_RUN) --extra icl python -m scripts.evaluate_icl --runs analysis/luna_icl/evaluation_demo_runs/easy

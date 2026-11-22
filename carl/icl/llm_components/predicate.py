@@ -23,10 +23,9 @@ from carl.icl.predicate_prompts import (
     generator_instruction, generator_query,
 )
 from carl.icl.responses import RESPONSE_CONTRACT_VERSION, is_token_count, text_message
-from carl.icl.types import JSONObject
+from carl.icl.types import ComponentRole, JSONObject, JSONValue, PromptExample
 
-PredicateRole: TypeAlias = Literal["policy", "generator", "value"]
-PromptExample: TypeAlias = tuple[JSONObject, JSONObject]
+PredicateRole: TypeAlias = ComponentRole
 MockText: TypeAlias = Callable[[], str]
 
 POLICY_PROMPT_VERSION: Final = "sokoban-predicate-policy-v1"
@@ -48,7 +47,7 @@ PREDICATE_POLICY_PROMPT: Final = (
 )
 
 
-def _json(value: object) -> str:
+def _json(value: JSONValue) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
 

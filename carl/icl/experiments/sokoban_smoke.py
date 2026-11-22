@@ -20,7 +20,7 @@ from carl.icl.intents.generation.data import file_sha256, read_records
 from carl.icl.planning.intent_search import SearchMode
 from carl.icl.policy_relative.labels import contract_hash
 from carl.icl.predicate_icl import MockResponses, PredicateCondition, PredicateQuery
-from carl.icl.types import JSONObject
+from carl.icl.types import JSONObject, JSONValue
 
 DEFAULT_CONFIG = Path("configs/icl/quickstart/sokoban_sweep.json")
 MODES = (SearchMode.DIRECT, SearchMode.ONE_STEP, SearchMode.FULL_SEARCH)
@@ -75,8 +75,9 @@ class SmokeConfig(Settings):
         return self
 
 
-def _read(path: Path) -> object:
-    return json.loads(path.read_text(encoding="utf-8"))
+def _read(path: Path) -> JSONValue:
+    value: JSONValue = json.loads(path.read_text(encoding="utf-8"))
+    return value
 
 
 def _query(rows: list[str], split: Literal["test", "validation"], group: str) -> PredicateQuery:
@@ -297,7 +298,7 @@ def run(config_path: Path, output: Path, *, profile: str | None = None, prepare_
         output.mkdir(parents=True)
     except FileExistsError as error:
         raise ValueError(f"output already exists: {output}; select a fresh output for a rerun or config override") from error
-    frozen = {
+    frozen: dict[str, JSONValue] = {
         "design": config.model_dump(mode="json"), "selected_profile": selected,
         "input_hashes": {name: file_sha256(path) for name, path in (
             ("demonstrations", source.demonstrations), ("test_queries", source.test_queries), ("uv.lock", ROOT / "uv.lock"),

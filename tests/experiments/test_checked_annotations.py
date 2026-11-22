@@ -8,7 +8,7 @@ import pytest
 
 from carl.icl.boards import canonical_layout_id, from_rows, level_key, to_rows
 from carl.icl.data_sources.sokoban import environment
-from carl.icl.intent_annotations import AnnotationRequest, prepare_annotations
+from carl.icl.intent_annotations import AnnotationRequest, SegmentSelection, prepare_annotations
 from carl.icl.intent_augmentation import BoardSymmetry, transform_actions, transform_rows
 from carl.icl.intent_domain import (
     Action,
@@ -67,6 +67,31 @@ def _source(tmp_path: Path, *trajectories: dict) -> Path:
 
 def _records(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_selected_annotation_checks_original_endpoint_and_executed_prefix(tmp_path: Path) -> None:
+    source = _source(
+        tmp_path,
+        _trajectory("preserve-through-hit", "train", BOARD, [Action.RIGHT, Action.DOWN]),
+        _trajectory("lost-effect", "train", BOARD, [Action.RIGHT, Action.RIGHT]),
+    )
+    output = tmp_path / "checked"
+    prepare_annotations(
+        source, output, max_offset=2, seed=0, annotator=lambda _request: {
+            "effects": [{"predicate": "box_at", "row": 1, "col": 3}],
+            "preserve": [{"predicate": "box_at", "row": 2, "col": 2}],
+        }, selections=[SegmentSelection("preserve-through-hit", 0, 2), SegmentSelection("lost-effect", 0, 2)],
+    )
+    accepted, rejected = _records(output / "annotation_audit.jsonl")
+    assert accepted["validation"]["status"] == "accepted"
+    assert accepted["evidence"]["actions"] == [Action.RIGHT]
+    assert accepted["evidence"]["first_verified_hit_offset"] == 1
+    assert accepted["evidence"]["original_end_index"] == 2
+    assert accepted["evidence"]["original_end_observation"][2][2] != "$"
+    assert rejected["validation"]["status"] == "rejected"
+    assert "false at end" in " ".join(rejected["validation"]["reasons"])
+    [training] = _records(output / "D_A.jsonl")
+    assert training["demonstration_offset"] == 1 and "evidence" not in training
 
 
 def test_checked_labels_and_prompt_inputs_are_distinct(tmp_path: Path) -> None:

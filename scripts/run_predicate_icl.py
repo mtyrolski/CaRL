@@ -14,12 +14,14 @@ from carl.icl.planning.craftax_experiment import add_arguments as add_craftax_ar
 from carl.icl.planning.craftax_experiment import run as run_craftax
 from carl.icl.planning.intent_search import SearchMode
 from carl.icl.planning.intent_value import fit_value
+from carl.icl.planning.search_types import FinishReason
 from carl.icl.predicate_icl import MockResponses, PredicateCondition, PredicateQuery
-from carl.icl.types import JSONObject
+from carl.icl.types import JSONObject, JSONValue
 
 
-def _read(path: Path) -> object:
-    return parse_json(path.read_text(encoding="utf-8"))
+def _read(path: Path) -> JSONValue:
+    value: JSONValue = parse_json(path.read_text(encoding="utf-8"))
+    return value
 
 
 def _emit(result: JSONObject, path: Path | None) -> None:
@@ -53,7 +55,7 @@ def _execute(args: argparse.Namespace) -> int:
         query, mode=args.mode, planning_mode=planning_mode, mock=mock, validation_result=args.validation_result,
     )
     _emit(result, args.output)
-    success_status = "solved" if planning_mode is not None else RolloutStatus.ACHIEVED
+    success_status = FinishReason.SOLVED if planning_mode is not None else RolloutStatus.ACHIEVED
     return 0 if result["status"] == success_status else 2
 
 

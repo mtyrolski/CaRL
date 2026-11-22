@@ -11,17 +11,19 @@ import pytest
 
 from carl.icl.api import BudgetExceeded
 from carl.icl.boards import to_rows
-from carl.icl.config import ExperimentConfig, Limits
+from carl.icl.config import ExperimentConfig, Limits, LocalModelSettings
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.experiment import create_inference_api
 from carl.icl.intent_annotations import prepare_annotations
 from carl.icl.intent_domain import TASK_GOAL, Intent, SokobanObservation, SokobanSnapshot, decode_intent, replay_fragment
 from carl.icl.intents.generation.data import read_records
 from carl.icl.llm_components.predicate import create_predicate_components
+from carl.icl.local_models import LocalRoleModel
 from carl.icl.luna_intent_rollout import Action, ActionAttempt
 from carl.icl.planning.intent_execution import SokobanIntentExecutor
 from carl.icl.planning.intent_search import IntentSearchRuntime, IntentSearchSettings, search_intents
 from carl.icl.planning.intent_value import fit_value, load_value
+from carl.icl.planning.local_direct import DirectLimits, SokobanDirect, parse_batch, run_direct
 from carl.icl.types import Board, JSONObject
 from scripts import run_predicate_icl
 
@@ -208,6 +210,40 @@ def test_public_cli_three_modes_share_controller_and_replay_the_same_solution(
     assert direct["queue_pops"] == one_step["queue_pops"] == []
     assert one_step["accounting"]["attempted_simulator_actions"] == 4
     assert full["accounting"]["attempted_simulator_actions"] == 2 and full["queue_pops"]
+
+
+def test_local_direct_interrupt_discards_suffix_and_returns_charged_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    calls: list[JSONObject] = []
+    replies = iter((
+        '{"actions":["LEFT","RIGHT"],"intent":"approach the box"}',
+        '{"actions":[{"name":"RIGHT"},"LEFT"]}',
+    ))
+
+    def complete(
+        _self: LocalRoleModel, messages: Sequence[dict[str, str]], **_options: object,
+    ) -> tuple[str, int, int]:
+        calls.append(json.loads(messages[-1]["content"]))
+        return next(replies), 100, 12
+
+    monkeypatch.setattr(LocalRoleModel, "complete_chat", complete)
+    role = LocalRoleModel(LocalModelSettings(model=str(tmp_path), revision="0" * 40), "policy", tmp_path, None, "{}")
+    intent = _intent("box_at", 1, 3)
+    start = SokobanSnapshot(("#####", "#@$.#", "#####", "#####", "#####"))
+    domain = SokobanDirect(start, intent)
+    result = run_direct(role, domain, {"effects": intent["effects"]}, DirectLimits())
+    first, second = result["decisions"]
+    assert first["interrupt"] == "no_op" and first["discarded_suffix"] == ["RIGHT"]
+    assert second["interrupt"] == "success" and second["discarded_suffix"] == ["LEFT"]
+    assert calls[1]["observation"] == first["observation_after_interrupt"]
+    assert calls[1]["previous_intent"] == "approach the box"
+    assert calls[1]["history"] == [{"action": "LEFT", "applied": "LEFT", "no_op": True, "executed": True}]
+    assert result["requested_primitives"] == 4 and result["executed_primitives"] == 2
+    assert result["executed_no_ops"] == 1 and result["first_verified_hit_primitives"] == 2
+    assert result["role_calls"] == {"policy": 2, "generator": 0, "value": 0}
+    with pytest.raises(ValueError, match="one to four"):
+        parse_batch(json.dumps({"actions": ["LEFT"] * 5}), domain.action_names)
 
 
 @pytest.mark.parametrize(("values", "first"), [((0.25, 0.75), 2), ((0.75, 0.75), 1)])

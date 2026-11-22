@@ -1,5 +1,5 @@
 """Domain contracts; dynamic dictionaries are confined to JSON/API boundaries."""
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypeAlias, TypedDict
 
 import numpy as np
@@ -26,6 +26,8 @@ PathSetting: TypeAlias = Literal[
 ]
 # The SDK accepts heterogeneous JSON schemas, messages and provider metadata.
 JSONObject: TypeAlias = dict[str, Any]
+JSONValue: TypeAlias = str | int | float | bool | None | Mapping[str, "JSONValue"] | Sequence["JSONValue"]
+PromptExample: TypeAlias = tuple[JSONObject, JSONObject]
 MockResponse: TypeAlias = Callable[[], JSONObject]
 
 

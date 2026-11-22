@@ -3,7 +3,7 @@ import hashlib
 import json
 import os
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +13,7 @@ from tiktoken.registry import ENCODINGS
 from carl.icl.api import BudgetExceeded, CachedOpenAI, ClientFactory, RequestFailed, _CACHE_ATTEMPT_SLOT
 from carl.icl.config import Limits
 from carl.icl.responses import is_token_count
+from carl.icl.types import COMPONENT_ROLES
 
 if TYPE_CHECKING:
     from carl.icl.config import ModelSettings
@@ -20,12 +21,13 @@ if TYPE_CHECKING:
 TOKENIZER = "o200k_base"
 TOKENIZER_URL = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
 TOKENIZER_SHA256 = "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d"
+_ROLE_METRICS = {role: f"{role}_calls" for role in COMPONENT_ROLES}
 
 
 class _ByteEncoding:
     """Conservative token count when the local BPE vocabulary is unavailable."""
 
-    def encode(self, text: str, **_kwargs: object) -> bytes:
+    def encode(self, text: str, **_options: Collection[str]) -> bytes:
         """Return UTF-8 bytes, an upper bound for BPE tokenization."""
         return text.encode("utf-8")
 
@@ -76,9 +78,7 @@ class ExperimentAPI(CachedOpenAI):
             logical_token_byte_fallback=int(isinstance(self.encoding, _ByteEncoding)),
             logical_input_tokens=0,
             logical_output_tokens=0,
-            generator_calls=0,
-            policy_calls=0,
-            value_calls=0,
+            **dict.fromkeys(_ROLE_METRICS.values(), 0),
         )
 
     def call_json_retry(
@@ -133,9 +133,9 @@ class ExperimentAPI(CachedOpenAI):
             # Reserve a full configured completion; keep cache keys stable across runs.
             raise BudgetExceeded("Insufficient remaining output tokens for a full request")
         self.metrics["logical_input_tokens"] += prompt_tokens
-        role = payload.get("metadata", {}).get("component")
-        if role in {"generator", "policy", "value"}:
-            self.metrics[f"{role}_calls"] += 1
+        metric = _ROLE_METRICS.get(payload.get("metadata", {}).get("component"))
+        if metric is not None:
+            self.metrics[metric] += 1
         try:
             result = super().call(endpoint, payload, mock, transport=transport)
         except BaseException:
