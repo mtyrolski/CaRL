@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from scripts import intent_experiment_supervisor as supervisor
+from scripts.experiment_support.supervisor.processes import pidfd_open, pidfd_send_signal
 
 
 def test_refuses_to_signal_unregistered_or_reused_pid():
@@ -69,7 +70,7 @@ def test_legacy_boot_requires_explicit_live_watchdog_adoption(tmp_path):
         recorded = supervisor.read_json(run_dir / "run_manifest.json")
         assert recorded["boot_id"] == supervisor.boot_id()
         assert old.wait(timeout=2) != 0
-        new_fd = os.pidfd_open(recorded["watchdog_pid"])
+        new_fd = pidfd_open(recorded["watchdog_pid"])
         supervisor.finish(run_dir)
         deadline = time.monotonic() + 4
         while not supervisor._pidfd_exited(new_fd) and time.monotonic() < deadline:
@@ -81,7 +82,7 @@ def test_legacy_boot_requires_explicit_live_watchdog_adoption(tmp_path):
             old.wait()
         if new_fd is not None:
             if not supervisor._pidfd_exited(new_fd):
-                signal.pidfd_send_signal(new_fd, signal.SIGTERM)
+                pidfd_send_signal(new_fd, signal.SIGTERM)
             os.close(new_fd)
 
 
@@ -202,7 +203,7 @@ def test_stage_leader_waits_for_orphaned_descendant_before_timeout(tmp_path):
         while not main_done.exists() and time.monotonic() < end:
             time.sleep(0.01)
         assert main_done.exists() and ready.exists()
-        child_fd = os.pidfd_open(int(ready.read_text()))
+        child_fd = pidfd_open(int(ready.read_text()))
         time.sleep(0.1)
         assert leader.poll() is None
         stage = {
@@ -221,7 +222,7 @@ def test_stage_leader_waits_for_orphaned_descendant_before_timeout(tmp_path):
             leader.wait()
         if child_fd is not None:
             if not supervisor._pidfd_exited(child_fd):
-                signal.pidfd_send_signal(child_fd, signal.SIGKILL)
+                pidfd_send_signal(child_fd, signal.SIGKILL)
             os.close(child_fd)
 
 
@@ -258,7 +259,7 @@ def test_watchdog_stops_ignoring_descendant_after_nonchild_leader_exits(tmp_path
         while not ready.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert ready.exists()
-        child_fd = os.pidfd_open(int(ready.read_text()))
+        child_fd = pidfd_open(int(ready.read_text()))
         start = supervisor.proc_start(leader_pid)
         assert start is not None
         stage = {
@@ -275,7 +276,7 @@ def test_watchdog_stops_ignoring_descendant_after_nonchild_leader_exits(tmp_path
             supervisor.stop_owned(stage, grace_seconds=0)
         if child_fd is not None:
             if not supervisor._pidfd_exited(child_fd):
-                signal.pidfd_send_signal(child_fd, signal.SIGKILL)
+                pidfd_send_signal(child_fd, signal.SIGKILL)
             os.close(child_fd)
         if proxy.poll() is None:
             proxy.terminate()

@@ -1,12 +1,46 @@
 """Linux process-group ownership, tracking and controlled termination."""
 
 import ctypes
+import errno
 import os
 import select
 import signal
 import subprocess
 import time
 from pathlib import Path
+
+
+_LIBC = ctypes.CDLL(None, use_errno=True)
+
+
+def _call_pidfd(name: str, *args: ctypes.c_int | ctypes.c_uint | ctypes.c_void_p) -> int:
+    function = getattr(_LIBC, name, None)
+    if function is None:
+        raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
+    result: int = function(*args)
+    if result < 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+    return result
+
+
+def pidfd_open(pid: int) -> int:
+    """Open a process handle even on CPython builds with older Linux headers."""
+    try:
+        open_handle = os.pidfd_open
+    except AttributeError:
+        return _call_pidfd("pidfd_open", ctypes.c_int(pid), ctypes.c_uint(0))
+    return open_handle(pid)
+
+
+def pidfd_send_signal(fd: int, sig: int) -> None:
+    """Send a signal through a process handle using CPython or libc."""
+    try:
+        send_signal = signal.pidfd_send_signal
+    except AttributeError:
+        _call_pidfd("pidfd_send_signal", ctypes.c_int(fd), ctypes.c_int(sig), ctypes.c_void_p(), ctypes.c_uint(0))
+    else:
+        send_signal(fd, sig)
 
 
 def boot_id() -> str:
@@ -51,7 +85,7 @@ def _open_member(pid: int, metadata: tuple[int, int, int]) -> int | None:
     if proc_metadata(pid) != metadata:
         return None
     try:
-        fd = os.pidfd_open(pid)
+        fd = pidfd_open(pid)
     except OSError:
         return None
     if proc_metadata(pid) != metadata or _pidfd_exited(fd):
@@ -77,7 +111,7 @@ def group_has_live_members(group: int) -> bool:
     """Fail closed when a registered process group still has a live member."""
     for pid, metadata in _group_members(group):
         try:
-            fd = os.pidfd_open(pid)
+            fd = pidfd_open(pid)
         except OSError:
             if proc_metadata(pid) == metadata:
                 return True
@@ -141,7 +175,7 @@ def stop_tracked(handles: dict[int, tuple[int, int]]) -> bool:
     for fd, _ in handles.values():
         if not _pidfd_exited(fd):
             try:
-                signal.pidfd_send_signal(fd, signal.SIGKILL)
+                pidfd_send_signal(fd, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             except OSError:
@@ -167,11 +201,7 @@ def stop_owned(stage: dict, grace_seconds: float = 3.0) -> bool:
     disappearing leader cannot orphan an ignoring child. If the leader was
     already gone, ownership cannot safely be reconstructed from a bare PGID.
     """
-    if (
-        not hasattr(os, "pidfd_open")
-        or not hasattr(signal, "pidfd_send_signal")
-        or not owned_process(stage)
-    ):
+    if not owned_process(stage):
         return False
     pid = stage["pid"]
     leader = _open_member(pid, (stage["proc_start"], pid, pid))
@@ -183,7 +213,7 @@ def stop_owned(stage: dict, grace_seconds: float = 3.0) -> bool:
     inaccessible = False
     try:
         try:
-            signal.pidfd_send_signal(leader, signal.SIGSTOP)
+            pidfd_send_signal(leader, signal.SIGSTOP)
         except OSError:
             return False
         frozen.add(leader)
@@ -204,7 +234,7 @@ def stop_owned(stage: dict, grace_seconds: float = 3.0) -> bool:
                     os.close(fd)
                     break
                 try:
-                    signal.pidfd_send_signal(fd, signal.SIGSTOP)
+                    pidfd_send_signal(fd, signal.SIGSTOP)
                 except OSError as exc:
                     inaccessible |= not isinstance(exc, ProcessLookupError)
                     os.close(fd)
@@ -217,14 +247,14 @@ def stop_owned(stage: dict, grace_seconds: float = 3.0) -> bool:
                 break
         for fd in frozen:
             try:
-                signal.pidfd_send_signal(fd, signal.SIGTERM)
+                pidfd_send_signal(fd, signal.SIGTERM)
             except ProcessLookupError:
                 pass
             except OSError:
                 complete_scan = False
         for fd in frozen:
             try:
-                signal.pidfd_send_signal(fd, signal.SIGCONT)
+                pidfd_send_signal(fd, signal.SIGCONT)
             except ProcessLookupError:
                 pass
             except OSError:
@@ -242,7 +272,7 @@ def stop_owned(stage: dict, grace_seconds: float = 3.0) -> bool:
         for fd in handles.values():
             if not _pidfd_exited(fd):
                 try:
-                    signal.pidfd_send_signal(fd, signal.SIGKILL)
+                    pidfd_send_signal(fd, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 except OSError:
@@ -259,7 +289,7 @@ def stop_owned(stage: dict, grace_seconds: float = 3.0) -> bool:
         # Never leave our group suspended after an unexpected exception.
         for fd in frozen:
             try:
-                signal.pidfd_send_signal(fd, signal.SIGCONT)
+                pidfd_send_signal(fd, signal.SIGCONT)
             except OSError:
                 pass
         for fd in handles.values():
@@ -279,10 +309,9 @@ def stage_leader(gate_fd: int, command: list[str]) -> int:
     if not command:
         raise ValueError("A stage command is required")
     # Linux subreapers adopt orphaned descendants, including double-forks.
-    libc = ctypes.CDLL(None, use_errno=True)
-    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
-        errno = ctypes.get_errno()
-        raise OSError(errno, os.strerror(errno))
+    if _LIBC.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
 
     def keep_leader_alive(_signum: int, _frame: object) -> None:
         # The watchdog signals every captured member; this process remains to

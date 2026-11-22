@@ -20,6 +20,7 @@ from scripts.experiment_support.supervisor.processes import boot_id
 from scripts.experiment_support.supervisor.processes import close_tracked
 from scripts.experiment_support.supervisor.processes import group_has_live_members
 from scripts.experiment_support.supervisor.processes import owned_process
+from scripts.experiment_support.supervisor.processes import pidfd_send_signal
 from scripts.experiment_support.supervisor.processes import proc_metadata
 from scripts.experiment_support.supervisor.processes import proc_start
 from scripts.experiment_support.supervisor.processes import stage_leader
@@ -240,7 +241,7 @@ def refresh_watchdog(run_dir: Path, adopt_current_boot: bool = False) -> None:
         append_log(run_dir, f"Watchdog refreshed: old={old}, new={worker.pid}.")
         if old_fd is not None:
             try:
-                signal.pidfd_send_signal(old_fd, signal.SIGTERM)
+                pidfd_send_signal(old_fd, signal.SIGTERM)
             except ProcessLookupError:
                 pass
             finally:
