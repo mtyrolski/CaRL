@@ -44,4 +44,5 @@ def test_adasubs_keeps_intermediate_proposal_reached_after_requeue() -> None:
 
     assert result.solution.solved and result.solution.action_path == [1, 1]
     assert [event["reached"] for event in result.search_info.proposal_events] == [True, True]
+    assert result.search_info.realized_segment_lengths == [1, 1]
     assert result.search_info.detour_ratio == 0.5

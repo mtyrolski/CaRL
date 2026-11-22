@@ -116,9 +116,14 @@ def _select(serialized, count):
             raise ValueError(f"Insufficient unique training pairs for category {category} after {index} demonstrations")
         # Prefer previously unseen sources, then underrepresented horizons and
         # layouts; the final hash is a fixed seed tie-break, not outcome tuning.
-        item = min(candidates, key=lambda x, category=category: (x["source_hash"] in used_sources,
-                   horizon_counts[x["offset"]], layout_counts[x["layout"]],
-                   category_layout_counts[(category, x["layout"])], x["rank"]))
+        def candidate_rank(candidate: _Candidate, category: tuple[int, bool] = category) -> tuple[bool, int, int, int, str]:
+            layout = candidate["layout"]
+            return (
+                candidate["source_hash"] in used_sources, horizon_counts[candidate["offset"]], layout_counts[layout],
+                category_layout_counts[(category, layout)], candidate["rank"],
+            )
+
+        item = min(candidates, key=candidate_rank)
         selected.append((category, item))
         used_pairs.add((item["source_hash"], item["target_hash"]))
         used_sources.add(item["source_hash"])

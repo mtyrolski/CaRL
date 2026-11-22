@@ -111,12 +111,13 @@ class Solver:
         segment_actions: list[list[int]] = []
         current = solving_node
         while current.parent_node is not None:
-            low_level_path = current.low_level_path or []
-            segment_lengths.append(len(low_level_path))
-            segment_actions.append(low_level_path)
-            budget = current.parent_node.next_expand_with_k_generator
-            if budget is not None:
-                segment_budgets.append(int(budget))
+            low_level_path = current.low_level_path
+            if low_level_path is not None:
+                segment_lengths.append(len(low_level_path))
+                segment_actions.append(low_level_path)
+                budget = current.parent_node.next_expand_with_k_generator
+                if budget is not None:
+                    segment_budgets.append(int(budget))
             current = current.parent_node
         segment_lengths.reverse()
         segment_budgets.reverse()
