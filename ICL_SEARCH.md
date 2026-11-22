@@ -15,6 +15,8 @@ and conditions that must hold during execution.
 | --- | --- |
 | `carl.icl.llm_components` | Generator, controller and value interfaces |
 | `carl.icl.planning` and `carl.icl.search` | Search state, queues and simulator execution |
+| `carl.icl.predicate_icl` | Shared predicate conditions, prompt previews and validation receipts |
+| `carl.icl.experiments.sokoban_smoke` | Offline fixture preparation and matched Sokoban sweeps |
 | `carl.icl.calibration` | Controller duration and scale calibration |
 | `carl.icl.data_sources` and `carl.icl.datasets` | Board and trajectory preparation |
 | `carl.icl.intent_data` and `carl.icl.intent_augmentation` | Structured predicates and coordinate transformations |
