@@ -483,3 +483,61 @@ uv run --locked --offline --no-sync python analysis/intent-pilot/generator-v2/au
 ### Next prompt — 07
 
 Read both documents and verify the frozen validation selection. Carry forward the unlabelled Sokoban diagnostic with the exact Qwen3 policy and fitted value identities. Treat policy-relative scale control as unmeasured and preserve the four `D_C` masks, sealed split and protected budget.
+
+## Prompt 07 — Paired validation interrupted before the first response
+
+### Frozen cases and eligibility
+
+The only cell with separately observed elementary skills was Qwen3-0.6B in Sokoban. Its frozen policy walked to the assigned cell in one primitive on a Prompt 06 validation layout. In Prompt 05 it filled a new goal while preserving an occupied one in two separately assigned one-action attempts. The audit ties these observations to the same controller fingerprint.
+
+| Controller | Domain | Prior directed hits / eligible trials | Prompt 07 status |
+| --- | --- | --- | --- |
+| Qwen3-0.6B | Sokoban | 2 / 5 | Two starts frozen for direct and unlabelled. Relative lacked informative `u`. |
+| Qwen3-0.6B | Craftax | 0 / 8 | No qualifying composition under the frozen controller. |
+| Qwen2.5-1.5B-Instruct | Sokoban | 0 / 4 | No qualifying composition under the frozen controller. |
+| Qwen2.5-1.5B-Instruct | Craftax | 0 / 8 | No qualifying composition under the frozen controller. |
+
+The evaluator froze `generated_12x12x10_validation_1` and `generated_12x12x10_validation_2` from different held-out layout groups. Neither layout was used for Prompt 06 generator validation. Each witness replays a walk followed by filling a new goal while preserving a specified occupied goal at all three observations. The model-facing decision used the starting observation, typed task and action vocabulary with empty initial memory. The witness and any future observations stayed private. Native Sokoban transitions and greedy decoding are deterministic. The sealed partition remained closed.
+
+The paired plan SHA-256 is `098e2493611930eaca7ec8e55da71adbce034a4aa474e9afabba1c5b475daea9`. The private plan binds the frozen Prompt 06 selection, the same local policy and examples, and the train-only fitted value. The value estimates progress toward the whole-board goal and serves as a continuation heuristic for the partial task. The evaluator checks the actual typed partial goal separately. The common planned ceilings were 48 executed primitives, 48 native ticks, 16 logical requests, 16,000 charged tokens and 15 seconds per warmed episode. Probes share the action and request counters and may use at most half the count and token budgets. They leave a 0.75-second window for committing with an exact greedy cache hit and a fresh native transition. These caps were chosen under the remaining campaign budget. The depth-one execution path was never reached in this run.
+
+### Observed results
+
+The local CPU worker initialized the pinned FP32 checkpoint with six Torch threads. The runner recorded 38.827 seconds of setup, including 22.543 seconds loading the model and tokenizer. The campaign deadline interrupted the first direct generation. No response, native action, completed episode or paired comparison was observed. The saved request has 403 admitted input tokens and unknown output. The runner charged 467 tokens, including the reserved 64-token completion. The interrupted episode has unknown elapsed time and first-hit duration.
+
+| Arm, Qwen3-0.6B / Sokoban | Solved / planned | Completed | First hit | All / live primitives | Logical / physical requests | Charged tokens | Episode seconds | Stop |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Direct | — / 2 | 0 | — | 0 / 0 | 1 / 1 | 467 | — | One campaign interruption, one undispatched |
+| Depth-one unlabelled | — / 2 | 0 | — | — | — | — | — | Both undispatched |
+| Depth-one relative | — / 2 | 0 | — | — | — | — | — | No informative scale support |
+
+No full-search run was launched. The change adds `scripts.intent_pilot comparison` and a Sokoban diagnostic runner that restores probe snapshots and memory, accounts for G, V and policy work, and commits from the live parent. Ruff, Mypy, Pyright and `git diff --check` passed on the final source. The independent read-only audit passed for the frozen cases, prior skill evidence, first request, censored record and remaining budget. Model loading and admission of the first direct request were exercised. Depth-one with a real response awaits a runtime test.
+
+### Executed entry points and budget
+
+```bash
+source analysis/intent-pilot/env.sh
+export OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 OPENBLAS_NUM_THREADS=1
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 7 --domain sokoban --phase preparation --activity comparison-freeze --seconds 5 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot comparison freeze
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 7 --domain sokoban --phase inference --activity paired-validation --seconds 59 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot comparison run --wall-seconds 55
+```
+
+The freeze-only invocation exited 124 after 5.063 worker-seconds. The combined worker froze the two cases before model loading and exited 124 after 59.334 worker-seconds. Its job charge includes cold startup and setup. The warm-up breakdown is recorded under `private/warmup.json` within that charge. The ledger settled both rows with USD 0 and no outstanding reservation. **1,801.637 worker-seconds remain**, of which **1.637 are available before Prompt 09** and **1,800 are protected**. The wrapper requires a minimum 2-second reservation including cleanup, so another experiment cannot start under the remaining early budget. Codex usage is recorded as unknown.
+
+### Exact resume command
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.intent_pilot comparison report
+uv run --locked --offline --no-sync python analysis/intent-pilot/comparison/audit.py
+```
+
+The report, CSV, JSON, archived executed source, frozen plan, last request and settled budget are in `analysis/intent-pilot/comparison/`. The resume commands read the saved run and verify its evidence without loading the model.
+
+### Next prompt — 08
+
+Read both campaign documents and the partial Prompt 07 report. The validation comparison has zero completed pairs. Full search remains gated on a completed validation comparison and sufficient campaign time. Relative generation also requires independently measured informative ranks. Preserve the sealed inputs and Prompt 09 reserve.

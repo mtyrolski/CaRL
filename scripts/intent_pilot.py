@@ -33,14 +33,17 @@ def main() -> int:
     generator.add_argument("operation", choices=("freeze", "run", "report"))
     generator.add_argument("--wall-seconds", type=int, default=235)
     generator.add_argument("--edition", type=int, choices=(1, 2), default=1)
-    run = commands.add_parser("run", help="Reserve worker time and execute a local command")
-    run.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
-    run.add_argument("--domain", default="both", choices=DOMAINS)
-    run.add_argument("--phase", required=True, choices=PHASES)
-    run.add_argument("--activity", required=True)
-    run.add_argument("--seconds", required=True, type=int, help="Deadline per worker, excluding cleanup headroom")
-    run.add_argument("--workers", type=int, default=1, help="Maximum number of independent concurrent workers")
-    run.add_argument("command", nargs=argparse.REMAINDER)
+    comparison_parser = commands.add_parser("comparison", help="Run or inspect the paired validation diagnostic")
+    comparison_parser.add_argument("operation", choices=("freeze", "run", "report"))
+    comparison_parser.add_argument("--wall-seconds", type=int, default=60)
+    job = commands.add_parser("run", help="Reserve worker time and execute a local command")
+    job.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
+    job.add_argument("--domain", default="both", choices=DOMAINS)
+    job.add_argument("--phase", required=True, choices=PHASES)
+    job.add_argument("--activity", required=True)
+    job.add_argument("--seconds", required=True, type=int, help="Deadline per worker, excluding cleanup headroom")
+    job.add_argument("--workers", type=int, default=1, help="Maximum number of independent concurrent workers")
+    job.add_argument("command", nargs=argparse.REMAINDER)
     prep = commands.add_parser("record-preparation", help="Track procurement, annotation time or Codex usage")
     prep.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     prep.add_argument("--activity", required=True, choices=PREPARATION)
@@ -127,6 +130,14 @@ def main() -> int:
                 args.prompt, args.activity, args.status, args.note, seconds=args.seconds,
                 input_tokens=args.input_tokens, output_tokens=args.output_tokens,
             )
+        if args.action == "comparison":
+            from carl.icl.experiments import intent_pilot_compare as comparison
+
+            if args.operation == "freeze":
+                comparison.freeze_validation(root)
+            result = comparison.run(root, args.wall_seconds) if args.operation == "run" else comparison.publish(root)
+            print(json.dumps(result, indent=2))
+            return 0
         if args.action == "freeze":
             freeze(root)
             ledger.bind_split(verify(root)["split_sha256"])
