@@ -24,7 +24,7 @@ from carl.icl.intent_domain import (
 from carl.icl.intents.generation.data import read_records
 from carl.icl.luna_intent_rollout import Action, ActionAttempt, build_prompt
 from carl.icl.policy_relative.data import load_fit_data
-from carl.icl.policy_relative.measurements import MeasurementSettings, measure, trial_seed
+from carl.icl.policy_relative.measurements import MeasurementSettings, directed_labels, measure, trial_seed
 from carl.icl.policy_relative.rollout import ReplayIntentPolicy, run_measurement_attempt
 from carl.icl.types import Board
 
@@ -34,6 +34,36 @@ VALIDATION = (*TRAIN[:4], "#-##--#", *TRAIN[5:])
 CONTROLLER = {"id": "scripted-fixture", "revision": "v1", "deterministic": False}
 HISTORY = (ActionAttempt(Action.UP, True),)
 CAP = 4
+
+
+def _future(identifier: str, status: str, hit: int | None = None) -> dict[str, Any]:
+    return {"future_id": identifier, "status": status, "first_hit": hit}
+
+
+def test_directed_ties_use_eligible_success_mass() -> None:
+    trials = [
+        [_future("a", "intent_reached", 2)],
+        [_future("a", "intent_reached", 5), _future("b", "invalid_response")],
+        [_future("a", "intent_reached", 5), _future("b", "preservation_unknown")],
+    ]
+    rows = directed_labels(trials, [1, 2, 2])
+    assert [row["p"] for row in rows] == [1.0, 0.5, 0.5]
+    assert [row["w"] for row in rows] == [0.5, 0.25, 0.25]
+    assert [row["u"] for row in rows] == [0.25, 0.75, 0.75]
+
+
+def test_directed_censoring_and_duplicate_futures_mask_the_entire_context() -> None:
+    success = _future("same", "intent_reached", 2)
+    rows = directed_labels([[success, success, _future("new", "campaign_interrupted")],
+                           [_future("a", "intent_timeout"), _future("b", "preservation_failed")]], [2, 2])
+    assert [row["eligible_n"] for row in rows] == [1, 2]
+    assert [row["p"] for row in rows] == [1.0, 0.0]
+    assert [row["d"] for row in rows] == [2, None]
+    assert all(not row["context_complete"] and row["w"] is None and row["u"] is None for row in rows)
+
+    complete = directed_labels([[success], [_future("a", "intent_reached", 2)], [_future("a", "episode_ended")]], [1, 1, 1])
+    assert [row["w"] for row in complete] == [0.5, 0.5, None]
+    assert all(row["context_complete"] and not row["scale_supervision"] and row["u"] is None for row in complete)
 
 
 @dataclass(frozen=True)

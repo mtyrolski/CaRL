@@ -113,6 +113,7 @@ class IntentSession:
     def attempt(
         self, attempt_id: str, requested_h: JSONObject, decide: Decide, *,
         speculative: bool = False, cap: int = INTENT_CAP,
+        stop_on_invalid: bool = False, checkpoint: Callable[[JSONObject], None] | None = None,
     ) -> JSONObject:
         """Return the evidence endpoint and the actual continuation of the session."""
         if cap <= 0:
@@ -133,6 +134,15 @@ class IntentSession:
         budget_before = self.budget.remaining()
         started = time.monotonic()
 
+        def save_progress() -> None:
+            if checkpoint is not None:
+                checkpoint({
+                    "attempt_id": attempt_id, "requested_h": h, "status": "running",
+                    "executed_primitives": primitives, "initial_check": initial_check,
+                    "states": states, "steps": steps, "decisions": decisions,
+                    "budget_after": self.budget.remaining(), "elapsed_seconds": time.monotonic() - started,
+                })
+
         while status is None:
             cutoff = self.budget.cutoff()
             if cutoff is not None:
@@ -148,6 +158,7 @@ class IntentSession:
             self.budget.calls += 1
             decision: JSONObject = {"query": query, "state_id": states[-1]["state_id"], "executed": []}
             decisions.append(decision)
+            save_progress()
             try:
                 decision.update(decide(messages))
             except BudgetExceeded as error:
@@ -163,6 +174,9 @@ class IntentSession:
             except (KeyError, TypeError, ValueError) as error:
                 feedback = "The previous batch was invalid. Return one to four allowed actions."
                 decision["error"] = str(error)
+                if stop_on_invalid:
+                    status = "invalid_response"
+                    break
                 continue
 
             feedback = None
@@ -198,7 +212,9 @@ class IntentSession:
                 if status is not None or step.progress_changed or step.no_op or step.automatic_ticks:
                     decision["interrupt"] = status or "observation_changed"
                     decision["discarded_suffix"] = actions[index + 1:]
+                    save_progress()
                     break
+                save_progress()
 
         endpoint = _state(domain, history, note, feedback)
         if not speculative:

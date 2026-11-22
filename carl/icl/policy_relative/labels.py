@@ -39,21 +39,11 @@ def pool_identity(rows: Sequence[Mapping[str, Any]], planned_attempts: Mapping[s
     return contract_hash(members)
 
 
-def label_candidates(
-    durations: Sequence[float | None],
-    success_fractions: Sequence[float],
-    offsets: Sequence[int],
-    *,
-    offset_denominator: float,
-) -> list[ScaleLabels]:
-    """Label a complete pool using success masses and two distinct offset controls."""
-    if not durations or len(durations) != len(success_fractions) or len(durations) != len(offsets):
-        raise ValueError("a complete pool needs a duration, success fraction and offset for every candidate")
-    if isinstance(offset_denominator, bool) or not math.isfinite(offset_denominator) or offset_denominator <= 0:
-        raise ValueError("offset denominator must be a positive finite number")
-    if any(isinstance(offset, bool) or not isinstance(offset, int) or offset < 1 for offset in offsets):
-        raise ValueError("demonstration offsets must be positive integers")
-
+def _reached(
+    durations: Sequence[float | None], success_fractions: Sequence[float],
+) -> list[tuple[int, float, float]]:
+    if not durations or len(durations) != len(success_fractions):
+        raise ValueError("a complete pool needs a duration and success fraction for every candidate")
     reached: list[tuple[int, float, float]] = []
     for index, (duration, fraction) in enumerate(zip(durations, success_fractions, strict=True)):
         if isinstance(fraction, bool) or not math.isfinite(fraction) or not 0 <= fraction <= 1:
@@ -65,6 +55,35 @@ def label_candidates(
             raise ValueError("duration must be positive and finite and have a successful attempt")
         else:
             reached.append((index, duration, fraction))
+    return reached
+
+
+def reached_midpoints(
+    durations: Sequence[float | None], success_fractions: Sequence[float],
+) -> dict[int, tuple[float, float]]:
+    """Map each reached candidate to its normalized success mass and weighted midrank."""
+    reached = _reached(durations, success_fractions)
+    if not reached:
+        return {}
+    weights, quantiles = weighted_percentiles([d for _, d, _ in reached], [p for _, _, p in reached])
+    return {index: (float(w), float(u)) for (index, _, _), w, u in zip(reached, weights, quantiles, strict=True)}
+
+
+def label_candidates(
+    durations: Sequence[float | None],
+    success_fractions: Sequence[float],
+    offsets: Sequence[int],
+    *,
+    offset_denominator: float,
+) -> list[ScaleLabels]:
+    """Label a complete pool using success masses and two distinct offset controls."""
+    if len(durations) != len(offsets):
+        raise ValueError("a complete pool needs an offset for every candidate")
+    if isinstance(offset_denominator, bool) or not math.isfinite(offset_denominator) or offset_denominator <= 0:
+        raise ValueError("offset denominator must be a positive finite number")
+    if any(isinstance(offset, bool) or not isinstance(offset, int) or offset < 1 for offset in offsets):
+        raise ValueError("demonstration offsets must be positive integers")
+    reached = _reached(durations, success_fractions)
 
     # The demonstration rank is independent of success and uses the entire frozen pool.
     _, ranks = weighted_percentiles(offsets, [1] * len(offsets))
@@ -83,9 +102,10 @@ def label_candidates(
     if reached:
         times = [duration for _, duration, _ in reached]
         masses = [fraction for _, _, fraction in reached]
-        weights, relative = weighted_percentiles(times, masses)
+        midpoints = reached_midpoints(durations, success_fractions)
         median = weighted_median(times, masses)
-        for (index, duration, _), weight, percentile in zip(reached, weights, relative, strict=True):
+        for index, duration, _ in reached:
+            weight, percentile = midpoints[index]
             labels[index]["ratio_d_over_ac"] = duration / median
             labels[index]["relative_u"] = float(percentile)
             labels[index]["weight"] = float(weight)

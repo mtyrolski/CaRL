@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,8 @@ def _predicate_policy(
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["pilot"]:
+        return _pilot(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", type=Path, required=True, help="Checked D_A.jsonl from prepare_intent_annotations")
     parser.add_argument("--output", type=Path, required=True)
@@ -153,6 +156,31 @@ def main() -> int:
         "status", "planned_attempts", "completed_attempts", "outcomes", "labelled_candidates",
     )}))
     return 0 if result["status"] == "complete" else 2
+
+
+def _pilot(argv: list[str]) -> int:
+    from carl.icl.experiments.intent_pilot_measure import freeze_plan, run
+    from carl.icl.experiments.intent_pilot_measure_report import publish
+
+    parser = argparse.ArgumentParser(description="Measure the bounded native pilot from the frozen training groups")
+    parser.add_argument("operation", choices=("freeze", "run", "report"))
+    parser.add_argument("--root", type=Path, default=Path("analysis/intent-pilot"))
+    parser.add_argument("--wall-seconds", type=int, default=1000)
+    args = parser.parse_args(argv)
+    try:
+        if args.operation == "freeze":
+            result = freeze_plan(args.root)
+            publish(args.root, progress_only=True)
+        elif args.operation == "run":
+            if args.wall_seconds < 1:
+                raise ValueError("Specify a positive block deadline")
+            result = run(args.root, args.wall_seconds)
+        else:
+            result = publish(args.root)
+    except (OSError, ValueError) as error:
+        parser.exit(1, f"Pilot policy measurement failed: {error}\n")
+    print(json.dumps(result, indent=2))
+    return 0
 
 
 if __name__ == "__main__":

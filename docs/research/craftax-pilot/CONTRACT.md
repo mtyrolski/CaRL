@@ -43,6 +43,8 @@ Keep the original source attempt and native replay alongside every hindsight lab
 
 Freeze candidate identities, input hashes and verified training lineage before the Prompt 05 directed trials. Bind the versioned pool hash to the campaign ledger. Use a future pool version for corrections or additional candidates. Keep controlled integration traces outside the pool. Predeclared scripted rollouts on frozen train-support groups may supply checked demonstration labels, with scripted provenance preserved.
 
+Bind every directed block to the checked support data, held-out training groups, candidate instantiations, frozen policy and initial memory. Compare candidates from the same physical snapshot. Use one verified deterministic trial or two distinct native future keys for stochastic execution. Count semantically completed attempts, including failures, in the denominator. Preserve interrupted and undispatched slots with separate statuses. Refill the original slot and seed when a later reservation permits it. Report descriptive counts for incomplete pools and assign comparative scale only when the whole context is measured and at least two successful durations differ.
+
 ## Budget and handoff
 
 Use one SQLite ledger at `analysis/intent-pilot/campaign.sqlite3`. The ceiling is USD 0 for metered services and 7,200 cumulative local worker-seconds. Reserve 1,800 for Prompt 09. Prompts 01–08 can commit up to 5,400 worker-seconds. Time from concurrent jobs is added. For one job with internal concurrency, declare the maximum number of independent concurrent workers. The wrapper charges its elapsed time for every declared worker. CPU math threads belong to a worker and should be recorded as hardware settings.

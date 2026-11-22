@@ -19,7 +19,7 @@ from carl.icl.intent_domain import DOMAIN_VERSION, SokobanSnapshot, decode_inten
 from carl.icl.intents.generation.data import file_sha256, read_records
 from carl.icl.intents.provenance import component_hashes
 from carl.icl.luna_intent_rollout import MEASUREMENT_PROMPT, Action, ActionAttempt
-from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, contract_hash, label_candidates, pool_identity
+from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, contract_hash, label_candidates, pool_identity, reached_midpoints
 from carl.icl.policy_relative.rollout import (
     ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, PolicyFactory, run_measurement_attempt,
 )
@@ -30,6 +30,55 @@ COMPLETE_STATUSES = frozenset({
 EXPORTED_ATTEMPT_FIELDS = (
     "index", "seed", "status", "primitive_actions_attempted", "first_hit_actions", "task_solved", "model_calls", "metrics",
 )
+
+DIRECTED_FAILURES = frozenset({
+    "intent_timeout", "invalid_response", "episode_ended", "task_solved", "preservation_failed", "preservation_unknown",
+})
+
+
+def directed_labels(
+    attempts: Sequence[Sequence[dict[str, Any]]], planned: Sequence[int],
+) -> list[dict[str, Any]]:
+    """Summarize independent eligible futures and mask incomplete or noncomparative pools."""
+    counts, successes, durations, fractions = [], [], [], []
+    for candidates, expected in zip(attempts, planned, strict=True):
+        futures: dict[str, dict[str, Any]] = {}
+        for trial in candidates:
+            if trial["status"] not in DIRECTED_FAILURES | {"intent_reached"}:
+                continue
+            future = trial["future_id"]
+            if future in futures:
+                previous = futures[future]
+                if (trial["status"], trial["first_hit"]) != (previous["status"], previous["first_hit"]):
+                    raise ValueError("An identical future has conflicting outcomes")
+                continue
+            futures[future] = trial
+        n = len(futures)
+        if not 0 < expected or n > expected:
+            raise ValueError("Eligible futures do not match the frozen trial counts")
+        hits = [row["first_hit"] for row in futures.values() if row["status"] == "intent_reached"]
+        if any(isinstance(hit, bool) or not isinstance(hit, int) or hit < 1 for hit in hits):
+            raise ValueError("A successful unmet intent requires a positive executed first hit")
+        counts.append(n)
+        successes.append(len(hits))
+        durations.append(sum(hits) / len(hits) if hits else None)
+        fractions.append(len(hits) / n if n else None)
+
+    complete = counts == list(planned)
+    comparative = complete and len({duration for duration in durations if duration is not None}) >= 2
+    scales = reached_midpoints(durations, [p or 0.0 for p in fractions]) if complete else {}
+    return [{
+        "eligible_n": count, "successes": success, "p": fraction, "d": duration,
+        "w": scales[index][0] if index in scales else None,
+        "u": scales[index][1] if comparative and index in scales else None,
+        "planned_n": planned[index], "context_complete": complete,
+        "scale_supervision": comparative and index in scales,
+        "uncertainty": [flag for condition, flag in (
+            (count < planned[index], "incomplete_trials"), (0 < count <= 2, "small_n"),
+            (count > 0 and success == 0, "no_success"), (not complete, "incomplete_context"),
+            (complete and not comparative, "noncomparative_durations"),
+        ) if condition],
+    } for index, (count, success, fraction, duration) in enumerate(zip(counts, successes, fractions, durations, strict=True))]
 
 
 @dataclass(frozen=True)

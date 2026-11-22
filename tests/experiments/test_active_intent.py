@@ -69,6 +69,17 @@ def test_early_budget_and_failed_preservation_leave_real_state() -> None:
     assert result["continuation"]["observation"][1][3] == "*"
 
 
+def test_directed_invalid_response_is_a_finished_attempt_with_checkpoint() -> None:
+    session = _session(TWO_GOALS, IntentBudget(12, 12, 12, 60))
+    checkpoints: list[JSONObject] = []
+    result = session.attempt(
+        "bad-action", TWO_GOALS, lambda _messages: _response(), stop_on_invalid=True, checkpoint=checkpoints.append,
+    )
+    assert result["status"] == "invalid_response" and result["first_hit"] is None
+    assert len(result["decisions"]) == 1 and result["executed_primitives"] == 0
+    assert checkpoints[0]["status"] == "running" and checkpoints[0]["requested_h"] == result["requested_h"]
+
+
 def test_craftax_hindsight_checks_preservation_after_the_first_hit() -> None:
     intent = {"effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 2}],
               "preserve": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}]}
