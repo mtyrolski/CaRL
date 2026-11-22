@@ -1,6 +1,0 @@
-{
-  "extends": "calibration_live_v2.json",
-  "name": "campaign_calibration_json_retry_v1",
-  "json_max_retries": 1,
-  "locked_policy_fingerprint": "3e422d383fe00a6272a0791b8b3d3b58c360f010467a1c0dce86d39e60599fd6"
-}

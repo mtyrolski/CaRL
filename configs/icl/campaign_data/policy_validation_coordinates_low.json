@@ -1,5 +1,0 @@
-{
-  "extends": "policy_validation_coordinates.json",
-  "name": "campaign_fresh_policy_coordinates_low",
-  "policy_reasoning_effort": "low"
-}

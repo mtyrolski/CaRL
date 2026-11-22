@@ -1,9 +1,0 @@
-{
-  "extends": "frozen_components_fixed.json",
-  "name": "campaign_frozen_components_absolute_provisional",
-  "method": "absolute",
-  "scales": [
-    8,
-    4
-  ]
-}

@@ -1,6 +1,0 @@
-{
-  "extends": "tuned_base.json",
-  "name": "tuned_relative_12x12x4",
-  "method": "relative",
-  "scales": [0.9, 0.5]
-}

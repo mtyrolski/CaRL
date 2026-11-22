@@ -1,6 +1,0 @@
-{
-  "extends": "../experiments/tuned_fixed.json",
-  "name": "tuned_quick_fixed_12x12x4",
-  "instances": 2,
-  "repeat_seeds": [11]
-}

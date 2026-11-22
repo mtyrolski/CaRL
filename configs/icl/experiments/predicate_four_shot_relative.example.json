@@ -1,8 +1,0 @@
-{
-  "extends": "predicate_four_shot.example.json",
-  "name": "sokoban_predicate_four_shot_relative",
-  "predicate_icl": {
-    "scale_arm": "relative_u",
-    "validation_scale": 0.5
-  }
-}

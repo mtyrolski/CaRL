@@ -1,5 +1,0 @@
-{
-  "extends": "quick_fixed.json",
-  "name": "quick_fixed_coordinates_12x12x4",
-  "policy_coordinate_features": true
-}

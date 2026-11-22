@@ -1,5 +1,0 @@
-{
-  "extends": "policy_validation_base.json",
-  "name": "campaign_fresh_policy_coordinates",
-  "policy_coordinate_features": true
-}

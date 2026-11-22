@@ -1,5 +1,0 @@
-{
-  "extends": "quick_relative.json",
-  "name": "quick_relative_coordinates_12x12x4",
-  "policy_coordinate_features": true
-}

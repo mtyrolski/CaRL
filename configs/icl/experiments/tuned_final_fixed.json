@@ -1,6 +1,0 @@
-{
-  "extends": "tuned_fixed.json",
-  "name": "tuned_fixed_final_simple_holdout",
-  "data_dir": "data/icl/final_simple_holdout_20261102",
-  "instances": 5
-}

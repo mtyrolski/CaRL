@@ -1,7 +1,0 @@
-{
-  "extends": "calibration_live_v2.json",
-  "name": "campaign_fixed_k_provisional",
-  "method": "fixed",
-  "fixed_cap": "horizon",
-  "scales": [8, 4]
-}

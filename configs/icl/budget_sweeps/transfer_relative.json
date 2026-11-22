@@ -1,5 +1,0 @@
-{
-  "extends": "pilot_relative.json",
-  "name": "relative_32x32x10",
-  "family": "generated_32x32x10"
-}

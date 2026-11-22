@@ -1,8 +1,0 @@
-{
-  "configs": [
-    "relative.json",
-    "absolute.json",
-    "fixed.json",
-    "fixed_shared_cap.json"
-  ]
-}

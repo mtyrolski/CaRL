@@ -20,6 +20,8 @@ environment from the [offline quick start](../ICL_SEARCH.md#offline-quick-start)
 Pass `--help` to each command for its options. Configurations are under
 `configs/icl/`; datasets, checkpoints, caches and results are local inputs.
 The `--mock` and `--replay` modes do not submit live inference requests.
+Use the [pinned campaign snapshot](../configs/icl/campaign_data/README.md)
+to reproduce earlier experiments with their original configurations.
 
 ## Quick-start profiles
 

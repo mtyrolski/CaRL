@@ -1,5 +1,0 @@
-{
-  "matrix": "selected_transfer_matrix.json",
-  "budgets": [16, 32, 64, 128, 256],
-  "output_dir": "analysis/luna_icl/budget_sweep_selected_transfer"
-}

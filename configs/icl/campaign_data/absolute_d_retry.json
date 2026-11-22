@@ -1,6 +1,0 @@
-{
-  "extends": "calibration_json_retry_v1.json",
-  "name": "campaign_absolute_d_json_retry_v1",
-  "method": "absolute_d",
-  "scales": [8, 4]
-}
