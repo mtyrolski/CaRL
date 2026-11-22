@@ -26,8 +26,6 @@ class Solution:
 @dataclass
 class SearchInfo:
     finished_reason: str
-    generator_mode: str | None = None
-    runtime_seconds: float | None = None
     low_level_nodes_visited: int | None = None
     high_level_nodes_valid: int | None = None
     high_level_nodes_unreachable: int | None = None
@@ -45,6 +43,8 @@ class SearchInfo:
     subgoals_selected_for_expansion: dict[int, int] = field(default_factory=dict)
     dead_ends_rate: float | None = None
     # Universal/propositional analysis fields (optional, additive)
+    generator_mode: str | None = None
+    runtime_seconds: float | None = None
     validator_rejection_rate: float | None = None
     proposal_acceptances: int | None = None
     proposal_rejections: int | None = None
@@ -59,6 +59,13 @@ class SearchInfo:
     backtracking_ratio: float | None = None
     detour_ratio: float | None = None
     proposal_events: list[dict[str, Any]] = field(default_factory=list)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore saved search results that predate the diagnostic lists."""
+        self.__dict__.update(state)
+        self.__dict__.setdefault("realized_segment_lengths", [])
+        self.__dict__.setdefault("progress_per_segment", [])
+        self.__dict__.setdefault("proposal_events", [])
     
     @property
     def is_valid_tree_search_info(self) -> bool:
