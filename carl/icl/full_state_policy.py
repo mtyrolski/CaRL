@@ -157,11 +157,8 @@ class QwenFullStatePolicy(ConditionalLowLevelPolicy):
             return logits[0, -1].index_select(-1, self.direction_ids).float()
 
 
-def evaluate(settings: FullStateSettings, pair: FullStatePair) -> JSONObject:
-    """Evaluate an exact local checkpoint with CaRL's reachability validator."""
-    state, target = from_rows(pair.source), from_rows(pair.target)
-    validate_subgoal(state, target)
-    env = environment(state)
+def load_policy(settings: FullStateSettings, env: SokobanEnv) -> tuple[ConditionalLowLevelPolicy, JSONObject]:
+    """Resolve the exact local CLLP artifact without loading its network."""
     if settings.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA is unavailable for the requested full-state policy")
     policy: ConditionalLowLevelPolicy
@@ -181,6 +178,15 @@ def evaluate(settings: FullStateSettings, pair: FullStatePair) -> JSONObject:
         }
         policy = TransformerConditionalLowLevelPolicy(_load_bert, str(checkpoint), env)
         policy.device = torch.device(settings.device)
+    return policy, identity
+
+
+def evaluate(settings: FullStateSettings, pair: FullStatePair) -> JSONObject:
+    """Evaluate an exact local checkpoint with CaRL's reachability validator."""
+    state, target = from_rows(pair.source), from_rows(pair.target)
+    validate_subgoal(state, target)
+    env = environment(state)
+    policy, identity = load_policy(settings, env)
     information = {"policy": identity, "policy_fingerprint": contract_hash(identity), "source_sha256": state_hash(state),
                    "target_sha256": state_hash(target), "action_cap": pair.action_cap}
     if np.array_equal(state, target):
