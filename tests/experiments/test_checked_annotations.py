@@ -8,8 +8,7 @@ import pytest
 
 from carl.icl.boards import canonical_layout_id, from_rows, level_key, to_rows
 from carl.icl.data_sources.sokoban import environment
-from carl.icl.experiments.intent_pilot_annotations import _craftax_hit, _response
-from carl.icl.intent_annotations import AnnotationRequest, SegmentSelection, UnlabelledAnnotation, prepare_annotations
+from carl.icl.intent_annotations import AnnotationRequest, SegmentSelection, prepare_annotations
 from carl.icl.intent_augmentation import BoardSymmetry, transform_actions, transform_rows
 from carl.icl.intent_domain import (
     Action,
@@ -27,7 +26,6 @@ from carl.icl.intents.generation.data import prompt_messages
 from carl.icl.intents.representation.prompts import messages_for
 from carl.icl.local_intent_policy import run_record
 from carl.icl.luna_intent_rollout import build_prompt
-from carl.icl.planning.craftax_tasks import CraftaxIntent
 
 BOARD = [
     "#######",
@@ -94,25 +92,6 @@ def test_selected_annotation_checks_original_endpoint_and_executed_prefix(tmp_pa
     assert "false at end" in " ".join(rejected["validation"]["reasons"])
     [training] = _records(output / "D_A.jsonl")
     assert training["demonstration_offset"] == 1 and "evidence" not in training
-
-
-def test_craftax_annotation_requires_per_tick_preservation_and_unscaled_raw_json():
-    intent = CraftaxIntent.model_validate({
-        "effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 1}],
-        "preserve": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}],
-    })
-    start, hit, after = {"wood": 1, "stone": 0}, {"wood": 1, "stone": 1}, {"wood": 0, "stone": 1}
-    ticks = [{"native_ticks": 1}, {"native_ticks": 1}]
-    assert _craftax_hit(intent, [start, hit, after], ticks) == 1
-    assert _craftax_hit(intent, [start, after], ticks[:1]) == ("rejected", "preservation condition false at fragment state 1")
-    assert _craftax_hit(intent, [start, {"stone": 1}], ticks[:1]) == (
-        "unknown", "required per-tick evidence is unavailable through the first hit",
-    )
-    assert _craftax_hit(intent, [start, hit], [{"native_ticks": 2}]) == (
-        "unknown", "required per-tick evidence is unavailable through the first hit",
-    )
-    result = _response('{"packet_id":"x","decision":"propose","effects":[],"preserve":[],"u":0.4}', "x")
-    assert isinstance(result, UnlabelledAnnotation) and result.status == "malformed"
 
 
 def test_checked_labels_and_prompt_inputs_are_distinct(tmp_path: Path) -> None:

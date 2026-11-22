@@ -1,10 +1,9 @@
-"""Check native intent lifetimes and prevent hindsight measurement leakage."""
+"""Check native intent lifetimes and matched generator prompts."""
 
 import json
 
 import pytest
 
-from carl.icl.experiments.intent_pilot_hindsight import _full_prefix
 from carl.icl.intent_domain import TASK_GOAL, SokobanSnapshot, decode_intent
 from carl.icl.planning.active_intent import IntentBudget, IntentSession
 from carl.icl.planning.local_direct import SokobanDirect
@@ -81,16 +80,6 @@ def test_directed_invalid_response_is_a_finished_attempt_with_checkpoint() -> No
     assert result["status"] == "invalid_response" and result["first_hit"] is None
     assert len(result["decisions"]) == 1 and result["executed_primitives"] == 0
     assert checkpoints[0]["status"] == "running" and checkpoints[0]["requested_h"] == result["requested_h"]
-
-
-def test_craftax_hindsight_checks_preservation_after_the_first_hit() -> None:
-    intent = {"effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 2}],
-              "preserve": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}]}
-    frames = [{"inventory": {"stone": stone, "pickaxe": pickaxe}} for stone, pickaxe in ((1, 1), (2, 1), (2, 0))]
-    decision = _full_prefix("craftax", intent, frames, [{"native_ticks": 1}] * 2)
-    assert decision.status == "rejected" and "state 2" in decision.errors[0]
-    uncertain = _full_prefix("craftax", intent, frames[:2], [{"native_ticks": 2}])
-    assert uncertain.status == "unknown"
 
 
 def test_paired_generator_keeps_support_and_diversity_without_scale_proxies() -> None:
