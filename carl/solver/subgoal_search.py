@@ -114,8 +114,9 @@ class Solver:
             low_level_path = current.low_level_path or []
             segment_lengths.append(len(low_level_path))
             segment_actions.append(low_level_path)
-            if current.next_expand_with_k_generator is not None:
-                segment_budgets.append(int(current.next_expand_with_k_generator))
+            budget = current.parent_node.next_expand_with_k_generator
+            if budget is not None:
+                segment_budgets.append(int(budget))
             current = current.parent_node
         segment_lengths.reverse()
         segment_budgets.reverse()
