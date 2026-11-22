@@ -364,3 +364,64 @@ The saved output confirms the frozen pool, both checked dataset hashes, both acc
 ### Next prompt — 05
 
 Read the contract and journal and verify the frozen v1 pool. Use the frozen train-measurement split and actual controller revisions for directed requests. Check candidate applicability to each measurement context before rollout, predeclare the start snapshots and policy memory, and measure under the exact assigned `h` with shared budget accounting. Keep the observed hindsight offsets as training evidence. Store corrections and newly found candidates in a separately versioned pool.
+
+## Prompt 05 — Directed measurements by controller and domain, 2026-11-22
+
+The intake was `7000bdf` on `intents`. The measurement entry point extends `scripts.measure_intent_policy` and uses the shared active-intent executor and weighted midranks. The frozen measurement plan SHA-256 is `4d99b86508ebb50d7ec52d4563bb4fac02b6dbc0d85963ea280ac2f234c13256`. It binds the ledger-verified split, checked `D_A` hashes, and the original v1 support pool. The supplied Qwen3-0.6B and substitute Qwen2.5-1.5B-Instruct retain separate model, policy and dataset identities.
+
+The plan selects three `train-measurement` contexts per domain from distinct canonical Sokoban layouts or Craftax crafting chains. The sampled groups are disjoint from policy support. Both models receive each context's same three typed requests. In Sokoban, the plan instantiates the frozen single-box, goal-count and two-box-conjunction types on short verified local witnesses. The Craftax context uses exact checked stone, sword and two-tool intents from the support pool. The evaluator uses the witnesses and native keys to lock the trials. Each policy query contains the public observation, public task, assigned predicates, instruction and bounded memory.
+
+Two preparatory attempts ended before freezing the measurement plan. An archived Sokoban witness recorded moves past the first solved board, so selection now stops at that terminal board. The initial restriction to two newly filled goals within 12 actions was too narrow. The final selection requires a new occupied goal and a second checked box displacement for the conjunction, preferring a witnessed `RIGHT` when available. Both changes preceded any directed attempt. The initial failures are preserved in the ledger and freeze logs.
+
+Every context begins with empty history, note and feedback for these two frozen policies. The fingerprint pins exact weight and tokenizer hashes, prompts, zero examples, greedy decoding with thinking disabled, the 64-token response cap, 1,024-token context cap, last-six memory, action parser, four-action batch and interrupt protocol. The attempt cap is 12 executed primitives. Sokoban plans one deterministic observation per candidate. Craftax plans two distinct native future keys with the same physical initial state and shares these keys across matching models and candidates. The cache reuses only exact greedy prompts within each policy fingerprint. Fixed counts are 9 planned Sokoban and 18 planned Craftax observations per model.
+
+The whole 54-slot block used one 1,060-second reservation with a 1,020-second cooperative deadline. Trials are interleaved by context, candidate type, controller and domain. A malformed action response finishes the attempt as a failure immediately. Semantic timeout, task or episode termination without the intent, and failed or unknown preservation are eligible failures. The runner checkpoints requests and executed transitions before the next decision. Interrupted work and absent slots remain visible in the per-cell attempt file.
+
+### Executed entry points
+
+```bash
+source analysis/intent-pilot/env.sh
+export OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 OPENBLAS_NUM_THREADS=1
+export JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 5 --phase preparation --activity directed-freeze-contexts --seconds 85 -- \
+  uv run --locked --offline --no-sync python -m scripts.measure_intent_policy pilot freeze
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 5 --phase inference --activity directed-native-block --seconds 1060 -- \
+  uv run --locked --offline --no-sync python -m scripts.measure_intent_policy pilot run --wall-seconds 1020
+```
+
+### Measured coverage and scale
+
+| Actual controller | Domain | Eligible / planned | Successes | Censored | Undispatched | Complete contexts | Informative contexts |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3-0.6B | Sokoban | 5 / 9 | 2 | 0 | 4 | 1 | 0 |
+| Qwen3-0.6B | Craftax | 8 / 18 | 0 | 1 | 9 | 1 | 0 |
+| Qwen2.5-1.5B-Instruct | Sokoban | 4 / 9 | 0 | 0 | 5 | 1 | 0 |
+| Qwen2.5-1.5B-Instruct | Craftax | 8 / 18 | 0 | 0 | 10 | 1 | 0 |
+
+The reservation delivered 25 eligible observations. Qwen3 produced 11 semantic timeouts and two verified hits. Qwen2.5 produced 12 invalid action responses. One Qwen3 Craftax trial hit the campaign wall guard. Its partial trace remains in the attempt file, outside the denominator. The other 28 slots are undispatched. Each cell is explicitly incomplete, with one complete context and zero informative contexts.
+
+An independent calculation read the actual attempts in the complete `cx-measure-01-0` context. Qwen3's sword request timed out on both native futures, so for it `p=0/2=0` and `d`, `w` and `u` are unknown. On the partial Sokoban context `gamma1_s2366`, Qwen3 reached the single-box and goal-count requests in one action each. Each has `p=1/1=1` and `d=1`. The third request is unmeasured, so weights and ranks remain masked. The two observed durations also coincide. The separate ties regression with durations `[2,5,5]` and probabilities `[1,.5,.5]` reproduces weights `[.5,.25,.25]` and midpoints `[.25,.75,.75]`.
+
+The audit independently recomputed per-candidate counts and scaling with exact fractions and replayed a native Sokoban trace in each cell. Both controllers' repeated greedy payload checks passed. The Craftax receipts retain the distinct native future fingerprints and shared physical start. All 52 focused tests passed, covering the directed edge cases, the legacy policy measurement interface, active intent checkpoints, calibration and the existing LoRA data checks. Ruff, Mypy, Pyright and `git diff --check` passed.
+
+### Outputs and budget
+
+Each `analysis/intent-pilot/measurements/<controller>/<domain>/` contains `attempts.jsonl`, `pool.json`, `D_C.jsonl` and a checksum manifest. The pilot schema `carl-pilot-directed-v1` records eligible counts, successes, `p`, `d`, `w`, `u`, context completeness and uncertainty. The four score files have zero rows with `scale_supervision=true`. The shared report is `measurements/RESULTS.md`, four-cell summary `cells.csv`, and arithmetic proof `independent-check.json`. The full rollout and publication logs are `run.log` and `audit.log`.
+
+Prompt 05 charged **1,031.056 inference worker-seconds** and **90.233 preparation worker-seconds**. The inference envelope includes **124.686 s** of native setup. All jobs settled with zero metered USD. **2,124.428 worker-seconds remain**, including **324.428 available before Prompt 09** and **1,800 protected**. The bounded block closes with the unfilled slots retained in the frozen pool. The settled export is `analysis/intent-pilot/measurements/budget.json`.
+
+### Exact resume command
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.measure_intent_policy pilot report
+uv run --locked --offline --no-sync python analysis/intent-pilot/measurements/independent_check.py
+```
+
+These are the two checked publication commands. They rebuild the reports from the frozen plan and private attempts. The measurements remain separately identifiable by controller and domain.
+
+### Next prompt — 06
+
+Read the contract and journal, then run the publication and audit commands. Keep the checked `D_A` lineage and exact `D_C` coverage for all four cells. Use only rows with informative measured scale for a relative arm. This block produced none, so carry that result into any matched comparison. Preserve the original pool, the remaining budget and the held-out partitions.

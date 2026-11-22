@@ -102,10 +102,10 @@ def publish(root: Path, *, progress_only: bool = False) -> JSONObject:
                         trial_group.extend(trials)
                         counted = False
                         for trial in trials:
-                            eligible = trial["status"] in ELIGIBLE
-                            attempts.append({**trial, "eligible": eligible and not counted,
-                                             "censored": not eligible, "duplicate_future": eligible and counted})
-                            counted = counted or eligible
+                            is_eligible = trial["status"] in ELIGIBLE
+                            attempts.append({**trial, "eligible": is_eligible and not counted,
+                                             "censored": not is_eligible, "duplicate_future": is_eligible and counted})
+                            counted = counted or is_eligible
                         if not trials:
                             attempts.append({**slot, "status": "not_started", "eligible": False, "censored": False,
                                              "future_id": future, "physical_start_id": physical, "first_hit": None})
