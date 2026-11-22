@@ -267,6 +267,7 @@ name = "carl"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "crafter" },
     { name = "datasets" },
     { name = "gitpython" },
@@ -323,13 +324,13 @@ dev = [
 ]
 lint = [
     { name = "black", extra = ["jupyter"] },
-    { name = "click" },
     { name = "mypy" },
     { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.0.0,<9.0.0" },
     { name = "crafter", specifier = ">=1.8.3,<2.0.0" },
     { name = "datasets", specifier = ">=2.14.5,<3.0.0" },
     { name = "filelock", marker = "extra == 'icl'", specifier = ">=3.12,<4" },
@@ -381,7 +382,6 @@ dev = [
 ]
 lint = [
     { name = "black", extras = ["jupyter"], specifier = ">=22.1.0,<23.0.0" },
-    { name = "click", specifier = ">=8.0.0,<9.0.0" },
     { name = "mypy", specifier = ">=1.4.1,<2.0.0" },
     { name = "ruff", specifier = ">=0.0.278,<0.1.0" },
 ]
