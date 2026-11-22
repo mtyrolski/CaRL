@@ -162,6 +162,8 @@ def _validate_cuda(args: argparse.Namespace) -> None:
             raise RuntimeError("CUDA required but unavailable; no silent CPU fallback")
 
 
+# Keep the positional signature shared by benchmark, validation and training.
+# pylint: disable-next=too-many-positional-arguments
 def _sample_loss(torch: Any, model: Any, tokenizer: Any, record: dict[str, Any], args: argparse.Namespace,
                  device: str):
     example = encode_example(tokenizer, record, args.representation, args.max_length)
@@ -218,6 +220,8 @@ def benchmark(args: argparse.Namespace) -> None:
           flush=True)
 
 
+# The validation entry point keeps its existing positional calling convention.
+# pylint: disable-next=too-many-positional-arguments
 def validation_loss(torch: Any, model: Any, tokenizer: Any, records: list[dict[str, Any]], args: argparse.Namespace,
                     device: str) -> float:
     """Weight independent validation layouts equally when selecting a checkpoint."""

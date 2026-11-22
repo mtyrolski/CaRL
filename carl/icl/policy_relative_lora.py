@@ -16,6 +16,8 @@ Generator inputs are restricted to the current observation, task and either
 an explicitly requested scale or the missing-scale marker.  Evaluation uses
 separate test contexts without reference intents or future observations."""
 
+# Same-name aliases declare the compatibility facade's re-exports to type checkers.
+# pylint: disable=useless-import-alias,unused-import
 from carl.icl.boards import canonical_layout_id as canonical_layout_id
 from carl.icl.boards import from_rows as from_rows
 from carl.icl.intent_data import validate_prediction as validate_prediction
@@ -79,6 +81,7 @@ from carl.icl.policy_relative.types import Context as Context
 from carl.icl.policy_relative.types import FitData as FitData
 from carl.icl.policy_relative.types import Mode as Mode
 from carl.icl.policy_relative.types import PredictionStatus as PredictionStatus
+# pylint: enable=useless-import-alias,unused-import
 
 if __name__ == "__main__":
     main()

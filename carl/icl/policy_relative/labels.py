@@ -86,7 +86,7 @@ def label_candidates(
         weights, relative = weighted_percentiles(times, masses)
         median = weighted_median(times, masses)
         for (index, duration, _), weight, percentile in zip(reached, weights, relative, strict=True):
-            labels[index].update(
-                ratio_d_over_ac=duration / median, relative_u=float(percentile), weight=float(weight),
-            )
+            labels[index]["ratio_d_over_ac"] = duration / median
+            labels[index]["relative_u"] = float(percentile)
+            labels[index]["weight"] = float(weight)
     return labels

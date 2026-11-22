@@ -117,7 +117,7 @@ def verify_adapter(
         raise ValueError(
             "adapter must come from a completed validation-selected training run"
         )
-    training = json.loads(training_path.read_text(encoding="utf-8"))
+    training: dict[str, Any] = json.loads(training_path.read_text(encoding="utf-8"))
     best = json.loads(best_path.read_text(encoding="utf-8"))
     saved = best.get("adapter")
     if not isinstance(saved, str) or Path(saved).resolve() != adapter.resolve():
@@ -257,7 +257,8 @@ def evaluate(args: argparse.Namespace) -> None:
                 raise ValueError(
                     "prompt plus generation exceeds max_length; no truncation"
                 )
-    except Exception as error:
+    # Record initialization failures from any supported backend in the evaluation manifest.
+    except Exception as error:  # pylint: disable=broad-exception-caught
         failure = f"{type(error).__name__}: {error}"
     with output.open("x", encoding="utf-8", buffering=1) as stream:
         for record, prompt in zip(rows, messages, strict=True):
@@ -302,7 +303,8 @@ def evaluate(args: argparse.Namespace) -> None:
                             predicate=predicate,
                         ),
                     )
-                except Exception as error:
+                # Preserve every unfinished row after an unexpected backend failure.
+                except Exception as error:  # pylint: disable=broad-exception-caught
                     failure = f"{type(error).__name__}: {error}"
                     row.update(
                         status=PredictionStatus.INFRASTRUCTURE_ERROR, error=failure

@@ -104,7 +104,7 @@ def load_fit_data(path: str | Path) -> FitData:
     provenance, planned_attempt_counts = _versioned_provenance(rows)
     split_contexts: dict[str, list[Context]] = defaultdict(list)
     signatures: set[tuple[str, int, int | None]] = set()
-    empty = Counter()
+    empty: Counter[str] = Counter()
     rejected = []
     for context_id in sorted(groups):
         group = groups[context_id]

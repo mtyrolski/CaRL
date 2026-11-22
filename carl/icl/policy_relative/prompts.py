@@ -2,7 +2,7 @@
 
 import random
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 from carl.icl.intents.generation.data import (
     SYSTEM, DataSplit, encode_messages, predicate_record, prompt_messages, target_text,
@@ -31,7 +31,7 @@ def candidate_scale(candidate: Candidate, arm: Arm) -> float | None:
     if not candidate.measured:
         return None
     if arm in VERSIONED_SCALE_ARMS:
-        return candidate.record["policy_measurements"]["scale_labels"][arm.value]
+        return cast(float | None, candidate.record["policy_measurements"]["scale_labels"][arm.value])
     if arm in (Arm.SCALED, Arm.RELATIVE):
         return candidate.u
     if arm == Arm.ABSOLUTE:
@@ -122,9 +122,9 @@ def study_samples(
     extra = balanced_samples(
         demonstration.train if arm == Arm.DEMONSTRATION else data.train, seed + 1
     )
-    while True:
-        yield next(base)
-        yield next(extra)
+    for baseline, alternate in zip(base, extra, strict=True):
+        yield baseline
+        yield alternate
 
 
 def loss_samples(contexts: tuple[Context, ...], seed: int, *, explicit_weights: bool) -> Iterator[tuple[Candidate, float]]:
@@ -157,9 +157,9 @@ def weighted_study_samples(
         return
     demo = loss_samples(demonstration.train, seed, explicit_weights=False)
     measured = loss_samples(data.train, seed + 1, explicit_weights=True)
-    while True:
-        yield next(demo)
-        yield next(measured)
+    for baseline, alternate in zip(demo, measured, strict=True):
+        yield baseline
+        yield alternate
 
 
 def training_prompts(

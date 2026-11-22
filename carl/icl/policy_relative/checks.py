@@ -2,7 +2,7 @@
 
 import json
 import math
-from typing import Any
+from typing import Any, cast
 
 from carl.icl.boards import canonical_layout_id
 from carl.icl.boards import from_rows
@@ -28,13 +28,13 @@ def _number(value: Any, name: str) -> float:
 def _positive_int(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
-    return value
+    return cast(int, value)
 
 
 def _nonnegative_int(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{name} must be a nonnegative integer")
-    return value
+    return cast(int, value)
 
 
 def _digest_string(value: Any, name: str) -> str:
@@ -133,7 +133,7 @@ def _attempts(
         if not isinstance(attempt, dict):
             raise ValueError("each attempt must be an object")
         try:
-            status = AttemptStatus(attempt.get("status"))
+            status = AttemptStatus(cast(str, attempt.get("status")))
         except (TypeError, ValueError) as error:
             raise ValueError(
                 "incomplete, infrastructure-error or unknown attempt status"

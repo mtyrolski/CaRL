@@ -19,7 +19,7 @@ from carl.icl.intent_domain import DOMAIN_VERSION, SokobanSnapshot, decode_inten
 from carl.icl.intents.generation.data import file_sha256, read_records
 from carl.icl.intents.provenance import component_hashes
 from carl.icl.luna_intent_rollout import MEASUREMENT_PROMPT, Action, ActionAttempt
-from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, contract_hash, label_candidates, pool_identity
+from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, ScaleLabels, contract_hash, label_candidates, pool_identity
 from carl.icl.policy_relative.rollout import (
     ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, PolicyFactory, run_measurement_attempt,
 )
@@ -184,7 +184,10 @@ def _measurement_rows(
         p = [len(hits) / count for hits, count in zip(successful, denominators, strict=True)]
         d = [sum(hits) / len(hits) if hits else None for hits in successful]
         offsets = [row["demonstration_offset"] for row in rows]
-        labels = label_candidates(d, p, offsets, offset_denominator=settings.offset_denominator) if complete else [None] * len(rows)
+        labels: Sequence[ScaleLabels | None] = (
+            label_candidates(d, p, offsets, offset_denominator=settings.offset_denominator)
+            if complete else [None] * len(rows)
+        )
         for index, row in enumerate(rows):
             scale = labels[index]
             attempts = [

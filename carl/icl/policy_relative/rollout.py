@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 from carl.icl.config import ModelSettings
 from carl.icl.data_sources.sokoban import environment
@@ -66,7 +66,7 @@ class ReplayIntentPolicy:
 
     def __call__(self, prompt: str) -> str:
         result = self.api.call("responses", self.payload(prompt), transport=self.model_settings)
-        return result["output_text"]
+        return cast(str, result["output_text"])
 
 
 def run_measurement_attempt(

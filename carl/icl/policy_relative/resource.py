@@ -214,7 +214,8 @@ def resource_check(args: argparse.Namespace) -> None:
     except Exception as error:
         try:
             measured_memory = memory(torch) if torch is not None else {}
-        except Exception:
+        except Exception:  # pylint: disable=broad-exception-caught
+            # Memory reporting must preserve the original backend failure.
             measured_memory = {}
         atomic_json(
             output,

@@ -41,6 +41,8 @@ def _tensors(torch: Any, tokenizer: Any, encoded: dict[str, list[int]], args: ar
                           pad_token_id=tokenizer.pad_token_id if padding else None)
 
 
+# Preserve the positional signature available through the compatibility facade.
+# pylint: disable-next=too-many-positional-arguments
 def _loss(
     torch: Any,
     model: Any,
@@ -58,6 +60,8 @@ def _weighted_loss(loss: Any, weight: float, accumulation: int) -> Any:
     return (loss if weight == 1 else loss * weight) / accumulation
 
 
+# Legacy callers may pass the demonstration context positionally.
+# pylint: disable-next=too-many-positional-arguments
 def validation_loss(
     torch: Any,
     model: Any,
@@ -241,8 +245,8 @@ def train(args: argparse.Namespace) -> None:
         atomic_json(output / "configuration.json", configuration)
         tokenizer.save_pretrained(output / "tokenizer")
         with (output / "prompts.jsonl").open("x", encoding="utf-8") as stream:
-            for row in training_prompts(data, args.arm, demonstration):
-                stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+            for prompt_row in training_prompts(data, args.arm, demonstration):
+                stream.write(json.dumps(prompt_row, ensure_ascii=False) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
         optimizer = torch.optim.AdamW(
