@@ -7,6 +7,7 @@ Run modules from the repository root with `uv run --extra icl python -m`.
 | Prepare, preview or run in-context search | `scripts.run_icl_search` |
 | Freeze, preview or run checked predicate prompting | `scripts.run_predicate_icl` |
 | Fit a value heuristic and compare predicate planners | `scripts.run_predicate_icl fit-value` and `search` |
+| Compare four planners on native Craftax CPU | `scripts.run_predicate_icl craftax` |
 | Evaluate a local full-state Sokoban controller | `scripts.evaluate_full_state_policy` |
 | Plan or run action-budget sweeps | `scripts.run_budget_sweep` |
 | Evaluate saved runs offline | `scripts.evaluate_icl` |
@@ -73,6 +74,34 @@ a `value` string such as `{"value":0.5}` for that backend.
 The JSON report separates `attempted_simulator_actions`, `executed_plan_actions`,
 queue expansions, logical calls, physical requests, API and local tokens,
 and elapsed time. Failed candidates and no-ops contribute to attempted actions.
+
+## Craftax planning pilot
+
+The symbolic CPU adapter uses Craftax 1.1.0 and JAX 0.4.23. Install the
+separate pins in `requirements/craftax-1.1.0.txt` with `uv pip install
+--no-deps -r` into an optional CPython 3.11.4 environment. To run alongside
+the locked CaRL environment, expose its `site-packages` as a `PYTHONPATH`
+overlay. With locally provisioned wheels, pass `--offline --find-links
+WHEELHOUSE` when installing the pins.
+
+```bash
+JAX_PLATFORMS=cpu uv run --locked --offline --no-sync python -m scripts.run_predicate_icl \
+  craftax --mode mock --planning-mode all --task wood-to-stone-pickaxe \
+  --output analysis/icl/craftax/matched.json
+```
+
+All four modes start from the same seeded, staged native world and use the
+same visible recipe policy and budgets. The setup records one shared NOOP
+from the immutable root to warm up JAX. Each mode starts from the original
+root afterwards. Reports include native rewards along trials and endpoint
+fingerprints for replay. `plan-and-act-on-failure` acts on an explicit plan
+and charges replanning to the generator budget. The task split, observation
+contract and comparison with the published method are in [the task
+manifest documentation](../configs/icl/craftax/README.md).
+
+The isolated `carl.icl.transfer.discobench` entry point publishes public
+benchmark pins and a synthetic transfer contract smoke with its own
+provenance. Its public runtime uses a separate Python environment.
 
 ## Local checkpoints and LoRA
 

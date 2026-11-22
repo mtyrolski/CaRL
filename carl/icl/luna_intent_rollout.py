@@ -102,6 +102,8 @@ class RolloutStatus(StrEnum):
     INVALID_INTENT = "invalid_intent"
     INVALID_RESPONSE = "invalid_response"
     OUTPUT_LIMIT = "output_limit"
+    EPISODE_TERMINATED = "episode_terminated"
+    EPISODE_TRUNCATED = "episode_truncated"
     API_ERROR = "api_error"
     SIMULATOR_ERROR = "simulator_error"
     UNKNOWN = "unknown"

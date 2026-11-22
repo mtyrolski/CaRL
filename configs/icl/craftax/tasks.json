@@ -1,0 +1,98 @@
+{
+  "version": "craftax-tasks-v1",
+  "tasks": [
+    {
+      "task_id": "collect-wood",
+      "split": "train",
+      "seed": 11,
+      "scenario": {"inventory": {"wood": 0}, "tiles": {"RIGHT": "TREE"}, "facing": "RIGHT"},
+      "chain": [{"effects": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]}],
+      "goal": {"effects": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]}
+    },
+    {
+      "task_id": "craft-wood-pickaxe",
+      "split": "train",
+      "seed": 13,
+      "scenario": {
+        "inventory": {"wood": 2, "pickaxe": 0},
+        "tiles": {"UP": "CRAFTING_TABLE", "RIGHT": "TREE", "DOWN": "STONE", "LEFT": "GRASS"},
+        "facing": "RIGHT"
+      },
+      "chain": [{"effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}]}],
+      "goal": {
+        "effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}],
+        "preserve": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]
+      }
+    },
+    {
+      "task_id": "mine-stone",
+      "split": "train",
+      "seed": 17,
+      "scenario": {"inventory": {"stone": 0, "pickaxe": 1}, "tiles": {"DOWN": "STONE"}, "facing": "DOWN"},
+      "chain": [{"effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 1}]}],
+      "goal": {
+        "effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 1}],
+        "preserve": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}]
+      }
+    },
+    {
+      "task_id": "craft-stone-pickaxe",
+      "split": "train",
+      "seed": 19,
+      "scenario": {
+        "inventory": {"wood": 2, "stone": 1, "pickaxe": 1},
+        "tiles": {"UP": "CRAFTING_TABLE", "RIGHT": "TREE", "DOWN": "STONE", "LEFT": "GRASS"},
+        "facing": "RIGHT"
+      },
+      "chain": [{"effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 2}]}],
+      "goal": {
+        "effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 2}],
+        "preserve": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]
+      }
+    },
+    {
+      "task_id": "wood-pickaxe-then-stone",
+      "split": "validation",
+      "seed": 23,
+      "scenario": {
+        "inventory": {"wood": 2, "stone": 0, "pickaxe": 0},
+        "tiles": {"UP": "CRAFTING_TABLE", "RIGHT": "TREE", "DOWN": "STONE", "LEFT": "GRASS"},
+        "facing": "RIGHT"
+      },
+      "chain": [
+        {"effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}]},
+        {"effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 1}]}
+      ],
+      "goal": {
+        "effects": [
+          {"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1},
+          {"predicate": "inventory_at_least", "item": "stone", "count": 1}
+        ],
+        "preserve": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]
+      }
+    },
+    {
+      "task_id": "wood-to-stone-pickaxe",
+      "split": "test",
+      "seed": 31,
+      "scenario": {
+        "inventory": {"wood": 2, "stone": 0, "pickaxe": 0},
+        "tiles": {"UP": "CRAFTING_TABLE", "RIGHT": "TREE", "DOWN": "STONE", "LEFT": "GRASS"},
+        "facing": "RIGHT"
+      },
+      "chain": [
+        {"effects": [{"predicate": "inventory_at_least", "item": "wood", "count": 3}]},
+        {"effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 1}]},
+        {"effects": [{"predicate": "inventory_at_least", "item": "stone", "count": 1}]},
+        {"effects": [{"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 2}]}
+      ],
+      "goal": {
+        "effects": [
+          {"predicate": "inventory_at_least", "item": "wood", "count": 1},
+          {"predicate": "tool_tier_at_least", "tool": "pickaxe", "tier": 2}
+        ],
+        "preserve": [{"predicate": "inventory_at_least", "item": "wood", "count": 1}]
+      }
+    }
+  ]
+}

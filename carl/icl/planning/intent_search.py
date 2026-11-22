@@ -1,33 +1,37 @@
-"""Execute direct, one-step and best-first planning over checked Sokoban intents."""
+"""Budgeted planning over checked intents with separately restored domain state."""
 
 import heapq
 import math
 import time
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Hashable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from enum import StrEnum
 from itertools import islice
-from typing import Literal
+from typing import Any, Generic, Literal
+
+from pydantic import BaseModel
 
 from carl.icl.api import BudgetExceeded
-from carl.icl.intent_domain import (
-    TASK_GOAL, Intent, SokobanObservation, SokobanSnapshot, decode_intent, validate_intent_proposal,
-)
+from carl.icl.intent_domain import TASK_GOAL, Intent, SokobanObservation, SokobanSnapshot
 from carl.icl.luna_intent_rollout import ActionAttempt, RolloutStatus
-from carl.icl.planning.intent_execution import ExecutionOutcome, ExecutionState, SokobanIntentExecutor
+from carl.icl.planning.intent_execution import (
+    DomainExecutionOutcome, DomainExecutionState, DomainExecutor, IntentT, MemoryT, ObservationT, SnapshotT,
+)
 from carl.icl.types import JSONObject
 
 Scale = float | None
-Phase = Literal["direct", "probe", "commit", "search"]
+Phase = Literal["direct", "probe", "commit", "search", "plan"]
 Metrics = Mapping[str, int | float]
+TERMINAL_FAILURES = (RolloutStatus.EPISODE_TERMINATED, RolloutStatus.EPISODE_TRUNCATED)
 
 
 class SearchMode(StrEnum):
-    """The three predicate control and planning conditions."""
+    """Predicate control, exploration and explicit plan execution conditions."""
 
     DIRECT = "direct"
     ONE_STEP = "one-step"
     FULL_SEARCH = "full-search"
+    PLAN_AND_ACT = "plan-and-act"
 
 
 @dataclass(frozen=True)
@@ -71,22 +75,23 @@ class IntentSearchSettings:
 
 
 @dataclass(frozen=True)
-class IntentSearchRuntime:
+class IntentSearchRuntime(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
     """Bind the same checked executor and inference accounting across modes."""
 
-    executor: SokobanIntentExecutor
-    propose: Callable[[SokobanObservation, str, Scale], Sequence[Intent]]
-    value: Callable[[SokobanObservation, str], float]
+    executor: DomainExecutor[SnapshotT, ObservationT, IntentT, MemoryT]
+    propose: Callable[[ObservationT, str, Scale], Sequence[IntentT]]
+    value: Callable[[ObservationT, str], float]
     metrics: Callable[[], Metrics]
+    plan: Callable[[ObservationT, str], Sequence[IntentT]] | None = None
 
 
 @dataclass
-class IntentNode:
+class IntentNode(Generic[SnapshotT, MemoryT]):
     """A checked endpoint with its parent and executed segment."""
 
     node: int
     parent: int | None
-    state: ExecutionState
+    state: DomainExecutionState[SnapshotT, MemoryT]
     actions: tuple[int, ...]
     path_actions: int
     intent_reached: bool
@@ -116,45 +121,75 @@ class IntentExpansion:
 
 
 @dataclass
-class IntentSearchAttempt:
+class IntentSearchAttempt(Generic[SnapshotT, IntentT]):
     """One actual trial or an invalid proposal, with original outcome flags."""
 
     parent: int
     phase: Phase
     scale: Scale
-    intent: Intent | None
+    intent: IntentT | None
     status: str
     actions: tuple[int, ...]
-    endpoint: SokobanSnapshot
+    endpoint: SnapshotT
     intent_reached: bool
     task_solved: bool
     error: str | None = None
     node: int | None = None
     score: float | None = None
     disposition: str = "rejected"
+    rewards: tuple[float, ...] = ()
 
 
 @dataclass
-class IntentSearchResult:
+class IntentSearchResult(Generic[SnapshotT, IntentT, MemoryT]):
     """A replayable selected path, actual traces and a common accounting schema."""
 
     mode: SearchMode
     solved: bool
     finish_reason: str
     action_path: list[int]
-    endpoint: SokobanSnapshot
+    endpoint: SnapshotT
     task_solved: bool
     intent_reached: bool
     selected_node: int
-    nodes: list[IntentNode]
+    nodes: list[IntentNode[SnapshotT, MemoryT]]
     queue_pops: list[IntentExpansion]
-    attempts: list[IntentSearchAttempt]
+    attempts: list[IntentSearchAttempt[SnapshotT, IntentT]]
     accounting: dict[str, int | float]
     error: str | None
+    snapshot_record: Callable[[SnapshotT], JSONObject] = field(repr=False)
+    planning_calls: list[JSONObject] = field(default_factory=list)
 
     def as_dict(self) -> JSONObject:
         """Return the complete result without raw model prompts or responses."""
-        return asdict(self)
+        result = _record(self, {"endpoint", "nodes", "attempts", "queue_pops", "snapshot_record", "planning_calls"})
+        result["endpoint"] = self.snapshot_record(self.endpoint)
+        result["queue_pops"] = [asdict(entry) for entry in self.queue_pops]
+        result["nodes"] = [{
+            **_record(node, {"state"}),
+            "state": {"snapshot": self.snapshot_record(node.state.snapshot),
+                      "memory": [_public_value(item) for item in node.state.memory]},
+        } for node in self.nodes]
+        result["attempts"] = [{
+            **_record(attempt, {"intent", "endpoint", "rewards"}),
+            "intent": _public_value(attempt.intent), "endpoint": self.snapshot_record(attempt.endpoint),
+            **({"rewards": list(attempt.rewards)} if attempt.rewards else {}),
+        } for attempt in self.attempts]
+        if self.planning_calls:
+            result["planning_calls"] = self.planning_calls
+        return result
+
+
+def _record(value: Any, excluded: set[str]) -> JSONObject:
+    return {item.name: getattr(value, item.name) for item in fields(value) if item.name not in excluded}
+
+
+def _public_value(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    return value
 
 
 class _Stop(BudgetExceeded):
@@ -167,29 +202,28 @@ def _priority(scale: Scale) -> float:
     return 0.0 if scale is None else scale
 
 
-def _state_key(state: ExecutionState) -> tuple[SokobanSnapshot, tuple[ActionAttempt, ...]]:
-    return state.snapshot, state.memory
-
-
-def _accepted(outcome: ExecutionOutcome) -> bool:
+def _accepted(outcome: DomainExecutionOutcome[SnapshotT, MemoryT]) -> bool:
     """Require checked preservation and a determinate effect or task outcome."""
     return outcome.status in (RolloutStatus.ACHIEVED, RolloutStatus.TASK_SOLVED) and (
         outcome.intent_reached or outcome.task_solved
     )
 
 
-def _confirmed_prefix(outcome: ExecutionOutcome) -> bool:
+def _confirmed_prefix(outcome: DomainExecutionOutcome[SnapshotT, MemoryT]) -> bool:
     """Retain applied one-step actions before an execution interruption."""
     return bool(outcome.actions) and outcome.status in (
         RolloutStatus.API_ERROR, RolloutStatus.OUTPUT_LIMIT, RolloutStatus.SIMULATOR_ERROR,
         RolloutStatus.BUDGET_EXHAUSTED, RolloutStatus.INVALID_RESPONSE,
+        *TERMINAL_FAILURES,
     ) and all(
         step["preservation_holds"] is True for step in outcome.rollout.steps if step["action"] is not None
     )
 
 
-class _Search:
-    def __init__(self, settings: IntentSearchSettings, runtime: IntentSearchRuntime, goal: str) -> None:
+class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
+    def __init__(
+        self, settings: IntentSearchSettings, runtime: IntentSearchRuntime[SnapshotT, ObservationT, IntentT, MemoryT], goal: str,
+    ) -> None:
         self.settings = settings
         self.runtime = runtime
         self.goal = goal
@@ -201,11 +235,12 @@ class _Search:
         self.expansions = 0
         self.proposal_queries = 0
         self.value_evaluations = 0
-        self.nodes: list[IntentNode] = []
+        self.nodes: list[IntentNode[SnapshotT, MemoryT]] = []
         self.queue_pops: list[IntentExpansion] = []
-        self.attempts: list[IntentSearchAttempt] = []
+        self.attempts: list[IntentSearchAttempt[SnapshotT, IntentT]] = []
         self.frontier: list[_QueueEntry] = []
-        self.best: dict[tuple[SokobanSnapshot, tuple[ActionAttempt, ...]], int] = {}
+        self.best: dict[Hashable, int] = {}
+        self.planning_calls: list[JSONObject] = []
         self.serial = 0
         self.selected = 0
 
@@ -229,7 +264,7 @@ class _Search:
         self._guard()
         self.actions += 1
 
-    def _score(self, state: ExecutionState) -> float:
+    def _score(self, state: DomainExecutionState[SnapshotT, MemoryT]) -> float:
         self._guard()
         self.value_evaluations += 1
         estimate = self.runtime.value(self.runtime.executor.observation(state), self.goal)
@@ -237,14 +272,19 @@ class _Search:
             raise ValueError("V must return a finite discounted goal return in [0, 1]")
         return float(estimate)
 
+    def _terminal_reason(self, state: DomainExecutionState[SnapshotT, MemoryT]) -> str:
+        record = self.runtime.executor.snapshot_record(state.snapshot)
+        return (RolloutStatus.EPISODE_TRUNCATED if record.get("truncated") is True
+                else RolloutStatus.EPISODE_TERMINATED).value
+
     def _invalid(
-        self, parent: IntentNode, scale: Scale, phase: Phase, error: ValueError,
+        self, parent: IntentNode[SnapshotT, MemoryT], scale: Scale, phase: Phase, error: ValueError,
     ) -> None:
         self.attempts.append(IntentSearchAttempt(
             parent.node, phase, scale, None, "invalid_proposal", (), parent.state.snapshot, False, False, str(error),
         ))
 
-    def _proposals(self, parent: IntentNode, scale: Scale, phase: Phase) -> list[Intent]:
+    def _proposals(self, parent: IntentNode[SnapshotT, MemoryT], scale: Scale, phase: Phase) -> list[IntentT]:
         self._guard()
         observation = self.runtime.executor.observation(parent.state)
         self.proposal_queries += 1
@@ -256,9 +296,7 @@ class _Search:
         checked = []
         for proposal in islice(proposals, self.settings.max_proposals):
             try:
-                intent = decode_intent(proposal)
-                if problems := validate_intent_proposal(intent, observation):
-                    raise ValueError(", ".join(problems))
+                intent = self.runtime.executor.validate_intent(observation, proposal)
             except ValueError as exc:
                 self._invalid(parent, scale, phase, exc)
             else:
@@ -266,8 +304,8 @@ class _Search:
         return checked
 
     def _trial(
-        self, parent: IntentNode, intent: Intent | None, scale: Scale, phase: Phase, *, trial: int = 0,
-    ) -> tuple[ExecutionOutcome, IntentSearchAttempt]:
+        self, parent: IntentNode[SnapshotT, MemoryT], intent: IntentT | None, scale: Scale, phase: Phase, *, trial: int = 0,
+    ) -> tuple[DomainExecutionOutcome[SnapshotT, MemoryT], IntentSearchAttempt[SnapshotT, IntentT]]:
         self._guard()
         cap = self.remaining if intent is None else min(self.remaining, self.settings.rollout_cap)
         outcome = self.runtime.executor.execute(
@@ -279,11 +317,15 @@ class _Search:
         record = IntentSearchAttempt(
             parent.node, phase, scale, intent, outcome.status.value, tuple(outcome.actions), outcome.state.snapshot,
             outcome.intent_reached, outcome.task_solved, outcome.rollout.error,
+            rewards=outcome.rewards,
         )
         self.attempts.append(record)
         return outcome, record
 
-    def _record_node(self, parent: IntentNode, outcome: ExecutionOutcome, record: IntentSearchAttempt) -> IntentNode:
+    def _record_node(
+        self, parent: IntentNode[SnapshotT, MemoryT], outcome: DomainExecutionOutcome[SnapshotT, MemoryT],
+        record: IntentSearchAttempt[SnapshotT, IntentT],
+    ) -> IntentNode[SnapshotT, MemoryT]:
         child = IntentNode(
             len(self.nodes), parent.node, outcome.state, tuple(outcome.actions), parent.path_actions + len(outcome.actions),
             outcome.intent_reached, outcome.task_solved and _accepted(outcome),
@@ -293,7 +335,9 @@ class _Search:
         self.selected = child.node
         return child
 
-    def _interrupted(self, outcome: ExecutionOutcome, record: IntentSearchAttempt) -> str | None:
+    def _interrupted(
+        self, outcome: DomainExecutionOutcome[SnapshotT, MemoryT], record: IntentSearchAttempt[SnapshotT, IntentT],
+    ) -> str | None:
         if outcome.status is RolloutStatus.BUDGET_EXHAUSTED:
             record.disposition = "interrupted"
             self._guard()
@@ -306,7 +350,7 @@ class _Search:
             return "simulator_error"
         return None
 
-    def direct(self, root: IntentNode) -> tuple[str, str | None]:
+    def direct(self, root: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
         outcome, record = self._trial(root, None, None, "direct")
         if outcome.actions or _accepted(outcome):
             self._record_node(root, outcome, record)
@@ -317,18 +361,25 @@ class _Search:
             "action_budget" if self.remaining == 0 else outcome.status.value
         ), record.error
 
-    def _trial_score(self, outcome: ExecutionOutcome, record: IntentSearchAttempt) -> float:
+    def _trial_score(
+        self, outcome: DomainExecutionOutcome[SnapshotT, MemoryT], record: IntentSearchAttempt[SnapshotT, IntentT],
+    ) -> float:
         exponent = self.settings.discount ** len(outcome.actions)
         # The reward is one at primitive time τ if g is attained; terminal V is zero.
-        score = exponent if outcome.task_solved else exponent * self._score(outcome.state)
+        if outcome.task_solved:
+            score = exponent
+        elif self.runtime.executor.terminal(outcome.state):
+            score = 0.0
+        else:
+            score = exponent * self._score(outcome.state)
         record.disposition = "scored"
         record.score = score
         return score
 
-    def one_step(self, parent: IntentNode) -> tuple[str, str | None]:
+    def one_step(self, parent: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
         while True:
             self._expand()
-            choice: tuple[Scale, Intent] | None = None
+            choice: tuple[Scale, IntentT] | None = None
             best_score = -math.inf
             for scale in self.scales:
                 for candidate in self._proposals(parent, scale, "probe"):
@@ -338,7 +389,7 @@ class _Search:
                         if reason := self._interrupted(outcome, record):
                             return reason, record.error
                         trials.append((outcome, record))
-                    if any(not _accepted(outcome) and outcome.status is not RolloutStatus.ACTION_LIMIT
+                    if any(not _accepted(outcome) and outcome.status not in (RolloutStatus.ACTION_LIMIT, *TERMINAL_FAILURES)
                            for outcome, _ in trials):
                         continue
                     score = math.fsum(self._trial_score(outcome, record) for outcome, record in trials) / len(trials)
@@ -354,23 +405,30 @@ class _Search:
                     self._record_node(parent, outcome, record)
                     record.disposition = "committed_incomplete"
                 reason = self._interrupted(outcome, record)
+                if outcome.status in TERMINAL_FAILURES:
+                    return outcome.status.value, record.error
                 return reason or ("action_budget" if self.remaining == 0 else "intent_failed"), record.error
             record.disposition = "committed" if _accepted(outcome) else "committed_incomplete"
             parent = self._record_node(parent, outcome, record)
             if parent.task_solved:
                 return "solved", None
+            if self.runtime.executor.terminal(parent.state):
+                return self._terminal_reason(parent.state), None
 
-    def _enqueue(self, node: IntentNode) -> None:
+    def _enqueue(self, node: IntentNode[SnapshotT, MemoryT]) -> None:
         node.value = self._score(node.state)
-        self.best[_state_key(node.state)] = node.node
+        self.best[self.runtime.executor.state_key(node.state)] = node.node
         for scale in self.scales:
             heapq.heappush(self.frontier, _QueueEntry(-_priority(scale), -node.value, self.serial, node.node, scale))
             self.serial += 1
 
-    def _admit(self, parent: IntentNode, outcome: ExecutionOutcome, record: IntentSearchAttempt) -> bool:
+    def _admit(
+        self, parent: IntentNode[SnapshotT, MemoryT], outcome: DomainExecutionOutcome[SnapshotT, MemoryT],
+        record: IntentSearchAttempt[SnapshotT, IntentT],
+    ) -> bool:
         if not _accepted(outcome):
             return False
-        key = _state_key(outcome.state)
+        key = self.runtime.executor.state_key(outcome.state)
         prior = self.best.get(key)
         if prior is not None and self.nodes[prior].path_actions <= parent.path_actions + len(outcome.actions):
             record.disposition = "duplicate"
@@ -379,10 +437,11 @@ class _Search:
         record.disposition = "reopened" if prior is not None else "accepted"
         if child.task_solved:
             return True
-        self._enqueue(child)
+        if not self.runtime.executor.terminal(child.state):
+            self._enqueue(child)
         return False
 
-    def full_search(self, root: IntentNode) -> tuple[str, str | None]:
+    def full_search(self, root: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
         if self.settings.max_expansions == 0:
             self._guard()
             return "expansion_budget", None
@@ -390,7 +449,7 @@ class _Search:
         while self.frontier:
             entry = heapq.heappop(self.frontier)
             parent = self.nodes[entry.node]
-            if self.best[_state_key(parent.state)] != parent.node:
+            if self.best[self.runtime.executor.state_key(parent.state)] != parent.node:
                 continue
             self._expand()
             self.queue_pops.append(IntentExpansion(
@@ -405,6 +464,42 @@ class _Search:
                         return "solved", None
             self._guard()
         return "frontier_exhausted", None
+
+    def plan_and_act(self, parent: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
+        """Request a high-level plan, execute it directly and replan after a safe cutoff."""
+        plan = self.runtime.plan
+        if plan is None:
+            raise ValueError("plan-and-act requires an explicit planning role")
+        while True:
+            self._expand()
+            row: JSONObject = {"parent": parent.node, "replan": bool(self.planning_calls), "intents": []}
+            self.planning_calls.append(row)
+            candidates = list(islice(plan(self.runtime.executor.observation(parent.state), self.goal), self.remaining))
+            row["intents"] = [_public_value(candidate) for candidate in candidates]
+            start = self.actions
+            for candidate in candidates:
+                try:
+                    candidate = self.runtime.executor.validate_intent(self.runtime.executor.observation(parent.state), candidate)
+                except ValueError as exc:
+                    self._invalid(parent, None, "plan", exc)
+                    break
+                outcome, record = self._trial(parent, candidate, None, "plan")
+                accepted = _accepted(outcome)
+                if accepted or (outcome.actions and outcome.status is RolloutStatus.ACTION_LIMIT) or _confirmed_prefix(outcome):
+                    parent = self._record_node(parent, outcome, record)
+                    record.disposition = "committed" if accepted else "committed_incomplete"
+                if parent.task_solved:
+                    return "solved", None
+                if reason := self._interrupted(outcome, record):
+                    return reason, record.error
+                if self.runtime.executor.terminal(parent.state):
+                    return self._terminal_reason(parent.state), None
+                if outcome.status not in (RolloutStatus.ACHIEVED, RolloutStatus.ACTION_LIMIT):
+                    return "intent_failed", record.error
+                if not accepted:
+                    break
+            if self.actions == start:
+                return "no_proposals", None
 
     def _path(self) -> list[int]:
         segment_paths = []
@@ -436,6 +531,8 @@ class _Search:
             "expansions": self.expansions,
             "queue_expansions": len(self.queue_pops),
             "proposal_queries": self.proposal_queries,
+            "plan_queries": len(self.planning_calls),
+            "replans": max(0, len(self.planning_calls) - 1),
             "value_evaluations": self.value_evaluations,
             "logical_api_calls": metrics["logical_requests"],
             "logical_model_calls": metrics["logical_requests"] + metrics["local_requests"] + metrics["fitted_value_calls"],
@@ -445,13 +542,21 @@ class _Search:
             "wall_seconds": time.monotonic() - self.started,
         }
 
-    def run(self, mode: SearchMode, initial: ExecutionState) -> IntentSearchResult:
+    def run(
+        self, mode: SearchMode, initial: DomainExecutionState[SnapshotT, MemoryT],
+    ) -> IntentSearchResult[SnapshotT, IntentT, MemoryT]:
         root = IntentNode(0, None, initial, (), 0, False, False)
         self.nodes.append(root)
         try:
             root.task_solved = self.runtime.executor.task_solved(initial)
-            operation = {SearchMode.DIRECT: self.direct, SearchMode.ONE_STEP: self.one_step, SearchMode.FULL_SEARCH: self.full_search}
-            reason, error = ("solved", None) if root.task_solved else operation[mode](root)
+            operation = {SearchMode.DIRECT: self.direct, SearchMode.ONE_STEP: self.one_step,
+                         SearchMode.FULL_SEARCH: self.full_search, SearchMode.PLAN_AND_ACT: self.plan_and_act}
+            if root.task_solved:
+                reason, error = "solved", None
+            elif self.runtime.executor.terminal(initial):
+                reason, error = self._terminal_reason(initial), None
+            else:
+                reason, error = operation[mode](root)
         except _Stop as exc:
             reason, error = exc.reason, None
         except BudgetExceeded as exc:
@@ -463,15 +568,27 @@ class _Search:
         return IntentSearchResult(
             mode, selected.task_solved, reason, path, selected.state.snapshot, selected.task_solved,
             selected.intent_reached, selected.node, self.nodes, self.queue_pops, self.attempts, self._accounting(path), error,
+            self.runtime.executor.snapshot_record, self.planning_calls,
         )
 
 
 def search_intents(
     initial: SokobanSnapshot, task_goal: str, *, mode: SearchMode | str, settings: IntentSearchSettings,
-    runtime: IntentSearchRuntime, initial_memory: Sequence[ActionAttempt] = (),
-) -> IntentSearchResult:
+    runtime: IntentSearchRuntime[SokobanSnapshot, SokobanObservation, Intent, ActionAttempt],
+    initial_memory: Sequence[ActionAttempt] = (),
+) -> IntentSearchResult[SokobanSnapshot, Intent, ActionAttempt]:
     """Plan from a fresh initial snapshot using one shared budget per run."""
     if task_goal != TASK_GOAL:
         raise ValueError("The Sokoban planner supports the all-boxes-on-goals task")
-    initial_state = ExecutionState(initial, tuple(initial_memory))
+    return search_domain_intents(initial, task_goal, mode=mode, settings=settings, runtime=runtime, initial_memory=initial_memory)
+
+
+def search_domain_intents(
+    initial: SnapshotT, task_goal: str, *, mode: SearchMode | str, settings: IntentSearchSettings,
+    runtime: IntentSearchRuntime[SnapshotT, ObservationT, IntentT, MemoryT], initial_memory: Sequence[MemoryT] = (),
+) -> IntentSearchResult[SnapshotT, IntentT, MemoryT]:
+    """Run the shared search against a domain's typed snapshot and checks."""
+    if not isinstance(task_goal, str) or not task_goal.strip():
+        raise ValueError("Task goal must be nonempty")
+    initial_state = runtime.executor.initial_state(initial, initial_memory)
     return _Search(settings, runtime, task_goal).run(SearchMode(mode), initial_state)

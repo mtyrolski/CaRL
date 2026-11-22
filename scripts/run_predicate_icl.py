@@ -13,6 +13,8 @@ from carl.icl.intent_support import freeze_support
 from carl.icl.intents.generation.data import parse_json
 from carl.icl.llm_components.predicate import InvalidProposal, PredicateComponents, PredicatePolicy
 from carl.icl.luna_intent_rollout import RolloutStatus, rollout
+from carl.icl.planning.craftax_experiment import add_arguments as add_craftax_arguments
+from carl.icl.planning.craftax_experiment import run as run_craftax
 from carl.icl.planning.intent_execution import SokobanIntentExecutor
 from carl.icl.planning.intent_search import IntentSearchRuntime, IntentSearchSettings, SearchMode, search_intents
 from carl.icl.planning.intent_value import FittedIntentValue, fit_value, load_value
@@ -147,6 +149,8 @@ def _validate_receipt(path: Path, condition: JSONObject, *, status: str) -> None
 
 
 def _execute(args: argparse.Namespace) -> int:
+    if args.command == "craftax":
+        return run_craftax(args)
     if args.command == "fit-value":
         fitted = fit_value(args.source, discount=args.discount)
         fitted.save(args.output)
@@ -216,6 +220,7 @@ def main() -> int:
     """Expose explicit inference modes and a keyless preview of both roles."""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="command", required=True)
+    add_craftax_arguments(actions.add_parser("craftax", help="Compare four planners on a pinned Craftax task"))
     fit = actions.add_parser("fit-value", help="Fit V from replay-verified training demonstrations")
     fit.add_argument("--source", type=Path, required=True)
     fit.add_argument("--output", type=Path, required=True)
@@ -234,7 +239,7 @@ def main() -> int:
             action.add_argument("--intent", type=Path, required=True, help="Proposed intent for the policy preview")
             action.set_defaults(mode=None)
         if name == "search":
-            action.add_argument("--planning-mode", choices=tuple(SearchMode), required=True)
+            action.add_argument("--planning-mode", choices=tuple(mode for mode in SearchMode if mode is not SearchMode.PLAN_AND_ACT), required=True)
         if name in ("run", "search"):
             action.add_argument("--mode", choices=("mock", "replay", "openai", "local"), required=True,
                                 help="Use local weights for local roles and this mode for any API roles")
