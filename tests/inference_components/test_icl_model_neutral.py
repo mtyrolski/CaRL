@@ -1,6 +1,7 @@
 """Model selection must not change the controller or reuse another policy's identity."""
 
 import json
+import pickle
 
 import numpy as np
 import pytest
@@ -12,7 +13,17 @@ from carl.icl.boards import to_rows
 from carl.icl.components import ICLComponents
 from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
+from carl.icl.llm_components.base import LLMComponentBase
+from carl.icl.llm_components.formatting import task
+from carl.icl.llm_components.generator import LLMSubgoalGenerator
+from carl.icl.llm_components.policy import GoalConditionedPolicy
+from carl.icl.llm_components.value import LLMValueFunction
 from carl.icl.luna import LunaComponents
+from carl.icl.luna_components.base import LunaBase
+from carl.icl.luna_components.formatting import task as legacy_task
+from carl.icl.luna_components.generator import LunaGenerator
+from carl.icl.luna_components.policy import LunaPolicy
+from carl.icl.luna_components.value import LunaValue
 from carl.icl.types import TrainingData
 
 
@@ -33,8 +44,14 @@ class RecordingClient:
         return self.call(endpoint, payload, mock)
 
 
-def test_legacy_import_is_the_same_model_neutral_component():
+def test_legacy_and_neutral_imports_share_class_identity():
     assert LunaComponents is ICLComponents
+    assert LunaBase is LLMComponentBase
+    assert LunaGenerator is LLMSubgoalGenerator
+    assert LunaPolicy is GoalConditionedPolicy
+    assert LunaValue is LLMValueFunction
+    assert task is legacy_task
+    assert pickle.loads(b'ccarl.icl.luna_components.policy\nLunaPolicy\n.') is GoalConditionedPolicy
     assert ExperimentConfig().model == "gpt-6-luna"
 
 

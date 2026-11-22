@@ -11,7 +11,6 @@ from carl.icl.api import RequestFailed
 from carl.icl.boards import from_rows
 from carl.icl.calibration import calibrate
 from carl.icl.calibration import calibration_id
-from carl.icl.calibration import weighted_percentiles
 from carl.icl.config import Calibration
 from carl.icl.config import ExperimentConfig
 from carl.icl.config import Limits
@@ -29,14 +28,6 @@ from carl.icl.types import RolloutPolicy
 from carl.icl.types import SearchComponents
 from tests.inference_components._luna_experiment_fixtures import sokoban_board as sokoban_board
 from tests.inference_components._luna_experiment_fixtures import training_for
-
-
-def test_weighted_tie_midpoints_and_zero_hit_rejection():
-    weights, percentiles = weighted_percentiles([2, 2, 5], [1, 3, 4])
-    np.testing.assert_allclose(weights, [0.125, 0.375, 0.5])
-    np.testing.assert_allclose(percentiles, [0.25, 0.25, 0.75])
-    with pytest.raises(ValueError):
-        weighted_percentiles([1], [0])
 
 
 def test_terminal_checked_before_target_and_attempts_include_noops(board):

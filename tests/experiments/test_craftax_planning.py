@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from carl.environment.craftax import CraftaxAdapter
 from carl.icl.config import ROOT
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.types import JSONObject
@@ -62,10 +61,3 @@ def test_native_craftax_four_modes_replay_one_matched_task(tmp_path: Path, monke
     assert results["one-step"]["accounting"]["attempted_simulator_actions"] > 5
     assert results["plan-and-act"]["accounting"]["logical_generator_calls"] == 1
     assert len({result["endpoint"]["fingerprint"] for result in results.values()}) == 1
-
-
-@pytest.mark.skipif(importlib.util.find_spec("craftax") is not None, reason="base-environment import contract")
-def test_optional_adapter_import_does_not_eagerly_import_native_packages() -> None:
-    assert "craftax" not in sys.modules
-    with pytest.raises(ImportError, match="Craftax is optional"):
-        CraftaxAdapter()

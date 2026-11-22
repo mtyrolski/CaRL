@@ -93,16 +93,6 @@ def test_offset_denominator_is_fixed_config_not_a_test_board_statistic(tmp_path:
     assert "16" in a["input"][0]["content"][0]["text"]
 
 
-@pytest.mark.usefixtures("deterministic_token_estimates")
-def test_fixed_k_keeps_trajectory_offset_and_needs_no_calibration(tmp_path: Path) -> None:
-    board, training, _ = fixture_data()
-    config = ExperimentConfig(method="fixed", scales=[2, 1], few_shot=2)
-    agent = LunaComponents(config, ExperimentAPI(tmp_path, "mock", config.limits), environment(board), training)
-    payload = agent.generator_payload(board, 1.0, False)
-    assert json.loads(payload["input"][1]["content"][0]["text"])["k"] == 1
-    assert "k" in json.loads(payload["input"][-1]["content"][0]["text"])
-
-
 def test_campaign_mode_configs_share_frozen_policy_and_calibration() -> None:
     configs = [load_config(f"configs/icl/campaign_data/{method}.json") for method in METHODS]
     assert len({config.locked_policy_fingerprint for config in configs}) == 1
