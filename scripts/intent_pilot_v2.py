@@ -5,6 +5,7 @@ import json
 
 from carl.icl.experiments.intent_pilot_budget import DOMAINS, PHASES
 from carl.icl.experiments.intent_pilot_v2 import V1, prepare
+from carl.icl.experiments.intent_pilot_v2_calibration import measure_context, prepare_calibration, publish_calibration
 from carl.icl.experiments.intent_pilot_v2_run import PROMPTS, V2Ledger, diagnose, diagnostics_and_forecast, report, verify_trials
 
 
@@ -14,6 +15,10 @@ def main() -> int:
     commands.add_parser("prepare", help="Freeze new group descriptors and verify native witnesses")
     diagnostic = commands.add_parser("diagnostic", help="Run or resume the four frozen local Qwen3 requests")
     diagnostic.add_argument("--retry-censored", action="store_true", help="Retry wall cutoffs and infrastructure failures")
+    commands.add_parser("prepare-calibration", help="Freeze both complete native-backed calibration pools")
+    calibrate = commands.add_parser("calibrate", help="Measure one reserved calibration context")
+    calibrate.add_argument("--context", type=int, required=True)
+    commands.add_parser("calibration-report", help="Publish the calibration matrix and reconcile the ledger")
     commands.add_parser("report", help="Refresh per-attempt results and the v2 handoff")
     commands.add_parser("verify", help="Replay the saved native diagnostic attempts")
     commands.add_parser("status", help="Read the shared v2 allowance without launching a worker")
@@ -39,6 +44,14 @@ def main() -> int:
         elif args.operation == "diagnostic":
             diagnose(retry_censored=args.retry_censored)
             result = report()
+        elif args.operation == "prepare-calibration":
+            result = prepare_calibration()
+            report()
+        elif args.operation == "calibrate":
+            result = measure_context(args.context)
+        elif args.operation == "calibration-report":
+            result = publish_calibration()
+            report()
         elif args.operation == "report":
             result = report()
         elif args.operation == "verify":

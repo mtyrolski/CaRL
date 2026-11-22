@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import time
+from pathlib import Path
 from sqlite3 import Connection
 from statistics import median
 from uuid import uuid4
@@ -35,6 +36,16 @@ PROMPTS = range(14, 21)
 class V2Ledger(PilotLedger):
     """Reuse the v1 settlement path and add a single, transactional v2 allowance."""
 
+    @staticmethod
+    def _paired_hold(conn: Connection) -> int:
+        leased = conn.execute("""
+            SELECT 1 FROM jobs
+            WHERE prompt = 17 AND phase = 'inference' AND activity = 'paired-sokoban'
+              AND status IN ('reserved', 'complete')
+            LIMIT 1
+        """).fetchone()
+        return 0 if leased else PAIRED_MS
+
     def _balance(self, conn: Connection) -> tuple[int, int]:
         total, spent = conn.execute("""
             SELECT COALESCE(SUM(COALESCE(charged_ms, reserved_ms)), 0),
@@ -47,9 +58,11 @@ class V2Ledger(PilotLedger):
 
     def balance(self) -> JSONObject:
         with self._connection() as conn:
+            conn.execute("BEGIN")
             cap, remaining = self._balance(conn)
+            paired = self._paired_hold(conn)
         return {"limit_seconds": cap / 1000, "available_seconds": remaining / 1000,
-                "paired_reserve_seconds": PAIRED_MS / 1000, "closeout_reserve_seconds": CLOSEOUT_MS / 1000}
+                "paired_reserve_seconds": paired / 1000, "closeout_reserve_seconds": CLOSEOUT_MS / 1000}
 
     def _reserve(
         self, prompt: int, domain: str, phase: str, activity: str,
@@ -60,8 +73,9 @@ class V2Ledger(PilotLedger):
         if min(seconds, workers) < 1 or not command:
             raise ValueError("A positive deadline, worker count and local command are required")
         requested = (seconds + 1) * workers * 1000
-        protected = PAIRED_MS + CLOSEOUT_MS if prompt <= 15 else CLOSEOUT_MS if prompt < 20 else 0
         with self._connection(write=True) as conn:
+            paired_job = prompt == 17 and phase == "inference" and activity == "paired-sokoban"
+            protected = 0 if prompt >= 20 else CLOSEOUT_MS + (0 if paired_job else self._paired_hold(conn))
             limit, remaining = self._balance(conn)
             if remaining - requested < protected:
                 raise ValueError(f"Reservation needs {requested / 1000:.3f}s plus {protected / 1000:.3f}s protected")
@@ -164,8 +178,8 @@ def diagnostics_and_forecast() -> None:
     freeze(V2 / "forecast.json", forecast)
 
 
-def _trial_plan() -> tuple[JSONObject, list[tuple[JSONObject, JSONObject, str]]]:
-    plan: JSONObject = read(V2 / "private/diagnostic-plan.json")
+def _trial_plan(path: Path | None = None) -> tuple[JSONObject, list[tuple[JSONObject, JSONObject, str]]]:
+    plan: JSONObject = read(path if path is not None else V2 / "private/diagnostic-plan.json")
     if file_sha256(V2 / "splits.json") != plan["split_sha256"]:
         raise ValueError("The v2 split changed")
     keys = []
@@ -202,6 +216,27 @@ def _stop_reason(row: JSONObject) -> str | None:
     return reason if isinstance(reason, str) else None
 
 
+def load_worker(profile: JSONObject, run_id: str) -> LocalDecider:
+    import torch
+
+    started = time.monotonic()
+    cfg = read(V1 / "direct/qwen3-0.6b.json")
+    torch.set_num_threads(cfg["threads"])
+    torch.set_num_interop_threads(1)
+    torch.use_deterministic_algorithms(True)
+    torch.manual_seed(profile["contract"]["policy_seed"])
+    role = bind_local_role(LocalModelSettings.model_validate(cfg["local"]), "policy")
+    if role.identity() != profile["contract"]["model"]:
+        raise ValueError("The cached local weights differ from v1")
+    _ = role._stack
+    _ = role._tokenizer
+    cache = V2 / "private/cache" / profile["sha256"]
+    check = V1 / "measurements/private/cache" / profile["sha256"] / "greedy-check.json"
+    freeze(cache / "greedy-check.json", read(check))
+    freeze(V2 / "private/workers" / f"{run_id}.json", {"setup_seconds": time.monotonic() - started, "profile": profile["sha256"]})
+    return LocalDecider(role, cache)
+
+
 def diagnose(*, retry_censored: bool = False) -> None:
     ledger = V2Ledger(V1).status()
     if not any(job["prompt"] == 15 and job["phase"] == "inference" and job["status"] == "reserved" for job in ledger["jobs"]):
@@ -216,25 +251,8 @@ def diagnose(*, retry_censored: bool = False) -> None:
                    if _finished(_attempts(k), retry_censored=retry_censored) is None]
         if not pending:
             return
-        import torch
-
-        started = time.monotonic()
-        cfg = read(V1 / "direct/qwen3-0.6b.json")
-        torch.set_num_threads(cfg["threads"])
-        torch.set_num_interop_threads(1)
-        torch.use_deterministic_algorithms(True)
-        torch.manual_seed(profile["contract"]["policy_seed"])
-        role = bind_local_role(LocalModelSettings.model_validate(cfg["local"]), "policy")
-        if role.identity() != profile["contract"]["model"]:
-            raise ValueError("The cached local weights differ from v1")
-        _ = role._stack
-        _ = role._tokenizer
-        cache = V2 / "private/cache" / profile["sha256"]
-        check = V1 / "measurements/private/cache" / profile["sha256"] / "greedy-check.json"
-        freeze(cache / "greedy-check.json", read(check))
-        decider = LocalDecider(role, cache)
         run_id = uuid4().hex
-        freeze(V2 / "private/workers" / f"{run_id}.json", {"setup_seconds": time.monotonic() - started, "profile": profile["sha256"]})
+        decider = load_worker(profile, run_id)
         for case, request, key in pending:
             _run_attempt(plan, case, request, key, run_id, decider)
             print(case["case_id"], request["request_id"], _attempts(key)[-1]["status"], flush=True)
@@ -268,11 +286,13 @@ def _run_attempt(plan: JSONObject, case: JSONObject, request: JSONObject, key: s
     save(result)
 
 
-def verify_trials() -> JSONObject:
+def verify_trials(
+    plan_path: Path | None = None, witness_path: Path | None = None, output: Path | None = None,
+) -> JSONObject:
     """Independently replay every stored native step and separate failures from witnesses."""
-    plan, keys = _trial_plan()
+    plan, keys = _trial_plan(plan_path)
     paths = {(row["case_id"], path["request_id"]): path["actions"]
-             for row in read(V2 / "private/native-witnesses.json") for path in row["paths"]}
+             for row in read(witness_path if witness_path is not None else V2 / "private/native-witnesses.json") for path in row["paths"]}
     checked = []
     for case, request, key in keys:
         for attempt in _attempts(key):
@@ -304,7 +324,7 @@ def verify_trials() -> JSONObject:
                 "trace": str(path), "trace_sha256": file_sha256(path),
             })
     result = {"independent_replays": len(checked), "trials": checked}
-    write_json(V2 / "trial-verification.json", result)
+    write_json(output if output is not None else V2 / "trial-verification.json", result)
     return result
 
 
@@ -337,10 +357,16 @@ def report() -> JSONObject:
               "pool_sha256": file_sha256(V2 / "private/diagnostic-plan.json"), "rows": rows,
               "succeeded": len(hits), "assigned": len(rows), "profile_for_calibration": chosen,
               "jobs": jobs, **balance}
+    free_after_reserves = balance["available_seconds"] - balance["paired_reserve_seconds"] - balance["closeout_reserve_seconds"]
+    craftax_path = V2 / "craftax/summary.json"
+    craftax = read(craftax_path) if craftax_path.is_file() else None
     native_block = forecast["craftax"]["median_full_cap_forecast_seconds"]
-    free_after_reserves = balance["available_seconds"] - (PAIRED_MS + CLOSEOUT_MS) / 1000
+    required = native_block + 1
+    if craftax:
+        native_block = craftax["forecast"]["median_full_block_seconds"]
+        required = craftax["forecast"]["block_deadline_seconds"] + 1
     result["craftax"] = {**forecast["craftax"], "unprotected_seconds": free_after_reserves,
-                         "full_block_fits_forecast": free_after_reserves >= native_block + 1}
+                         "full_block_fits_forecast": free_after_reserves >= required, "directed_followup": craftax}
     write_json(V2 / "results.json", result)
     with (V2 / "diagnostic.csv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
@@ -356,7 +382,8 @@ def report() -> JSONObject:
         "# CaRL intent pilot v2", "", f"Frozen v1 Qwen3-0.6B profile `{result['profile_sha256']}`.",
         f"Split SHA-256 `{result['split_sha256']}` and diagnostic pool SHA-256 `{result['pool_sha256']}`.", "",
         f"Available {balance['available_seconds']:.3f} s of {balance['limit_seconds']:.3f} s. "
-        f"Protected {PAIRED_MS/1000:.0f} s for pairing and {CLOSEOUT_MS/1000:.0f} s for closeout.", "",
+        f"Additional holds of {balance['paired_reserve_seconds']:.0f} s for pairing and "
+        f"{balance['closeout_reserve_seconds']:.0f} s for closeout.", "",
         "| Diagnostic case | Request | Native minimum | Status | Model first hit | No-ops | Requests | Seconds |",
         "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: |",
         *[f"| {r['case_id']} | {r['request_id']} | {r['witness_length']} | {r['status']} | "
@@ -366,14 +393,15 @@ def report() -> JSONObject:
         "", f"Selected profile for the separate calibration is `{chosen or 'pending'}`.", "",
     ]
     charged = sum((job["charged_ms"] or 0) for job in jobs)
-    lines += [f"Settled v2 jobs charged {charged / 1000:.3f} worker-seconds and USD 0.",
+    preparation = sum((job["charged_ms"] or 0) for job in jobs if job["phase"] == "preparation")
+    inference = sum((job["charged_ms"] or 0) for job in jobs if job["phase"] == "inference")
+    lines += [f"Settled v2 jobs charged {charged / 1000:.3f} worker-seconds and USD 0. "
+              f"Preparation charged {preparation / 1000:.3f} s and inference jobs charged {inference / 1000:.3f} s.",
               "Prompt 14 checked the third RIGHT against a wall, the preserved one-action hit, the empty Qwen2.5 "
               "reply, the Craftax LEFT no-op facing a tree, and the depth-one probe cutoff with zero commitments.",
               "Native IDs are UP=0, DOWN=1, LEFT=2, RIGHT=3. Each tested one-action reply encodes to 5 of 64 tokens.",
               "The v1 data and sealed-report checksums passed. Inherited support references only the original training rows.",
-              "The model only reads frozen observations and requests. Native oracle lengths and snapshots are separate.",
-              "", f"The four-attempt Craftax forecast is {native_block:.3f} s at the historical decision median "
-              f"and setup cost. Available outside protected work {max(0, free_after_reserves):.3f} s.", ""]
+              "The model only reads frozen observations and requests. Native oracle lengths and snapshots are separate.", ""]
     proof = V2 / "trial-verification.json"
     if proof.is_file():
         replay = read(proof)
@@ -393,5 +421,22 @@ def report() -> JSONObject:
                   "The test groups are unopened. Refresh the evidence before the next stage.", "",
                   "```bash", "source analysis/intent-pilot/env.sh",
                   "uv run --locked --offline --no-sync python -m scripts.intent_pilot_v2 report", "```", ""]
+    for stage in ("calibration", "validation"):
+        artifact = V2 / stage / "RESULTS.md"
+        if artifact.is_file():
+            content = artifact.read_text(encoding="utf-8").rstrip()
+            lines += ["", f"#{content}" if content.startswith("# ") else content, ""]
+    if craftax:
+        lines += ["## Prompt 18 Craftax on a fresh world", "",
+                  f"Frozen pool SHA-256 `{craftax['input_sha256']}`. "
+                  f"Verified scripted witnesses {craftax['scripted_native_witnesses']}. "
+                  f"Eligible model attempts {craftax['eligible_model_attempts']}/{craftax['planned_model_attempts']}. "
+                  f"Unstarted slots {craftax['unstarted_slots']}.", "",
+                  f"The four-attempt model block forecasts {native_block:.3f} s and needs a {required:.0f} s reservation. "
+                  f"Available outside protected work {max(0, free_after_reserves):.3f} s.", "",
+                  "[Native certificates, historical traces and exact resume command](craftax/REPORT.md)", ""]
+    else:
+        lines += [f"The initial four-attempt Craftax forecast is {native_block:.3f} s. "
+                  f"Available outside protected work {max(0, free_after_reserves):.3f} s.", ""]
     (V2 / "STATUS.md").write_text("\n".join(lines), encoding="utf-8")
     return result
