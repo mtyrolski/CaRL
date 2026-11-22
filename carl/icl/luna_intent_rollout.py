@@ -7,6 +7,7 @@ returned by the environment, not a language-model judge.
 """
 import json
 from collections.abc import Callable
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -133,7 +134,7 @@ class IntentRollout:
         return len(self.actions) if self.achieved else None
 
 
-def build_prompt(state: Board, intent: dict[str, Any], task_goal: str,
+def build_prompt(state: Board, intent: Mapping[str, object], task_goal: str,
                  memory: Sequence[ActionAttempt] = (), *, measured: bool = False) -> str:
     """Render the current state and previous actions from this attempt only."""
     observation = SokobanObservation(tuple(to_rows(state)))
