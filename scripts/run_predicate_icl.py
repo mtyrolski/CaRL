@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
@@ -216,7 +217,7 @@ def _execute(args: argparse.Namespace) -> int:
     return 0 if result["status"] == success_status else 2
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Expose explicit inference modes and a keyless preview of both roles."""
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="command", required=True)
@@ -245,7 +246,7 @@ def main() -> int:
                                 help="Use local weights for local roles and this mode for any API roles")
             action.add_argument("--mock-response", type=Path, help="Fixture JSON required with --mode mock")
             action.add_argument("--validation-result", type=Path, help="Successful validation output for test inference")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command in ("run", "search") and (args.mode == "mock") != (args.mock_response is not None):
         parser.error("--mock-response is required in mock mode and unavailable in replay or live mode")
     try:
