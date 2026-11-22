@@ -192,9 +192,17 @@ class MatchedSweep(Settings):
             observed = getattr(trial, attribute)
             if observed is not None and observed != getattr(instance, attribute):
                 raise ValueError(f"Mismatched trial {attribute} for {trial.artifact}")
-        attempted = trial.accounting.get("attempted_simulator_actions")
-        if attempted is not None and attempted > cast(int, limits["action_budget"]):
-            raise ValueError(f"Action budget exceeded for {trial.artifact}")
+        api = limits.get("api")
+        api_limits = api if isinstance(api, dict) else {}
+        for count, cap, label in (
+            ("attempted_simulator_actions", limits["action_budget"], "Action budget"),
+            ("expansions", limits.get("max_expansions"), "Expansion budget"),
+            ("logical_requests", api_limits.get("max_requests"), "Logical request budget"),
+            ("logical_input_tokens", api_limits.get("max_total_input_tokens"), "Logical input token budget"),
+        ):
+            observed = trial.accounting.get(count)
+            if observed is not None and isinstance(cap, (int, float)) and not isinstance(cap, bool) and observed > cap:
+                raise ValueError(f"{label} exceeded for {trial.artifact}")
 
 
 Pair = tuple[SweepInstance, SweepTrial, SweepTrial]

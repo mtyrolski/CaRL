@@ -14,7 +14,8 @@ from carl.icl.types import JSONObject
 def _budget(name: str, actions: int) -> JSONObject:
     return {
         "id": name,
-        "limits": {"action_budget": actions, "max_expansions": 12, "wall_seconds": 10, "api": {"max_requests": 40}},
+        "limits": {"action_budget": actions, "max_expansions": 12, "wall_seconds": 10,
+                   "api": {"max_requests": 40, "max_total_input_tokens": 8000}},
     }
 
 
@@ -120,6 +121,9 @@ def test_missing_arm_and_time_keeps_paired_coverage(sweep_payload: JSONObject) -
     ("policy_fingerprint", "different", "Mismatched trial policy_fingerprint"),
     ("initial_fingerprint", "different", "Mismatched trial initial_fingerprint"),
     ("accounting", {"attempted_simulator_actions": 11}, "Action budget exceeded"),
+    ("accounting", {"expansions": 13}, "Expansion budget exceeded"),
+    ("accounting", {"logical_requests": 41}, "Logical request budget exceeded"),
+    ("accounting", {"logical_input_tokens": 8001}, "Logical input token budget exceeded"),
     ("finish_reason", "action_budget", "solved and finish_reason disagree"),
     ("status", "missing", "by omitting the trial"),
     ("success_seconds", 9, "cannot exceed elapsed_seconds"),
@@ -138,6 +142,14 @@ def test_reject_duplicate_trial_and_split_group(sweep_payload: JSONObject) -> No
     sweep_payload["instances"][1]["group"] = "other-family"
     with pytest.raises(ValidationError, match="share their bootstrap group"):
         MatchedSweep.model_validate(sweep_payload)
+
+
+def test_at_limit_or_unreported_accounting_remains_valid(sweep_payload: JSONObject) -> None:
+    trial = sweep_payload["trials"][0]
+    trial["accounting"].update(expansions=12, logical_requests=40, logical_input_tokens=8000)
+    MatchedSweep.model_validate(sweep_payload)
+    trial["accounting"] = {"logical_input_tokens": None}
+    MatchedSweep.model_validate(sweep_payload)
 
 
 def test_export_repeatable_reports(tmp_path: Path, sweep_payload: JSONObject) -> None:
