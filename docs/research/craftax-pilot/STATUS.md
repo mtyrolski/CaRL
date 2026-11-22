@@ -295,3 +295,72 @@ This reproduced the ledger-bound split SHA-256 `5c6f2810968c5d622550f519c11d6ad1
 ### Next prompt — 05
 
 Read both pilot documents and run the resume command. Start with the checked support data and the frozen train-measurement cohorts. Use the same action and memory interface, require a verified prerequisite hit before allocating larger rollouts to a controller and task, and record unsuccessful or incomplete measurements explicitly. Keep sealed compositions separate. Use the actual controller revisions and reconcile any preparation, calibration or retry time against the remaining budget before writing the next handoff.
+
+## Prompt 04 continuation — Assigned intents and checked hindsight, 2026-11-22
+
+Complete on intake `7fb7009`. The assigned-intent runner and verifier are in `68a65ae`. The collection froze four train-support contexts before the model calls. The private plan SHA-256 is `7bc3c098eaca601f103dd8063a6d96f4e8241138af09b4c04def0f3ceca2a2fd`. Its inputs are the previously checked native training sources, the original split and checked `D_A` hashes, and the two pinned controller JSONs from the direct run.
+
+The runner keeps the assigned `h` in each query across interrupted batches. It checks preservation on the start and each native transition, and records the action, first hit, task and episode state, state and memory identities, and remaining shared budget. An admitted batch can execute up to four actions. The normal cap is 12 executed primitives per intent.
+
+| Controller | Sokoban executed primitives | Craftax executed primitives | Status in both |
+| --- | ---: | ---: | --- |
+| Qwen3-0.6B | 4 | 6 | `budget_cutoff` after three policy calls |
+| Qwen2.5-1.5B-Instruct | 2 | 1 | `budget_cutoff` after three policy calls |
+
+The four real model attempts reproduced under native replay. Their effects remained unmet and none moved a box or increased an inventory count within the selected progress rule. The model binding and exact payloads are saved with each attempt. Qwen2.5 is the pinned local substitute already recorded in the direct stage.
+
+Two separately declared scripted training attempts on frozen `train-support` groups reached `intent_timeout` after exactly 12 primitives. In both natives the replan began from the actual timeout endpoint and memory with 20 actions left. The new requests reached their effects in four primitives in Sokoban and two in Craftax. The integration-only speculative traces instead retained their original frontier checkpoints and charged all 12 executed primitives.
+
+### Checked hindsight and pool
+
+Codex read two blinded packets using the original Pilot annotation instruction with SHA-256 `8ba9e04b8b69e174d448799f6c2568389657fcef2c8177ab2197511be9ff207e`. The exact two raw replies were written in this session. The separate annotation ledger row records the observed 31.872-second window. Token usage is unknown.
+
+| Native source attempt | Requested outcome | Verified hindsight outcome | Observed first hit under the original request |
+| --- | --- | --- | ---: |
+| `scripted-sokoban` | Fill both specified goals while preserving an existing box | Fill the goal at `(2,2)` while keeping the box at `(2,6)` | 1 |
+| `scripted-craftax` | Reach at least three stone while preserving the pickaxe | Reach at least two stone while keeping pickaxe tier at least one | 2 |
+
+Both labels passed the replay-backed endpoint and full-prefix preservation checks. Each retains the original failed attempt ID and hash, the actual requested `h`, the checked prefix and the earliest hit. These are observational offsets for `D_A`. The directed duration under `h_prime` remains unmeasured.
+
+The versioned `hindsight/{sokoban,craftax}/D_A.jsonl` files retain the prior checked data and add one accepted train-support label per domain. The pool includes 24 original train-support candidates and one hindsight candidate per domain. Its v1 SHA-256 is `e451bd972eb4d5e888eee5c225cf59135955a6bbf1592662cff17913c79b3890`. The ledger binds this exact hash. The verify command rebuilt the pool and both datasets byte-for-byte. An isolated ledger rejected changing version 1 and accepted a distinct version 2. There were no Prompt 05 jobs at this freeze.
+
+The artefacts are under `analysis/intent-pilot/hindsight/`. The `private/attempts/` and `private/replays/` directories hold six original attempts and their native checks. `private/fixtures/` holds the two integration traces, while `private/annotation_audit.jsonl` and `private/packet-index.jsonl` bind the blinded packets to the original failures. The candidate pool is `candidate-pool-v1.json` and its checksums are in `pool-manifest.json`. The attempt table and report are `attempts.csv` and `RESULTS.md`.
+
+### Executed entry points and checks
+
+```bash
+source analysis/intent-pilot/env.sh
+export OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 OPENBLAS_NUM_THREADS=1
+export JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 4 --phase inference --activity hindsight-collect --seconds 700 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot hindsight collect
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 4 --phase preparation --activity hindsight-packets --seconds 60 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot hindsight packets
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 4 --phase preparation --activity hindsight-freeze --seconds 90 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot hindsight freeze
+```
+
+The annotation write took place between `packets` and `freeze`. The final focused tests passed 18 checks and the locked base `make test` passed 632 with four skips. The native Craftax checks ran in the shared collection worker. Ruff, Pyright, Mypy and `git diff --check` passed.
+
+### Reconciled budget
+
+The continuation charged **616.526 inference worker-seconds** and **401.541 preparation worker-seconds**. The single collection worker charged native setup and replay inside its envelope, with **253.135 s** itemized for native startup and staged roots. The two offline controllers used cached weights and metered USD was zero. All jobs settled. **3,245.717 worker-seconds remain**, with **1,445.717 available before Prompt 09** and **1,800 protected**. The job and annotation ledger export is `analysis/intent-pilot/hindsight/budget.json`.
+
+### Exact resume command
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.intent_pilot run \
+  --prompt 4 --phase preparation --activity hindsight-verify --seconds 90 -- \
+  uv run --locked --offline --no-sync python -m scripts.intent_pilot hindsight verify \
+  > analysis/intent-pilot/stage05-hindsight-input.json
+```
+
+The saved output confirms the frozen pool, both checked dataset hashes, both accepted labels and the ledger binding.
+
+### Next prompt — 05
+
+Read the contract and journal and verify the frozen v1 pool. Use the frozen train-measurement split and actual controller revisions for directed requests. Check candidate applicability to each measurement context before rollout, predeclare the start snapshots and policy memory, and measure under the exact assigned `h` with shared budget accounting. Keep the observed hindsight offsets as training evidence. Store corrections and newly found candidates in a separately versioned pool.
