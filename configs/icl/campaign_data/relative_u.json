@@ -1,6 +1,0 @@
-{
-  "extends": "calibration_live_v2.json",
-  "name": "campaign_relative_u_provisional",
-  "method": "relative_u",
-  "scales": [0.9, 0.5]
-}

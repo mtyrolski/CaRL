@@ -1,4 +1,4 @@
-"""Hand-computed calibration invariants, terminal semantics, seeds, and caching."""
+"""Full-state calibration, resume, and verification against the frozen training pool."""
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 import carl.icl.calibration as calibration
+from carl.icl.api import write_json
 from carl.icl.boards import from_rows
 from carl.icl.boards import state_hash
 from carl.icl.boards import to_rows
@@ -18,6 +19,8 @@ from carl.icl.calibration import weighted_percentiles
 from carl.icl.config import Calibration
 from carl.icl.config import ExperimentConfig
 from carl.icl.datasets import environment
+from carl.icl.experiment import calibration_path
+from carl.icl.experiment import components_for_run
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
 from carl.icl.search import Attempt
@@ -43,6 +46,66 @@ def make_training(source: Board, targets: list[Board]) -> TrainingData:
 def make_components(tmp_path: Path, config: ExperimentConfig, training: TrainingData) -> LunaComponents:
     board = from_rows(training['contexts'][0]['state'])
     return LunaComponents(config, ExperimentAPI(tmp_path, 'mock', config.calibration.limits), environment(board), training)
+
+
+@pytest.fixture
+def prepared_calibration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, deterministic_token_estimates: None,
+) -> tuple[ExperimentConfig, TrainingData, Board, dict]:
+    source = board_with_player(1)
+    target = np.asarray(environment(source).next_state(source, 3))
+    training = make_training(source, [target])
+    config = ExperimentConfig(
+        method='relative_u', few_shot=1, data_dir=str(tmp_path / 'data'), cache_dir=str(tmp_path / 'cache'),
+        calibration=Calibration(trials=2, action_cap=2, sampled_targets=1),
+    )
+    components = make_components(config.path('cache_dir'), config, training)
+    monkeypatch.setattr(components, 'probabilities', lambda _state, _target: np.array([0., 0., 0., 1.]))
+    result = calibrate(config, components, config.path('data_dir') / 'calibration')
+    assert result['status'] == 'completed' and len(result['examples']) == 1
+    return config, training, source, result
+
+
+def test_valid_calibration_is_accepted_without_api_calls(
+    prepared_calibration: tuple[ExperimentConfig, TrainingData, Board, dict], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, training, board, result = prepared_calibration
+    monkeypatch.setattr(ExperimentAPI, 'call', lambda *_args, **_kwargs: pytest.fail('Unexpected inference call'))
+    components = components_for_run(config, 'mock', training, board)
+    assert components.calibrated == result
+    assert components.api.metrics['requests'] == components.api.metrics['logical_requests'] == 0
+
+
+@pytest.mark.parametrize(('field', 'invalid', 'message'), [
+    ('signature', 'f' * 64, 'signature'),
+    ('state', to_rows(board_with_player(3)), 'differs from its training trajectory'),
+    ('subgoal', to_rows(board_with_player(3)), 'differs from its training trajectory'),
+    ('context', 'foreign-context', 'unknown training context'),
+    ('target_index', 99, 'unselected training target'),
+    ('actions', [2], 'differs from its training trajectory'),
+    ('k', 2, 'differs from its training trajectory'),
+    ('u', 0.1, 'integrity check'),
+    ('weight', 0.3, 'integrity check'),
+    ('a_c', 100.0, 'integrity check'),
+], ids=['signature-signature', 'state-differs from its training trajectory',
+        'subgoal-differs from its training trajectory', 'context-unknown training context',
+        'candidate_index-unselected training target', 'actions-differs from its training trajectory',
+        'offset-differs from its training trajectory', 'label-integrity check',
+        'weight-integrity check', 'median-integrity check'])
+def test_tampered_calibration_is_rejected_before_inference(
+    prepared_calibration: tuple[ExperimentConfig, TrainingData, Board, dict], monkeypatch: pytest.MonkeyPatch,
+    field: str, invalid: Any, message: str,
+) -> None:
+    config, training, board, result = prepared_calibration
+    changed = result if field == 'signature' else result['examples'][0]
+    changed[field] = invalid
+    api = ExperimentAPI(config.path('cache_dir'), 'mock', config.limits)
+    reader = LunaComponents(config, api, environment(board), training)
+    write_json(calibration_path(config, reader), result)
+    monkeypatch.setattr(ExperimentAPI, 'call', lambda *_args, **_kwargs: pytest.fail('Unexpected inference call'))
+    with pytest.raises(ValueError, match=message):
+        components_for_run(config, 'mock', training, board)
+    assert api.metrics['requests'] == 0
 
 
 def test_manual_unequal_weights_ties_and_weighted_median() -> None:

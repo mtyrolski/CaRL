@@ -16,7 +16,6 @@ from carl.icl.config import ExperimentConfig, Limits, ModelSettings, load_config
 from carl.icl.datasets import dataset_signature, environment
 from carl.icl.experiment import create_inference_api
 from scripts import run_hybrid_icl_search, run_icl_search
-from scripts.experiment_support.api import CappedAPI
 
 CONFIGS = Path("configs/icl/experiments")
 START = ["#####", "#---#", "#@$.#", "#---#", "#####"]
@@ -188,24 +187,6 @@ def test_cli_dispatches_both_config_examples_then_replays(tmp_path, monkeypatch,
 
 PAYLOAD = {"model": "shared-model", "input": [{"role": "user", "content": "Reply in JSON"}],
            "max_output_tokens": 16, "metadata": {"component": "value"}}
-
-
-def test_experiment_cap_preserves_the_explicit_chat_route(tmp_path, route_ledger):
-    chat = ModelSettings(model="shared-model", provider="mistral")
-
-    def handle(request):
-        assert request.url.path.endswith("/chat/completions")
-        return _chat(json.loads(request.content), {"value": 0.7})
-
-    payload = {**PAYLOAD, "metadata": {"component": "generator"}}
-    with httpx.Client(transport=httpx.MockTransport(handle)) as http:
-        client = OpenAI(api_key="fake", base_url=chat.base_url, http_client=http, max_retries=0)
-        api = CappedAPI(tmp_path / "cache", "openai", Limits(max_requests=2), client=client,
-                        max_generator_calls=1, max_total_tokens=4096)
-        assert json.loads(api.call("responses", payload, transport=chat)["output_text"]) == {"value": 0.7}
-        with pytest.raises(BudgetExceeded, match="Logical generator request"):
-            api.call("responses", payload, transport=chat)
-    assert api.metrics["physical_requests"] == 1
 
 
 def test_overlapping_content_and_model_use_distinct_provider_caches(tmp_path, route_ledger, monkeypatch):
@@ -404,3 +385,18 @@ def test_chat_text_fallback_retries_invalid_json_in_an_isolated_slot(tmp_path, r
     assert components.value(board) == 0.7
     assert replay.metrics["physical_requests"] == 0
     assert replay.metrics["logical_requests"] == replay.metrics["cache_hits"] == 2
+
+
+@pytest.mark.parametrize("command", ["preview", "matrix"])
+def test_cache_dir_override_reaches_experiment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str) -> None:
+    config = ExperimentConfig(method="fixed", scales=[2, 1])
+    seen = []
+    monkeypatch.setattr(run_icl_search, "load_config", lambda _path: config)
+    monkeypatch.setattr(run_icl_search, "matrix_configs", lambda _path: [config, config])
+    monkeypatch.setattr(run_icl_search, "preview", lambda item, _provider: seen.append(item) or tmp_path)
+    monkeypatch.setattr(run_icl_search, "run_matrix", lambda items, _provider, _directory: seen.extend(items))
+    monkeypatch.setattr(sys, "argv", ["run_icl_search", command, "--replay", "--output", str(tmp_path),
+                                      "--cache-dir", str(tmp_path / "restored")])
+    assert run_icl_search.main() == 0
+    assert len(seen) == (1 if command == "preview" else 2)
+    assert all(item.cache_dir == str(tmp_path / "restored") for item in seen)

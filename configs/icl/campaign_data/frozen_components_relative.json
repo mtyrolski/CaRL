@@ -1,9 +1,0 @@
-{
-  "extends": "frozen_components_fixed.json",
-  "name": "campaign_frozen_components_relative_provisional",
-  "method": "relative",
-  "scales": [
-    0.9,
-    0.5
-  ]
-}

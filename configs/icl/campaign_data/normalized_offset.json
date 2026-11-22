@@ -1,7 +1,0 @@
-{
-  "extends": "calibration_live_v2.json",
-  "name": "campaign_normalized_offset_provisional",
-  "method": "normalized_offset",
-  "offset_denominator": 16,
-  "scales": [0.75, 0.25]
-}

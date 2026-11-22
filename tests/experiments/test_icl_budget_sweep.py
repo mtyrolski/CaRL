@@ -1,5 +1,7 @@
 """Independent budget estimates and restart-safe sweep orchestration."""
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +18,7 @@ from carl.icl.evaluation.budget_sweep import actual_budget_figure, actual_budget
 from carl.icl.evaluation.data import EvaluationConfig
 from carl.icl.experiment import run_condition
 from carl.icl.search import SearchResult
+from scripts import run_budget_sweep
 from tests.experiments.test_icl_evaluation import saved_run
 
 
@@ -220,3 +223,14 @@ def test_sweep_never_overwrites_or_resumes_changed_contract(tmp_path, monkeypatc
     )
     with pytest.raises(ValueError, match="Cannot resume"):
         run_sweep(spec, configs, "replay", tmp_path, resume=True)
+
+
+def test_cache_dir_override_reaches_sweep(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config = ExperimentConfig(method="fixed", scales=[2, 1])
+    spec = BudgetSweepConfig(matrix="unused", budgets=[1, 2], output_dir=str(tmp_path))
+    seen = []
+    monkeypatch.setattr(run_budget_sweep, "load_sweep", lambda _path: (spec, [config]))
+    monkeypatch.setattr(run_budget_sweep, "run_sweep", lambda _spec, items, *_args, **_kwargs: seen.extend(items))
+    monkeypatch.setattr(sys, "argv", ["run_budget_sweep", "--replay", "--cache-dir", str(tmp_path / "restored")])
+    assert run_budget_sweep.main() == 0
+    assert seen[0].cache_dir == str(tmp_path / "restored")

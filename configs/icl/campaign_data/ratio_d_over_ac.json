@@ -1,6 +1,0 @@
-{
-  "extends": "calibration_live_v2.json",
-  "name": "campaign_ratio_d_over_ac_provisional",
-  "method": "ratio_d_over_ac",
-  "scales": [1.5, 0.5]
-}

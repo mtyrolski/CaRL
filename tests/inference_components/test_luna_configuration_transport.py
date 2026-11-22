@@ -15,23 +15,12 @@ from carl.icl.config import load_config
 from carl.icl.datasets import environment
 from carl.icl.datasets import reverse_board
 from carl.icl.datasets import verify_solution
-from carl.icl.diagnostics import audit_subgoal
 from carl.icl.experiment import credentials
 from carl.icl.experiment import matrix_configs
 from carl.icl.experiment_api import ExperimentAPI
 from carl.icl.luna import LunaComponents
 from tests.inference_components._luna_experiment_fixtures import sokoban_board as sokoban_board
 from tests.inference_components._luna_experiment_fixtures import training_for
-
-
-def test_subgoal_audit_has_witness_and_reports_inconclusive_limits(board):
-    env = environment(board)
-    target = np.asarray(env.next_state(board, 3))
-    reachable = audit_subgoal(env, board, target, cap=1)
-    assert reachable.status == "reachable" and reachable.actions == (3,)
-    assert reachable.simulator_probes == 4
-    assert audit_subgoal(env, board, target, cap=0).status == "unreachable_within_cap"
-    assert audit_subgoal(env, board, target, cap=1, max_states=1).status == "node_limit"
 
 
 def test_verified_32x32x10_reverse_board():
@@ -53,7 +42,7 @@ def test_config_nested_inheritance_and_matched_matrix(tmp_path):
     config = load_config(tmp_path / "child.json")
     assert config.calibration.limits.timeout_seconds == 8
     assert config.calibration.limits.max_requests == 12
-    for name in ("matrix_pilot.json", "matrix_smoke.json", "matrix_embeddings.json"):
+    for name in ("matrix_pilot.json", "matrix_smoke.json"):
         matrix_configs(Path("configs/icl/experiments") / name)
     with pytest.raises(ValueError):
         ExperimentConfig(method="relative", scales=[1, 4])

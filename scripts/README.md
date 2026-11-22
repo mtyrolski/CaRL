@@ -21,7 +21,11 @@ Pass `--help` to each command for its options. Configurations are under
 `configs/icl/`; datasets, checkpoints, caches and results are local inputs.
 The `--mock` and `--replay` modes do not submit live inference requests.
 Use the [pinned campaign snapshot](../configs/icl/campaign_data/README.md)
-to reproduce earlier experiments with their original configurations.
+to recover retired configurations, diagnostic scripts, and example notebooks.
+To resume a budget sweep, use its exact original source revision, environment
+and input paths. Record the commit beside the results. The
+`sweep_manifest.json` compares the hashes of the ICL source files and inputs
+along with the resolved settings and dependency versions.
 
 ## Quick-start profiles
 

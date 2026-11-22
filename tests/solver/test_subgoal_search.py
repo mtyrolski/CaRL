@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pickle
+from dataclasses import asdict
 from dataclasses import dataclass
 
-import pytest
+import numpy as np
 
 from carl.planners.base import Experience
 from carl.planners.base import FinishReason
@@ -12,6 +14,41 @@ from carl.planners.base import Solution
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import ValidationResult
 from carl.solver.subgoal_search import Solver
+
+
+def test_saved_state_identifier_is_stable_and_includes_array_shape() -> None:
+    identify = Solver._hash_state  # pylint: disable=protected-access
+    assert identify("fixture") == "-4431358843294443104"
+    assert identify(1) != identify("1")
+    state = np.array([0, 1, 2, 3], dtype=np.int8)
+    assert identify(state) != identify(state.reshape(2, 2))
+
+
+def test_legacy_positional_counters() -> None:
+    info = SearchInfo("solved", 5, 2, 1)
+
+    assert (info.low_level_nodes_visited, info.high_level_nodes_valid, info.high_level_nodes_unreachable) == (5, 2, 1)
+    assert info.generator_mode is None
+    assert info.runtime_seconds is None
+
+
+def test_restoring_legacy_search_info_initializes_missing_diagnostics() -> None:
+    info = SearchInfo("solved", low_level_nodes_visited=5)
+    names = ("realized_segment_lengths", "progress_per_segment", "proposal_events")
+    for name in names:
+        delattr(info, name)
+    saved = pickle.dumps(info)
+
+    first = pickle.loads(saved)
+    second = pickle.loads(saved)
+    assert first.low_level_nodes_visited == 5
+    fields = asdict(first)
+    assert all(fields[name] == [] for name in names)
+    for name in names:
+        assert getattr(first, name) is not getattr(second, name)
+
+    first.proposal_events.append({"event_id": 0})
+    assert pickle.loads(pickle.dumps(first)).proposal_events == [{"event_id": 0}]
 
 
 def _make_planner_class(initial_k: int | None, pre_seen: set[str] | None = None):
