@@ -314,7 +314,7 @@ def test_publication_figure_exports_vector_and_png_with_missing_method(tmp_path)
         check=True,
         env=env,
         capture_output=True,
-        timeout=15,
+        timeout=60,  # A fresh Matplotlib cache rebuilds fonts in this subprocess.
     )
     assert all(
         output.with_suffix(ext).stat().st_size > 1000

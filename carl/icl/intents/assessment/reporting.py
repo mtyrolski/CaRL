@@ -48,7 +48,7 @@ def paired_comparison(
         "boards": len({row["layout_id"] for row in paired}),
     }
     for metric in ("valid_delta", "witness_delta"):
-        values = board_means(paired, lambda row: row[metric])
+        values = board_means(paired, lambda row, metric=metric: row[metric])
         comparison[metric] = sum(values) / len(values) if values else None
         comparison[f"{metric}_95_board_bootstrap"] = bootstrap(
             values, random.Random(20261114)

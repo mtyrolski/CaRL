@@ -16,6 +16,7 @@ from carl.icl.config import ExperimentConfig, Limits, ModelSettings, load_config
 from carl.icl.datasets import dataset_signature, environment
 from carl.icl.experiment import create_inference_api
 from scripts import run_hybrid_icl_search, run_icl_search
+from scripts.experiment_support.api import CappedAPI
 
 CONFIGS = Path("configs/icl/experiments")
 START = ["#####", "#---#", "#@$.#", "#---#", "#####"]
@@ -187,6 +188,24 @@ def test_cli_dispatches_both_config_examples_then_replays(tmp_path, monkeypatch,
 
 PAYLOAD = {"model": "shared-model", "input": [{"role": "user", "content": "Reply in JSON"}],
            "max_output_tokens": 16, "metadata": {"component": "value"}}
+
+
+def test_experiment_cap_preserves_the_explicit_chat_route(tmp_path, route_ledger):
+    chat = ModelSettings(model="shared-model", provider="mistral")
+
+    def handle(request):
+        assert request.url.path.endswith("/chat/completions")
+        return _chat(json.loads(request.content), {"value": 0.7})
+
+    payload = {**PAYLOAD, "metadata": {"component": "generator"}}
+    with httpx.Client(transport=httpx.MockTransport(handle)) as http:
+        client = OpenAI(api_key="fake", base_url=chat.base_url, http_client=http, max_retries=0)
+        api = CappedAPI(tmp_path / "cache", "openai", Limits(max_requests=2), client=client,
+                        max_generator_calls=1, max_total_tokens=4096)
+        assert json.loads(api.call("responses", payload, transport=chat)["output_text"]) == {"value": 0.7}
+        with pytest.raises(BudgetExceeded, match="Logical generator request"):
+            api.call("responses", payload, transport=chat)
+    assert api.metrics["physical_requests"] == 1
 
 
 def test_overlapping_content_and_model_use_distinct_provider_caches(tmp_path, route_ledger, monkeypatch):

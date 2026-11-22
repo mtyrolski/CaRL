@@ -49,6 +49,8 @@ def board_parts(
     return height, width, walls, goals, boxes, players[0]
 
 
+# Keep the existing positional transition interface.
+# pylint: disable-next=too-many-positional-arguments
 def step(
     player: Coordinate,
     boxes: Positions,

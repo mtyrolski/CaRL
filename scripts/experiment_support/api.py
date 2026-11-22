@@ -3,6 +3,7 @@ import json
 from typing import Any
 
 from carl.icl.api import BudgetExceeded
+from carl.icl.config import ModelSettings
 from carl.icl.experiment_api import ExperimentAPI
 
 
@@ -14,7 +15,10 @@ class CappedAPI(ExperimentAPI):
         self.max_generator_calls = max_generator_calls
         self.max_total_tokens = max_total_tokens
 
-    def call(self, endpoint: str, payload: dict[str, Any], mock: Any = None) -> dict[str, Any]:
+    def call(
+        self, endpoint: str, payload: dict[str, Any], mock: Any = None, *,
+        transport: ModelSettings | None = None,
+    ) -> dict[str, Any]:
         if payload.get('metadata', {}).get('component') == 'generator' and self.metrics['generator_calls'] >= self.max_generator_calls:
             raise BudgetExceeded('Logical generator request limit exhausted')
         prompt_tokens = len(self.encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=()))
@@ -23,7 +27,7 @@ class CappedAPI(ExperimentAPI):
         if used + prompt_tokens + reserve > self.max_total_tokens:
             raise BudgetExceeded('Combined logical input/output token limit exhausted')
         try:
-            result = super().call(endpoint, payload, mock)
+            result = super().call(endpoint, payload, mock, transport=transport)
         except Exception:
             self._verify_total()
             raise

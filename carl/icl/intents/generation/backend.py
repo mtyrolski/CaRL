@@ -80,7 +80,7 @@ def initialise(
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, local_files_only=True)
     if tokenizer.chat_template is None:
         raise ValueError("the selected tokenizer does not supply a chat template")
-    if manifest and hashlib.sha256(tokenizer.chat_template.encode()).hexdigest() != manifest["chat_template_sha256"]:
+    if manifest is not None and hashlib.sha256(tokenizer.chat_template.encode()).hexdigest() != manifest.get("chat_template_sha256"):
         raise ValueError("adapter chat template differs from training")
     model: Any = AutoModelForCausalLM.from_pretrained(
         source,
@@ -154,6 +154,8 @@ def memory(torch: Any) -> dict[str, Any]:
     }
 
 
+# Public re-export from the generator experiment keeps its positional API.
+# pylint: disable-next=too-many-positional-arguments
 def validation_loss(
     torch: Any,
     model: Any,
@@ -178,6 +180,8 @@ def validation_loss(
     return sum(sum(board) / len(board) for board in losses.values()) / len(losses)
 
 
+# Public re-export from the generator experiment keeps its positional API.
+# pylint: disable-next=too-many-positional-arguments
 def generate(
     torch: Any,
     model: Any,

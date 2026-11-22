@@ -5,7 +5,7 @@ import json
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Final, Literal, TypeAlias
+from typing import Final, Literal, TypeAlias, cast
 
 from carl.icl.api import BudgetExceeded, RequestFailed
 from carl.icl.config import ExperimentConfig, ModelSettings
@@ -118,7 +118,7 @@ def _role(
 
     output_tokens = {"policy": config.policy_tokens, "generator": config.generator_tokens, "value": config.value_tokens}[name]
     examples_sha256 = contract_hash(frozen)
-    contract = {
+    contract: JSONObject = {
         "role": name,
         "domain_version": DOMAIN_VERSION,
         "response_contract_version": RESPONSE_CONTRACT_VERSION,
@@ -155,7 +155,7 @@ def _request(role: _Role, query: JSONObject, attempt_seed: int | None = None) ->
         if not is_token_count(attempt_seed):
             raise ValueError("Attempt seed must be a nonnegative integer")
         metadata["attempt_seed"] = str(attempt_seed)
-    text = {"format": {"type": model.response_format if model is not None else "text"}}
+    text: JSONObject = {"format": {"type": model.response_format if model is not None else "text"}}
     if model is not None and model.response_format == "json_schema":
         if role.name == "value":
             text = {"format": {"type": "json_schema", "name": "sokoban_value_v1", "strict": True, "schema": schema_object({
@@ -215,7 +215,7 @@ class PredicateComponents:
 
     def contract(self, role: PredicateRole) -> JSONObject:
         """Return the role identity for experiment records and calibration."""
-        return json.loads(_json(self._role(role).contract))
+        return cast(JSONObject, json.loads(_json(self._role(role).contract)))
 
     def assert_local_query(
         self, observation: SokobanObservation, *, split: Literal["validation", "test"], task_group: str | None,
@@ -337,7 +337,7 @@ class PredicateComponents:
 
         call = self.api.call_json_retry if retry else self.api.call
         result = call("responses", payload, mock=mock_response if mock is not None else None, transport=role.model)
-        return result["output_text"]
+        return cast(str, result["output_text"])
 
     def _call_local(self, payload: JSONObject, role: _Role, mock: MockText | None, input_count: int) -> str:
         if mock is not None:

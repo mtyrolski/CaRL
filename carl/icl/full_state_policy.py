@@ -68,7 +68,9 @@ def load_settings(path: Path) -> FullStateSettings:
 
 
 def _load_bert(path: str) -> BertForSequenceClassification:
-    return BertForSequenceClassification.from_pretrained(path, local_files_only=True, use_safetensors=True)
+    return cast(BertForSequenceClassification, BertForSequenceClassification.from_pretrained(
+        path, local_files_only=True, use_safetensors=True,
+    ))
 
 
 def _coordinate_prompt(env: SokobanEnv, source: State, target: State) -> str:

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
 from carl.icl.api import BudgetExceeded
 from carl.icl.boards import canonical_layout_id, from_rows
@@ -64,7 +64,7 @@ class LocalRoleModel:
 
     def identity(self) -> JSONObject:
         """Describe the artifact and decoding without initializing a model."""
-        return json.loads(self._frozen_identity)
+        return cast(JSONObject, json.loads(self._frozen_identity))
 
     def assert_prompt(self, prompt_sha256: str) -> None:
         """Require the checkpoint's training prompt before using an adapter."""
@@ -154,9 +154,10 @@ class LocalRoleModel:
         return min(requested, self._base_context_limit or requested)
 
     def _encode(self, messages: Sequence[dict[str, str]]) -> list[int]:
-        return self._tokenizer.apply_chat_template(
+        ids = self._tokenizer.apply_chat_template(
             list(messages), tokenize=True, add_generation_prompt=True, enable_thinking=False,
         )
+        return cast(list[int], ids)
 
     def input_tokens(self, messages: Sequence[JSONObject]) -> int:
         """Count the full role prompt with the pinned tokenizer and template."""

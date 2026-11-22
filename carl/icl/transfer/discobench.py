@@ -167,7 +167,8 @@ class SyntheticQueryExecutor:
         if goal != GOAL:
             raise ValueError("Unknown synthetic objective")
         del seed  # The mock picks the next unseen point deterministically.
-        actions, rewards, steps = [], [], []
+        actions: list[int] = []
+        rewards, steps = [], []
         model_calls = 0
         error = None
         if self.task_solved(state):

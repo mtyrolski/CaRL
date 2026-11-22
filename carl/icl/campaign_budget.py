@@ -351,11 +351,11 @@ class CampaignLedger:
                 input_multiplier, output_multiplier = price.multipliers(total_in)
                 cost = input_cost * input_multiplier + price.output * output * output_multiplier
             charged = _nanos(cost * price.regional / MILLION)
-            settled = charged <= reserved
-            if settled:
-                db.execute("UPDATE attempts SET charged_nanos=?,status='settled',usage_json=? WHERE id=?",
-                           (charged, json.dumps(usage, sort_keys=True), identifier))
-        return settled
+            if charged > reserved:
+                return False
+            db.execute("UPDATE attempts SET charged_nanos=?,status='settled',usage_json=? WHERE id=?",
+                       (charged, json.dumps(usage, sort_keys=True), identifier))
+        return True
 
     def mark_unknown(self, identifier: str) -> None:
         """Mark a failed attempt as uncertain without releasing its reservation."""

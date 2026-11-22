@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import numpy as np
 from pydantic import Field, model_validator
@@ -27,6 +27,8 @@ from carl.icl.search import rollout
 from carl.icl.types import Board, JSONObject, Probabilities, RolloutPolicy, TrainingData
 from carl.inference_components.conditional_low_level_policy import ConditionalLowLevelPolicy
 
+TrialReason: TypeAlias = Literal["exact_target", "action_cap", "terminal_before_target", "model_error", "inference_budget"]
+
 
 class Tariff(Settings):
     """User-supplied per-million-token assumptions for a cost estimate."""
@@ -43,7 +45,7 @@ class Trial(Settings):
     status: Literal["complete", "error", "budget_exhausted"]
     actions: list[Action]
     first_hit: Positive | None
-    reason: Literal["exact_target", "action_cap", "terminal_before_target", "model_error", "inference_budget"]
+    reason: TrialReason
     seconds: float = Field(ge=0, allow_inf_nan=False)
     accounting: dict[str, float | int]
 
@@ -159,6 +161,7 @@ def execute_trial(case: ReachabilityCase, active: Controller, env: SokobanEnv) -
     started = time.monotonic()
     reached = False
     status: Literal["complete", "error", "budget_exhausted"] = "complete"
+    reason: TrialReason
     try:
         result = rollout(env, active.policy, source, target, cap=case.k, rng=np.random.default_rng(case.seed),
                          on_action=lambda _before, action, _after: actions.append(action))

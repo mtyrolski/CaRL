@@ -27,8 +27,10 @@ from uuid import uuid4
 from carl.icl.api import create_client
 from carl.icl.campaign_budget import CampaignLedger
 from carl.icl.luna_action_format import action_text_format
-from carl.icl.luna_intent_diagnostics import SAFE_ERROR_CODES as SAFE_ERROR_CODES
+# Historical import from this transport remains supported.
+from carl.icl.luna_intent_diagnostics import SAFE_ERROR_CODES as SAFE_ERROR_CODES  # pylint: disable=unused-import,useless-import-alias
 from carl.icl.luna_intent_diagnostics import error_diagnostics as _error_diagnostics
+from carl.icl.responses import is_token_count
 
 MODEL = "gpt-6-luna"
 STAGE = "experiment"
@@ -98,9 +100,9 @@ def _validate_config(config_path: Path) -> None:
     if (config_path.name != CONFIG_NAME or config.get("version") != 1
             or config.get("campaign_id") != "luna_intent_experiment"
             or Path(config.get("ledger_path", "")).resolve() != config_path.parent / LEDGER_NAME
-            or config.get("models") != {MODEL: MODEL_PRICE}
-            or not isinstance(stages, dict) or set(stages) != {STAGE}
-            or _amount(stages[STAGE]) != limit):
+            or config.get("models") != {MODEL: MODEL_PRICE}):
+        raise ValueError("The Luna budget configuration is invalid or has been altered")
+    if not isinstance(stages, dict) or set(stages) != {STAGE} or _amount(stages[STAGE]) != limit:
         raise ValueError("The Luna budget configuration is invalid or has been altered")
 
 
@@ -186,9 +188,7 @@ def _checked_usage(raw: dict[str, Any], maximum: int, *, output_text: Any = None
             or raw.get("service_tier") != "default" or not isinstance(usage, dict)):
         raise ValueError("Response model, service tier, or usage is unknown")
     incoming, outgoing = usage.get("input_tokens"), usage.get("output_tokens")
-    if (not isinstance(incoming, int) or isinstance(incoming, bool) or not isinstance(outgoing, int)
-            or isinstance(outgoing, bool) or not 0 <= incoming <= 1_050_000
-            or not 0 <= outgoing <= maximum):
+    if not is_token_count(incoming) or not is_token_count(outgoing) or incoming > 1_050_000 or outgoing > maximum:
         raise ValueError("Response token counts are missing or outside the reservation")
     # Every request constructed by this transport contains a non-empty prompt.
     # Do not release a worst-case reservation when the usage counters are
@@ -286,13 +286,17 @@ class LunaIntentTransport:
             identifier, _, reserved, _, stage, endpoint, model, saved_digest = outstanding[0]
             cap = payload["max_output_tokens"]
             required_keys = {"model", "input", "max_output_tokens", "reasoning", "temperature", "service_tier", "tools", "store"}
-            if (not isinstance(payload, dict) or set(payload) not in (required_keys, required_keys | {"text"})
-                    or payload["model"] != MODEL or not isinstance(payload["input"], str)
-                    or payload["reasoning"] != {"effort": "none"} or payload["temperature"] != 0
-                    or payload["service_tier"] != "default" or payload["tools"] != [] or payload["store"] is not False
-                    or ("text" in payload and payload["text"] != action_text_format())
-                    or not isinstance(cap, int) or isinstance(cap, bool) or not 0 < cap <= 4096
-                    or (stage, endpoint, model) != (STAGE, "responses", MODEL)
+            if not isinstance(payload, dict) or set(payload) not in (required_keys, required_keys | {"text"}):
+                raise ValueError("The retained request or its audit is inconsistent")
+            expected_fields = {"model": MODEL, "reasoning": {"effort": "none"}, "temperature": 0,
+                               "service_tier": "default", "tools": []}
+            if (not all(payload[key] == value for key, value in expected_fields.items())
+                    or not isinstance(payload["input"], str) or payload["store"] is not False
+                    or ("text" in payload and payload["text"] != action_text_format())):
+                raise ValueError("The retained request or its audit is inconsistent")
+            if not is_token_count(cap) or not 0 < cap <= 4096:
+                raise ValueError("The retained request or its audit is inconsistent")
+            if ((stage, endpoint, model) != (STAGE, "responses", MODEL)
                     or digest != saved_digest or record["request_sha256"] != digest
                     or record.get("error_diagnostics", {}).get("http_status") != 400):
                 raise ValueError("The retained request or its audit is inconsistent")

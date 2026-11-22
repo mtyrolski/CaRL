@@ -141,7 +141,7 @@ def run(args: argparse.Namespace) -> int:
         roles = CraftaxMockRoles(api, adapter, task.goal, fingerprint)
         runtime = IntentSearchRuntime(
             CraftaxIntentExecutor(adapter, task.goal, roles.act), roles.propose, roles.value,
-            lambda api=api: api.metrics, plan=roles.plan,
+            api.metrics.copy, plan=roles.plan,
         )
         result = search_domain_intents(initial, goal, mode=mode, settings=settings, runtime=runtime)
         results[mode.value] = result.as_dict()

@@ -81,6 +81,8 @@ __all__ = [
 ]
 
 
+# Preserve the positional assessment API for existing experiment scripts.
+# pylint: disable-next=too-many-positional-arguments
 def assess_context(
     record: Record,
     method: Method,

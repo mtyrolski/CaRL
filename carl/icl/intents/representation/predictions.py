@@ -61,10 +61,7 @@ def prepare_output(
         if (
             row.get("record_id") != record["record_id"]
             or row.get("layout_id") != record["layout_id"]
-            or row.get("split") != config["split"]
-            or row.get("variant") != config["variant"]
-            or row.get("representation") != config["representation"]
-            or row.get("support_set") != config["support_set"]
+            or any(row.get(key) != config[key] for key in ("split", "variant", "representation", "support_set"))
             or not isinstance(row.get("raw_output"), str)
         ):
             raise ValueError(

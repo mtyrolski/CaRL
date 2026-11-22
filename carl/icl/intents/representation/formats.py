@@ -35,6 +35,7 @@ def _canonical(value: Any) -> dict[str, Any]:
             if not isinstance(predicate, dict):
                 raise ValueError("predicate must be an object")
             name = predicate.get("predicate")
+            fields: tuple[str, ...]
             if name == SokobanPredicate.BOXES_ON_GOALS_AT_LEAST:
                 fields = ("count",)
             elif name in (SokobanPredicate.BOX_AT, SokobanPredicate.PLAYER_AT):
