@@ -10,6 +10,7 @@ from typing import Any
 from carl.icl.boards import canonical_layout_id, from_rows
 from carl.icl.intents.generation.data import DataSplit, file_sha256, record_task_group
 from carl.icl.predicate_prompts import GENERATOR_PROMPT_VERSION, generator_instruction
+from carl.icl.types import JSONValue
 
 ADAPTER_MANIFEST = "adapter_manifest.json"
 ADAPTER_SCHEMA = "carl-lora-adapter-v1"
@@ -26,7 +27,7 @@ def _read_json(path: Path) -> dict[str, Any]:
     return data
 
 
-def _digest(value: object) -> str:
+def _digest(value: JSONValue) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(encoded.encode()).hexdigest()
 
@@ -97,7 +98,7 @@ def publish_adapter(
         staged = Path(workspace) / "adapter"
         model.save_pretrained(staged, safe_serialization=True)
         tokenizer.save_pretrained(staged / "tokenizer")
-        manifest = {
+        manifest: dict[str, JSONValue] = {
             "schema_version": ADAPTER_SCHEMA,
             "role": role,
             "base": base_identity,

@@ -5,12 +5,13 @@ from collections.abc import Mapping
 from typing import Final
 
 from carl.icl.planning.craftax_tasks import CraftaxIntent, _unique_object, decode_intent, recipe_objectives
+from carl.icl.types import JSONValue
 
 
 PLAN_AND_ACT_VARIANT: Final = "plan-and-act-on-failure"
 
 
-def decode_plan(value: object, *, max_steps: int = 8) -> tuple[CraftaxIntent, ...]:
+def decode_plan(value: JSONValue, *, max_steps: int = 8) -> tuple[CraftaxIntent, ...]:
     """Decode one ordered list of typed intents within the planner's output bound."""
     if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps < 1:
         raise ValueError("max_steps must be a positive integer")
@@ -25,7 +26,7 @@ def decode_plan(value: object, *, max_steps: int = 8) -> tuple[CraftaxIntent, ..
 
 
 def mock_plan(
-    observation: Mapping[str, object], goal: CraftaxIntent, *, max_steps: int = 8,
+    observation: Mapping[str, JSONValue], goal: CraftaxIntent, *, max_steps: int = 8,
 ) -> tuple[CraftaxIntent, ...]:
     """Generate one complete recipe plan and pass the mock output through the same decoder."""
     objectives = recipe_objectives(observation, goal)

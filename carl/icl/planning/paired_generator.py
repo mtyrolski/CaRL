@@ -2,16 +2,17 @@
 
 import json
 from collections.abc import Sequence
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
-from carl.icl.intent_domain import SokobanObservation, decode_intent, validate_intent_proposal
+from carl.icl.intent_domain import Intent, SokobanObservation, decode_intent, validate_intent_proposal
 from carl.icl.intents.generation.data import parse_json
 from carl.icl.planning.craftax_tasks import CraftaxIntent, intent_is_admissible
 from carl.icl.policy_relative.labels import contract_hash
-from carl.icl.types import JSONObject
+from carl.icl.types import BoardRows, JSONObject, JSONValue
 
 
 Arm: TypeAlias = Literal["unlabelled", "relative"]
+Observation: TypeAlias = BoardRows | JSONObject
 SCALES = (0.25, 0.75)
 COMMON = (
     'Choose two distinct useful intents for the current task. Reply only as {"choices":["ID1","ID2"]}, '
@@ -39,16 +40,17 @@ def system_prompt(domain: str, arm: Arm, *, edition: int = 1) -> str:
     return " ".join((common, VOCABULARY[domain], RELATIVE)) if arm == "relative" else " ".join((common, VOCABULARY[domain]))
 
 
-def _intent_content(intent: JSONObject) -> JSONObject:
-    return {name: intent[name] for name in ("effects", "preserve")}
+def _intent_content(intent: JSONObject | Intent) -> JSONObject:
+    return {"effects": intent["effects"], "preserve": intent["preserve"]}
 
 
-def effect_id(intent: JSONObject) -> str:
+def effect_id(intent: JSONObject | Intent) -> str:
     """Ignore wording, predicate order and preservation variants of the same effect."""
-    return contract_hash(sorted(map(contract_hash, intent["effects"])))
+    effects = cast(Sequence[JSONValue], intent["effects"])
+    return contract_hash(sorted(map(contract_hash, effects)))
 
 
-def _visible(domain: str, observation: list[str] | JSONObject) -> list[str] | JSONObject:
+def _visible(domain: str, observation: Observation) -> Observation:
     if domain == "sokoban":
         if not isinstance(observation, list):
             raise ValueError("Sokoban needs board rows")
@@ -60,7 +62,7 @@ def _visible(domain: str, observation: list[str] | JSONObject) -> list[str] | JS
 
 
 def messages(
-    domain: str, arm: Arm, observation: list[str] | JSONObject, task: str,
+    domain: str, arm: Arm, observation: Observation, task: str,
     support: Sequence[JSONObject], options: Sequence[JSONObject], *, edition: int = 1,
 ) -> list[dict[str, str]]:
     """Both arms see identical support and option content. Only the relative arm sees u."""
@@ -86,10 +88,11 @@ def messages(
             {"role": "user", "content": json.dumps(query, separators=(",", ":"), ensure_ascii=False, allow_nan=False)}]
 
 
-def admissible(domain: str, intent: object, observation: list[str] | JSONObject) -> JSONObject:
+def admissible(domain: str, intent: JSONValue | Intent, observation: Observation) -> JSONObject:
     """Check typed effects against the live model-visible start."""
     if isinstance(intent, dict):
-        intent = {**intent, "instruction": None}
+        sketch: JSONObject = {**intent, "instruction": None}
+        intent = sketch
     if domain == "sokoban":
         assert isinstance(observation, list)
         decoded = decode_intent(intent)
@@ -104,11 +107,11 @@ def admissible(domain: str, intent: object, observation: list[str] | JSONObject)
     return native.model_dump(mode="json")
 
 
-def _choices(text: str) -> Sequence[object]:
+def _choices(text: str) -> Sequence[JSONValue]:
     value = text.strip()
     if value.startswith("```json\n") and value.endswith("```"):
         value = value[len("```json\n"):-3].strip()
-    parsed = parse_json(value)
+    parsed: JSONValue = parse_json(value)
     if isinstance(parsed, dict):
         if set(parsed) in ({"choices"}, {"intents"}):
             parsed = next(iter(parsed.values()))
@@ -120,7 +123,7 @@ def _choices(text: str) -> Sequence[object]:
 
 
 def proposals(
-    domain: str, arm: Arm, text: str, observation: list[str] | JSONObject, options: Sequence[JSONObject],
+    domain: str, arm: Arm, text: str, observation: Observation, options: Sequence[JSONObject],
 ) -> JSONObject:
     """Validate each slot and count repeated semantic effects once."""
     ids = {row["id"]: row["intent"] for row in options}

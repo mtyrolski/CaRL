@@ -144,7 +144,7 @@ class SearchSession:
         if not self.env.is_solved(path.state):
             return False
         self.result.solved = True
-        self.result.finish_reason = "solved"
+        self.result.finish_reason = FinishReason.SOLVED.value
         self.result.action_path = path.actions
         self.result.subgoal_path = [to_rows(state) for state in path.endpoints]
         return True
@@ -154,8 +154,8 @@ class SearchSession:
         reopened = self.frontier.push(path)
         self.result.reopened += int(reopened)
         if old_cost is not None and old_cost <= len(path.actions):
-            return "duplicate"
-        return "reopened" if reopened else "new"
+            return TransitionStatus.DUPLICATE
+        return TransitionStatus.REOPENED if reopened else TransitionStatus.NEW
 
     def _observe(self, transition: SearchTransition) -> None:
         if self.observer is not None:
@@ -165,9 +165,9 @@ class SearchSession:
         try:
             status = self._insert(transition.destination)
         except (BudgetExceeded, RequestFailed):
-            self._observe(replace(transition, status="interrupted"))
+            self._observe(replace(transition, status=TransitionStatus.INTERRUPTED.value))
             raise
-        self._observe(replace(transition, status=status))
+        self._observe(replace(transition, status=status.value))
 
     def _primitive(self, path: SearchPath) -> None:
         for action in range(ACTION_COUNT):
@@ -177,14 +177,19 @@ class SearchSession:
             successor = np.asarray(self.env.next_state(path.state, action))
             if np.array_equal(successor, path.state):
                 if self.observer is not None:
-                    self._observe(SearchTransition(path, path.extend(successor, [action]), "primitive", "no_op", 0.0, (action,)))
+                    self._observe(SearchTransition(
+                        path, path.extend(successor, [action]),
+                        TransitionKind.PRIMITIVE.value, TransitionStatus.NO_OP.value, 0.0, (action,),
+                    ))
                 continue
             self.result.primitive_successors += 1
             reached = path.extend(successor, [action])
             if self._accept_solution(reached):
-                self._observe(SearchTransition(path, reached, "primitive", "solved", 0.0, (action,), solved=True))
+                self._observe(SearchTransition(
+                    path, reached, TransitionKind.PRIMITIVE.value, TransitionStatus.SOLVED.value, 0.0, (action,), solved=True,
+                ))
                 return
-            self._admit(SearchTransition(path, reached, "primitive", "new", 0.0, (action,)))
+            self._admit(SearchTransition(path, reached, TransitionKind.PRIMITIVE.value, TransitionStatus.NEW.value, 0.0, (action,)))
 
     def _attempt(
         self, path: SearchPath, target: Board, cap: int, *, scale: float, kind: TransitionKind
@@ -210,7 +215,9 @@ class SearchSession:
             )
         except (BudgetExceeded, RequestFailed):
             if self.observer is not None:
-                self._observe(SearchTransition(path, path.extend(endpoint, actions), kind, "interrupted", scale, tuple(actions), proposal=target))
+                self._observe(SearchTransition(
+                    path, path.extend(endpoint, actions), kind.value, TransitionStatus.INTERRUPTED.value, scale, tuple(actions), proposal=target,
+                ))
             raise
 
     def _hierarchical(self, path: SearchPath, scale: float) -> None:
@@ -220,7 +227,7 @@ class SearchSession:
         for proposal in self.components.propose(path.state, scale):
             if self.remaining_actions <= 0:
                 return
-            attempt = self._attempt(path, proposal, cap, scale=scale, kind="subgoal")
+            attempt = self._attempt(path, proposal, cap, scale=scale, kind=TransitionKind.SUBGOAL)
             self.result.events.append(
                 SearchEvent(
                     scale=scale,
@@ -234,14 +241,20 @@ class SearchSession:
             )
             reached = path.extend(attempt.state, attempt.actions)
             if self._accept_solution(reached):
-                self._observe(SearchTransition(path, reached, "subgoal", "solved", scale, tuple(attempt.actions), proposal, attempt.reached, True))
+                self._observe(SearchTransition(
+                    path, reached, TransitionKind.SUBGOAL.value, TransitionStatus.SOLVED.value, scale, tuple(attempt.actions), proposal, attempt.reached, True,
+                ))
                 return
             if attempt.reached:
                 self.result.accepted += 1
-                self._admit(SearchTransition(path, reached, "subgoal", "new", scale, tuple(attempt.actions), proposal, True, False))
+                self._admit(SearchTransition(
+                    path, reached, TransitionKind.SUBGOAL.value, TransitionStatus.NEW.value, scale, tuple(attempt.actions), proposal, True, False,
+                ))
             else:
                 self.result.rejected += 1
-                self._observe(SearchTransition(path, reached, "subgoal", "rejected", scale, tuple(attempt.actions), proposal, False, False))
+                self._observe(SearchTransition(
+                    path, reached, TransitionKind.SUBGOAL.value, TransitionStatus.REJECTED.value, scale, tuple(attempt.actions), proposal, False, False,
+                ))
 
     def _expand(self, initial: SearchPath, started: float) -> None:
         self._insert(initial)
@@ -249,7 +262,7 @@ class SearchSession:
             if time.perf_counter() - started >= self.config.limits.wall_seconds:
                 raise BudgetExceeded("Search wall-time budget exhausted")
             if self.config.max_expansions is not None and self.result.expansions >= self.config.max_expansions:
-                self.result.finish_reason = "expansion_budget"
+                self.result.finish_reason = FinishReason.EXPANSION_BUDGET.value
                 return
             entry = self.frontier.pop()
             if entry is None:
@@ -275,19 +288,23 @@ class SearchSession:
                 if self.config.method == "direct":
                     target = _task_target(initial)
                     attempt = self._attempt(
-                        root, target, self.config.action_budget, scale=0.0, kind="direct"
+                        root, target, self.config.action_budget, scale=0.0, kind=TransitionKind.DIRECT,
                     )
                     endpoint = root.extend(attempt.state, attempt.actions)
                     solved = self._accept_solution(endpoint)
-                    self._observe(SearchTransition(root, endpoint, "direct", "solved" if solved else "rejected", 0.0, tuple(attempt.actions), target, attempt.reached, solved))
+                    status = TransitionStatus.SOLVED if solved else TransitionStatus.REJECTED
+                    self._observe(SearchTransition(
+                        root, endpoint, TransitionKind.DIRECT.value, status.value, 0.0, tuple(attempt.actions), target, attempt.reached, solved,
+                    ))
                     if not solved:
-                        self.result.finish_reason = "action_budget"
+                        self.result.finish_reason = FinishReason.ACTION_BUDGET.value
                 else:
                     self._expand(root, started)
                 if not self.result.solved and self.remaining_actions <= 0:
-                    self.result.finish_reason = "action_budget"
+                    self.result.finish_reason = FinishReason.ACTION_BUDGET.value
         except (BudgetExceeded, RequestFailed) as error:
-            self.result.finish_reason = "api_budget" if isinstance(error, BudgetExceeded) else "api_error"
+            reason = FinishReason.API_BUDGET if isinstance(error, BudgetExceeded) else FinishReason.API_ERROR
+            self.result.finish_reason = reason.value
             self.result.error = str(error)
         finally:
             self.result.seconds = time.perf_counter() - started

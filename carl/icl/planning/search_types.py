@@ -1,20 +1,38 @@
 """Serializable search outcomes, paths and observer contracts."""
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, TypeAlias
+from enum import StrEnum
+from typing import Protocol
 
 from carl.icl.types import Board, BoardRows, SearchEvent
 
-FinishReason: TypeAlias = Literal[
-    "frontier_exhausted",
-    "solved",
-    "action_budget",
-    "expansion_budget",
-    "api_budget",
-    "api_error",
-]
+class FinishReason(StrEnum):
+    """Reasons emitted by the explicit-state and checked-intent planners."""
 
-TransitionKind: TypeAlias = Literal["primitive", "subgoal", "direct"]
-TransitionStatus: TypeAlias = Literal["new", "reopened", "duplicate", "no_op", "rejected", "solved", "interrupted"]
+    FRONTIER_EXHAUSTED = "frontier_exhausted"
+    SOLVED = "solved"
+    ACTION_BUDGET = "action_budget"
+    EXPANSION_BUDGET = "expansion_budget"
+    API_BUDGET = "api_budget"
+    API_ERROR = "api_error"
+    WALL_BUDGET = "wall_budget"
+    NO_PROPOSALS = "no_proposals"
+    INTENT_FAILED = "intent_failed"
+
+
+class TransitionKind(StrEnum):
+    PRIMITIVE = "primitive"
+    SUBGOAL = "subgoal"
+    DIRECT = "direct"
+
+
+class TransitionStatus(StrEnum):
+    NEW = "new"
+    REOPENED = "reopened"
+    DUPLICATE = "duplicate"
+    NO_OP = "no_op"
+    REJECTED = "rejected"
+    SOLVED = "solved"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass(frozen=True)
@@ -32,7 +50,7 @@ class SearchResult:
     """Serializable outcome; attempted actions are distinct from solution length."""
 
     solved: bool = False
-    finish_reason: FinishReason = "frontier_exhausted"
+    finish_reason: str = FinishReason.FRONTIER_EXHAUSTED.value
     attempted_actions: int = 0
     expansions: int = 0
     accepted: int = 0
@@ -85,8 +103,8 @@ class SearchTransition:
 
     source: SearchPath
     destination: SearchPath
-    kind: TransitionKind
-    status: TransitionStatus
+    kind: str
+    status: str
     scale: float
     actions: tuple[int, ...]
     proposal: Board | None = None

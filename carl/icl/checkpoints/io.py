@@ -14,10 +14,10 @@ from carl.icl.boards import from_rows, state_hash, validate_subgoal
 from carl.icl.checkpoints.types import CalibratedExample, GeneratorCheckpoint, GeneratorDefaults, SourceArtifact
 from carl.icl.config import ROOT, ExperimentConfig, ModelSettings
 from carl.icl.data_sources.sokoban import environment
-from carl.icl.types import JSONObject
+from carl.icl.types import JSONObject, JSONValue
 
 
-def _json_bytes(value: object) -> bytes:
+def _json_bytes(value: JSONValue) -> bytes:
     return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
 
 

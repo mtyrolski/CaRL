@@ -5,9 +5,10 @@ import random
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +18,7 @@ from carl.icl.intent_domain import (
     DOMAIN_SPEC,
     DOMAIN_VERSION,
     TASK_GOAL,
+    CheckStatus,
     DomainSpec,
     Intent,
     Predicate,
@@ -34,6 +36,7 @@ from carl.icl.intent_domain import (
 )
 from carl.icl.intents.generation.data import DataSplit, file_sha256, parse_json
 from carl.icl.intents.provenance import component_hashes
+from carl.icl.types import JSONValue
 
 DEFAULT_ANNOTATOR = "deterministic-mock-v1"
 ActionIndex = Annotated[int, Field(strict=True, ge=0, le=3)]
@@ -74,13 +77,22 @@ class SegmentSelection:
     end: int
 
 
+class UnlabelledStatus(StrEnum):
+    ABSTAINED = "abstained"
+    MALFORMED = "malformed"
+
+
 @dataclass(frozen=True)
 class UnlabelledAnnotation:
     """Preserve an annotator abstention or a malformed raw response in the audit."""
 
-    status: Literal["abstained", "malformed"]
+    status: UnlabelledStatus
     reason: str
     json_valid: bool = True
+
+
+AnnotationSketch: TypeAlias = JSONValue | Intent | UnlabelledAnnotation
+Annotator: TypeAlias = Callable[[AnnotationRequest], AnnotationSketch]
 
 
 @dataclass(frozen=True)
@@ -107,7 +119,7 @@ class _Fragment:
 @dataclass(frozen=True)
 class _Decision:
     intent: Intent | None
-    status: Literal["accepted", "rejected", "unknown", "abstained", "malformed"]
+    status: CheckStatus | UnlabelledStatus
     reasons: tuple[str, ...]
     json_valid: bool
     first_hit: int | None = None
@@ -203,28 +215,29 @@ def _selected_fragments(traces: list[_Trace], selections: Sequence[SegmentSelect
         yield _Fragment(trace, selection.start, selection.end - selection.start)
 
 
-def _check(sketch: object, observations: tuple[SokobanObservation, ...], *, first_hit: bool = False) -> _Decision:
+def _check(sketch: AnnotationSketch, observations: tuple[SokobanObservation, ...], *, first_hit: bool = False) -> _Decision:
     if isinstance(sketch, UnlabelledAnnotation):
-        return _Decision(None, sketch.status, (sketch.reason,), sketch.json_valid)
+        return _Decision(None, UnlabelledStatus(sketch.status), (sketch.reason,), sketch.json_valid)
+    invalid_status = UnlabelledStatus.MALFORMED if first_hit else CheckStatus.REJECTED
     try:
         if isinstance(sketch, str):
             parse_json(sketch)
         else:
             annotation_json(sketch)
     except (TypeError, ValueError) as error:
-        return _Decision(None, "malformed" if first_hit else "rejected", (f"invalid JSON: {error}",), False)
+        return _Decision(None, invalid_status, (f"invalid JSON: {error}",), False)
     try:
         intent = decode_intent(sketch)
     except (TypeError, ValueError) as error:
-        return _Decision(None, "malformed" if first_hit else "rejected", (f"invalid intent: {error}",), True)
+        return _Decision(None, invalid_status, (f"invalid intent: {error}",), True)
     if first_hit:
         endpoints = check_intent({**intent, "preserve": []}, (observations[0], observations[-1]))
-        if endpoints.status != "accepted":
+        if endpoints.status != CheckStatus.ACCEPTED:
             return _Decision(intent, endpoints.status, endpoints.errors, True)
         hit = next(i for i, observation in enumerate(observations)
                    if all(predicate_truth(effect, observation) is True for effect in intent["effects"]))
         prefix = check_intent(intent, observations[:hit + 1])
-        return _Decision(intent, prefix.status, prefix.errors, True, hit if prefix.status == "accepted" else None)
+        return _Decision(intent, prefix.status, prefix.errors, True, hit if prefix.status == CheckStatus.ACCEPTED else None)
     check = check_intent(intent, observations)
     return _Decision(intent, check.status, check.errors, True)
 
@@ -233,8 +246,8 @@ def _effect_type(intent: Intent, endpoint: SokobanObservation) -> EffectType:
     effects = intent["effects"]
     if len(effects) > 1:
         if all(
-            effect["predicate"] == "boxes_on_goals_at_least"
-            or (effect["predicate"] == "box_at" and endpoint.rows[effect["row"]][effect["col"]] == "*")
+            effect["predicate"] == SokobanPredicate.BOXES_ON_GOALS_AT_LEAST
+            or (effect["predicate"] == SokobanPredicate.BOX_AT.value and endpoint.rows[effect["row"]][effect["col"]] == "*")
             for effect in effects
         ):
             return EffectType.GOAL_CONJUNCTION
@@ -247,7 +260,7 @@ def _effect_type(intent: Intent, endpoint: SokobanObservation) -> EffectType:
 
 
 def _annotation_rows(
-    fragments: Iterator[_Fragment], annotator: Callable[[AnnotationRequest], object], *, first_hit: bool = False,
+    fragments: Iterator[_Fragment], annotator: Annotator, *, first_hit: bool = False,
 ) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     for fragment in fragments:
@@ -268,8 +281,8 @@ def _annotation_rows(
             "source_id": demonstration.source_id,
             "demonstration_offset": offset,
             "validation": {
-                "accepted": result.status == "accepted",
-                "status": result.status,
+                "accepted": result.status == CheckStatus.ACCEPTED,
+                "status": result.status.value,
                 "reasons": list(result.reasons),
                 "json_valid": result.json_valid,
             },
@@ -291,7 +304,7 @@ def _annotation_rows(
             row["task_group"] = demonstration.task_group
         if result.intent is not None:
             row["intent"] = result.intent
-        if result.status == "accepted" and result.intent is not None:
+        if result.status == CheckStatus.ACCEPTED and result.intent is not None:
             intent = result.intent
             record_id = annotation_identity(context_id, intent)
             row["record_id"] = record_id
@@ -313,7 +326,7 @@ def prepare_annotations(
     *,
     max_offset: int,
     seed: int,
-    annotator: Callable[[AnnotationRequest], object] = mock_annotator,
+    annotator: Annotator = mock_annotator,
     annotator_id: str = DEFAULT_ANNOTATOR,
     selections: Sequence[SegmentSelection] | None = None,
 ) -> dict[str, Any]:

@@ -4,17 +4,18 @@ import json
 import time
 from collections.abc import Hashable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
-from carl.environment.craftax import CraftaxAdapter, CraftaxSnapshot
 from carl.icl.boards import to_rows
 from carl.icl.config import LocalModelSettings
 from carl.icl.data_sources.sokoban import environment
-from carl.icl.intent_domain import Action, Intent, SokobanSnapshot, predicate_truth
+from carl.icl.intent_domain import (
+    Action, Intent, SokobanSnapshot, annotation_digest, annotation_json, decode_intent, predicate_truth, render_instruction,
+)
 from carl.icl.intents.generation.data import parse_json
 from carl.icl.local_models import LocalRoleModel, bind_local_role
-from carl.icl.planning.craftax_tasks import CraftaxIntent, conjunction
 from carl.icl.types import JSONObject
 
 
@@ -28,16 +29,9 @@ SOKOBAN_RULES = (
     "Rows increase DOWN and columns increase RIGHT. # is a wall, $ a box, * a box on a goal, . an empty goal, "
     "@ the player and + the player on a goal. Move into an adjacent box to push it one square if the far square is free."
 )
-CRAFTAX_RULES = (
-    "UP, DOWN, LEFT and RIGHT set facing. DO harvests a nearby tree or mines stone in the facing direction. "
-    "MAKE_WOOD_SWORD crafts a wooden sword with one wood while adjacent to a crafting table. "
-    "MAKE_WOOD_PICKAXE crafts a wooden pickaxe with one wood at a table. Read the inventory and nearby terrain."
-)
-
-
 @dataclass(frozen=True)
 class DirectLimits:
-    """The same limits apply to both domains and both measured controllers."""
+    """Limits on primitive execution and local controller calls."""
 
     decisions: int = 3
     primitive_actions: int = 6
@@ -62,6 +56,30 @@ class DirectStep:
     no_op: bool
     progress_changed: bool
     terminal: bool
+
+
+class TaskStatus(NamedTuple):
+    solved: bool
+    ended: bool
+
+
+class DirectReason(StrEnum):
+    DECISION_LIMIT = "decision_limit"
+    WALL_LIMIT = "wall_limit"
+    RUNTIME_ERROR = "runtime_error"
+    INVALID_RESPONSE = "invalid_response"
+    PRESERVATION_VIOLATED = "preservation_violated"
+    UNKNOWN = "unknown"
+    SUCCESS = "success"
+    EPISODE_ENDED = "episode_ended"
+    ACTION_LIMIT = "action_limit"
+    TICK_LIMIT = "tick_limit"
+    LOOP_LIMIT = "loop_limit"
+    AUTOMATIC_TICK = "automatic_tick"
+    NO_OP = "no_op"
+    REVISITED_STATE = "revisited_state"
+    CHANGED_OBSERVATION = "changed_task_observation"
+    BATCH_FINISHED = "batch_finished"
 
 
 class DirectDomain(Protocol):
@@ -105,6 +123,17 @@ class SokobanDirect:
         return (_all([predicate_truth(p, visible) for p in self.intent["effects"]]),
                 _all([predicate_truth(p, visible) for p in self.intent["preserve"]]))
 
+    def assign_intent(self, requested: JSONObject) -> tuple[JSONObject, str]:
+        self.intent = decode_intent(requested)
+        return dict(self.intent), render_instruction(self.intent)
+
+    def task_status(self) -> TaskStatus:
+        return TaskStatus(bool(self.env.is_solved(self.snapshot.restore())), False)
+
+    def checkpoint(self) -> tuple[str, JSONObject]:
+        rows = list(self.snapshot.rows)
+        return annotation_digest(annotation_json(rows).encode()), {"observation": rows}
+
     def loop_key(self) -> tuple[str, ...]:
         return self.snapshot.rows
 
@@ -119,41 +148,6 @@ class SokobanDirect:
         after = self.snapshot.rows
         return DirectStep(action, True, 1, 0, before == after, self._boxes(before) != self._boxes(after),
                           self.env.is_solved(board))
-
-
-class CraftaxDirect:
-    rules = CRAFTAX_RULES
-
-    def __init__(self, adapter: CraftaxAdapter, snapshot: CraftaxSnapshot, intent: CraftaxIntent) -> None:
-        self.adapter = adapter
-        self.snapshot = adapter.restore(snapshot)
-        self.intent = intent
-        self.action_names = adapter.action_names
-
-    def observe(self) -> JSONObject:
-        visible = self.adapter.observe(self.snapshot)
-        return {key: visible[key] for key in ("neighbors", "inventory", "facing", "health", "sleeping", "resting")}
-
-    def check(self) -> tuple[bool | None, bool | None]:
-        facts = self.adapter.inventory(self.snapshot)
-        return conjunction(self.intent.effects, facts), conjunction(self.intent.preserve, facts)
-
-    def loop_key(self) -> Hashable:
-        state = self.snapshot._state  # pylint: disable=protected-access
-        # The clock and RNG advance even when the controller returns to the same place.
-        return (int(state.player_level), tuple(map(int, state.player_position)), int(state.player_direction),
-                tuple(sorted(self.adapter.inventory(self.snapshot).items())))
-
-    def step(self, action: str) -> DirectStep:
-        before = self.observe()
-        outcome = self.adapter.step(self.snapshot, action)
-        self.snapshot = outcome.snapshot
-        changed = any(before[key] != outcome.observation[key] for key in ("inventory", "health", "sleeping", "resting"))
-        return DirectStep(
-            self.action_names[outcome.native_action], outcome.primitive_action_executed,
-            outcome.native_ticks, outcome.automatic_ticks, outcome.no_op or action == "NOOP", changed,
-            outcome.terminated or outcome.truncated,
-        )
 
 
 def parse_batch(text: str, action_names: tuple[str, ...]) -> tuple[list[str], str | None]:
@@ -212,11 +206,11 @@ def run_direct(
     feedback = None
     visited = {domain.loop_key()}
     executed = native_ticks = automatic_ticks = no_ops = loops = errors = requested = 0
-    stop = "decision_limit"
+    stop = DirectReason.DECISION_LIMIT
     started = time.perf_counter()
     for _ in range(limits.decisions):
         if time.perf_counter() - started >= limits.wall_seconds:
-            stop = "wall_limit"
+            stop = DirectReason.WALL_LIMIT
             break
         query = {
             "observation": domain.observe(), "public_task": public_task, "action_names": domain.action_names,
@@ -234,7 +228,7 @@ def run_direct(
             )
         except (OSError, RuntimeError, ValueError) as error:
             errors += 1
-            stop = "runtime_error"
+            stop = DirectReason.RUNTIME_ERROR
             decision.update(error=str(error), latency_seconds=time.perf_counter() - call_start)
             break
         decision.update(response=raw, input_tokens=inputs, output_tokens=outputs, latency_seconds=time.perf_counter() - call_start)
@@ -243,7 +237,7 @@ def run_direct(
         except (TypeError, ValueError) as error:
             errors += 1
             feedback = "Previous response had invalid action JSON. Use the requested format and names."
-            decision.update(error=str(error), interrupt="invalid_response")
+            decision.update(error=str(error), interrupt=DirectReason.INVALID_RESPONSE.value)
             continue
         feedback = None
         requested += len(actions)
@@ -251,8 +245,8 @@ def run_direct(
         decision["own_intent"] = own_intent
         for index, action in enumerate(actions):
             if time.perf_counter() - started >= limits.wall_seconds:
-                stop = "wall_limit"
-                decision.update(interrupt=stop, discarded_suffix=actions[index:], observation_after_interrupt=domain.observe())
+                stop = DirectReason.WALL_LIMIT
+                decision.update(interrupt=stop.value, discarded_suffix=actions[index:], observation_after_interrupt=domain.observe())
                 break
             step = domain.step(action)
             executed += int(step.executed)
@@ -269,30 +263,38 @@ def run_direct(
                 **memory[-1], "native_ticks": step.native_ticks, "automatic_ticks": step.automatic_ticks,
                 "effect_holds": hits, "preservation_holds": preserves, "revisited_state": repeated,
             })
-            terminal = (
-                "preservation_violated" if preserves is False else "unknown" if preserves is None or step.native_ticks != 1
-                else "success" if hits is True else "episode_ended" if step.terminal
-                else "action_limit" if executed >= limits.primitive_actions
-                else "tick_limit" if native_ticks >= limits.native_ticks else "loop_limit" if loops >= 2 else None
-            )
-            interrupt = terminal or ("automatic_tick" if step.automatic_ticks else "no_op" if step.no_op
-                                     else "revisited_state" if repeated else "changed_task_observation" if step.progress_changed else None)
+            terminal = next((reason for reached, reason in (
+                (preserves is False, DirectReason.PRESERVATION_VIOLATED),
+                (preserves is None or step.native_ticks != 1, DirectReason.UNKNOWN),
+                (hits is True, DirectReason.SUCCESS),
+                (step.terminal, DirectReason.EPISODE_ENDED),
+                (executed >= limits.primitive_actions, DirectReason.ACTION_LIMIT),
+                (native_ticks >= limits.native_ticks, DirectReason.TICK_LIMIT),
+                (loops >= 2, DirectReason.LOOP_LIMIT),
+            ) if reached), None)
+            interrupt = terminal or next((reason for triggered, reason in (
+                (step.automatic_ticks, DirectReason.AUTOMATIC_TICK),
+                (step.no_op, DirectReason.NO_OP),
+                (repeated, DirectReason.REVISITED_STATE),
+                (step.progress_changed, DirectReason.CHANGED_OBSERVATION),
+            ) if triggered), None)
             if interrupt is not None:
-                decision.update(interrupt=interrupt, discarded_suffix=actions[index + 1:],
+                decision.update(interrupt=interrupt.value, discarded_suffix=actions[index + 1:],
                                 observation_after_interrupt=domain.observe())
                 if terminal is not None:
                     stop = terminal
                 break
         else:
-            decision.update(interrupt="batch_finished", discarded_suffix=[])
-        if stop != "decision_limit":
+            decision.update(interrupt=DirectReason.BATCH_FINISHED.value, discarded_suffix=[])
+        if stop != DirectReason.DECISION_LIMIT:
             break
+    success = stop == DirectReason.SUCCESS
     return {
-        "success": stop == "success", "stop": stop, "errors": errors, "loops": loops, "executed_no_ops": no_ops,
+        "success": success, "stop": stop.value, "errors": errors, "loops": loops, "executed_no_ops": no_ops,
         "requested_primitives": requested, "executed_primitives": executed, "native_ticks": native_ticks,
         "automatic_ticks": automatic_ticks, "elapsed_seconds": time.perf_counter() - started,
         "input_tokens": sum(d.get("input_tokens", 0) for d in decisions),
         "output_tokens": sum(d.get("output_tokens", 0) for d in decisions),
         "decisions": decisions, "role_calls": {"policy": len(decisions), "generator": 0, "value": 0},
-        "first_verified_hit_primitives": executed if stop == "success" else None,
+        "first_verified_hit_primitives": executed if success else None,
     }

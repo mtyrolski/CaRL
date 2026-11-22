@@ -1,24 +1,26 @@
 """Record and visualize the actual explicit-state search, without extra inference."""
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, TypeAlias
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from carl.icl.boards import to_rows
-from carl.icl.search import QueueEntry, SearchPath, SearchResult, SearchTransition
+from carl.icl.search import QueueEntry, SearchPath, SearchResult, SearchTransition, TransitionKind, TransitionStatus
 from carl.icl.types import BoardRows
 
+SearchTraceFields: TypeAlias = dict[str, str | int | float | bool | None]
 ACTION_NAMES: Final = ("UP", "DOWN", "LEFT", "RIGHT")
+_ROOT: Final = "root"
 COLORS: Final = {
-    "root": "#3565af",
-    "new": "#178b83",
-    "reopened": "#8a55a2",
-    "duplicate": "#a1a7ae",
-    "no_op": "#cdd1d5",
-    "rejected": "#e59c38",
-    "solved": "#279447",
-    "interrupted": "#d94f45",
+    _ROOT: "#3565af",
+    TransitionStatus.NEW.value: "#178b83",
+    TransitionStatus.REOPENED.value: "#8a55a2",
+    TransitionStatus.DUPLICATE.value: "#a1a7ae",
+    TransitionStatus.NO_OP.value: "#cdd1d5",
+    TransitionStatus.REJECTED.value: "#e59c38",
+    TransitionStatus.SOLVED.value: "#279447",
+    TransitionStatus.INTERRUPTED.value: "#d94f45",
 }
 
 
@@ -75,7 +77,7 @@ class SearchTreeRecorder:
 
     def on_start(self, root: SearchPath) -> None:
         """Record the root path."""
-        self.nodes.append(TreeNode(0, None, to_rows(root.state), "root", "root", 0, (), 0, 0))
+        self.nodes.append(TreeNode(0, None, to_rows(root.state), _ROOT, _ROOT, 0, (), 0, 0))
         self._remember(root, 0)
 
     def on_expansion(self, entry: QueueEntry, index: int, actions: int, queue_size: int) -> None:
@@ -103,7 +105,7 @@ class SearchTreeRecorder:
             transition.solved,
         )
         self.nodes.append(node)
-        if transition.status in {"new", "reopened"}:
+        if transition.status in (TransitionStatus.NEW, TransitionStatus.REOPENED):
             self._remember(transition.destination, node_id)
         if transition.solved:
             self.solution_node = node_id
@@ -123,7 +125,7 @@ class SearchTreeRecorder:
             node_id = self.nodes[node_id].parent_id
         return chain
 
-    def rows(self) -> list[dict[str, object]]:
+    def rows(self) -> list[SearchTraceFields]:
         """Return compact tabular node metadata; boards stay accessible on nodes."""
         solution = self.solution_nodes()
         return [
@@ -143,7 +145,7 @@ class SearchTreeRecorder:
             for node in self.nodes
         ]
 
-    def summary(self) -> dict[str, object]:
+    def summary(self) -> SearchTraceFields:
         """Separate attempt nodes, unique boards, queue expansions and actions."""
         if self.result is None:
             raise ValueError("Search has not finished")
@@ -155,8 +157,8 @@ class SearchTreeRecorder:
             "expanded_path_nodes": sum(bool(node.expansions) for node in self.nodes),
             "queue_expansions": self.result.expansions,
             "attempted_simulator_actions": self.result.attempted_actions,
-            "subgoal_attempts": sum(node.kind == "subgoal" for node in self.nodes),
-            "primitive_attempts": sum(node.kind == "primitive" for node in self.nodes),
+            "subgoal_attempts": sum(node.kind == TransitionKind.SUBGOAL for node in self.nodes),
+            "primitive_attempts": sum(node.kind == TransitionKind.PRIMITIVE for node in self.nodes),
             "solution_length": len(self.result.action_path) if self.result.solved else None,
             "max_attempt_depth": max(node.depth for node in self.nodes),
             "accepted_subgoals": self.result.accepted,

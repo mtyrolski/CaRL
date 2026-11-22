@@ -10,17 +10,17 @@ from filelock import FileLock
 
 from carl.icl.boards import canonical_layout_id, from_rows
 from carl.icl.intent_annotations import DA_VERSION
-from carl.icl.intent_domain import Action, SokobanObservation, SokobanSnapshot, check_intent, decode_intent, replay_fragment
+from carl.icl.intent_domain import (
+    Action, CheckStatus, SokobanObservation, SokobanSnapshot, check_intent, decode_intent, replay_fragment,
+)
 from carl.icl.intents.generation.data import DataSplit, atomic_json, file_sha256, parse_json, read_records
 from carl.icl.policy_relative.data import load_fit_data
 from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, contract_hash
-from carl.icl.types import JSONObject
+from carl.icl.policy_relative.types import VERSIONED_SCALE_ARMS, Arm
+from carl.icl.types import JSONObject, PromptExample
 
 SUPPORT_VERSION = "sokoban-icl-support-v1"
-SCALE_ARMS = frozenset({
-    "unscaled", "absolute_d", "ratio_d_over_ac", "offset_rank", "normalized_offset", "relative_u",
-})
-PromptExample = tuple[JSONObject, JSONObject]
+SCALE_ARMS = frozenset({Arm.UNSCALED, *VERSIONED_SCALE_ARMS})
 
 
 @dataclass(frozen=True)
@@ -213,7 +213,7 @@ def _verified_first_action(row: JSONObject, entry: JSONObject) -> str:
     fragment = replay_fragment(SokobanSnapshot(tuple(row["start_observation"])), actions)
     if (
         evidence.get("observations") != [list(step.rows) for step in fragment]
-        or check_intent(decode_intent(row["intent"]), [step.observation for step in fragment]).status != "accepted"
+        or check_intent(decode_intent(row["intent"]), [step.observation for step in fragment]).status != CheckStatus.ACCEPTED
     ):
         raise ValueError("policy support action witness fails simulator replay or intent checking")
     return Action(actions[0]).name

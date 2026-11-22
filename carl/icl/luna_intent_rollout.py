@@ -21,7 +21,7 @@ from carl.icl.intent_data import validate_prediction
 from carl.icl.intent_domain import Intent, Predicate, SokobanObservation, UNKNOWN_TILE
 from carl.icl.intent_domain import decode_intent, predicate_truth, render_instruction
 from carl.icl.llm_components.formatting import board_coordinates
-from carl.icl.types import Board
+from carl.icl.types import Board, JSONObject, JSONValue
 from carl.icl.types import BoardEnvironment
 
 POLICY_PROMPT: Final = """You control a Sokoban player. Choose exactly one primitive action that helps fulfil the given intent while keeping every preservation condition true.
@@ -138,11 +138,12 @@ class IntentRollout:
         return len(self.actions) - automatic
 
 
-def build_prompt(state: Board, intent: Mapping[str, object], task_goal: str,
+def build_prompt(state: Board, intent: Intent | Mapping[str, JSONValue], task_goal: str,
                  memory: Sequence[ActionAttempt] = (), *, measured: bool = False) -> str:
     """Render the current state and previous actions from this attempt only."""
     observation = SokobanObservation(tuple(to_rows(state)))
-    checked = decode_intent({"effects": intent["effects"], "preserve": intent["preserve"], "instruction": None})
+    sketch: JSONObject = {"effects": intent["effects"], "preserve": intent["preserve"], "instruction": None}
+    checked = decode_intent(sketch)
     return _render_prompt(observation, checked, task_goal, memory, measured=measured)
 
 
@@ -205,7 +206,8 @@ def _initial_intent(
     intent: dict[str, Any], observation: SokobanObservation, state: Board,
 ) -> tuple[Intent | None, RolloutStatus | None, str | None]:
     try:
-        checked = decode_intent({**intent, "instruction": None})
+        sketch: JSONObject = {**intent, "instruction": None}
+        checked = decode_intent(sketch)
         if _unknown_initial(checked, observation):
             return None, RolloutStatus.UNKNOWN, None
     except (TypeError, ValueError, IndexError) as exc:

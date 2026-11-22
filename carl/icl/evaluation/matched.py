@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from itertools import combinations
 from pathlib import Path
 from statistics import mean
-from typing import Annotated, Final, Literal, cast
+from typing import Annotated, Final, Literal, TypeAlias, cast
 
 import numpy as np
 from pydantic import Field, JsonValue, StringConstraints, model_validator
@@ -17,12 +17,13 @@ from carl.icl.api import write_json
 from carl.icl.config import Settings
 from carl.icl.evaluation.data import EvaluationConfig
 from carl.icl.evaluation.statistics import interval
-from carl.icl.types import JSONObject
+from carl.icl.types import JSONObject, JSONValue
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 Seconds = Annotated[float, Field(strict=True, ge=0, allow_inf_nan=False)]
 Count = Annotated[int, Field(strict=True, ge=0)]
 Measure = Count | Seconds
+_TrialKey: TypeAlias = tuple[str, str, str]  # Budget ID, instance ID, mode.
 
 TIME_RULE: Final = (
     "Record elapsed runtime separately. Use measured first success time when available, "
@@ -42,7 +43,7 @@ RESOURCE_METRICS: Final = (
 )
 
 
-def _canonical(value: object) -> str:
+def _canonical(value: JSONValue) -> str:
     return json.dumps(value, allow_nan=False, sort_keys=True, separators=(",", ":"))
 
 
@@ -172,7 +173,7 @@ class MatchedSweep(Settings):
             raise ValueError("A matched sweep must hold the frozen policy fixed")
         limits = {item.id: item.limits for item in self.budgets}
         instances = {item.id: item for item in self.instances}
-        seen: set[tuple[str, str, str]] = set()
+        seen: set[_TrialKey] = set()
         for trial in self.trials:
             key = (trial.budget_id, trial.instance_id, trial.mode)
             if trial.budget_id not in limits or trial.instance_id not in instances or trial.mode not in self.modes:
@@ -297,7 +298,7 @@ def _known_total(rows: list[JSONObject], metric: str) -> int | float | None:
 
 def _contrast(
     budget: SweepBudget, left_mode: str, right_mode: str, instances: list[SweepInstance],
-    observations: dict[tuple[str, str, str], SweepTrial], *, config: EvaluationConfig,
+    observations: dict[_TrialKey, SweepTrial], *, config: EvaluationConfig,
 ) -> JSONObject:
     pairs: list[Pair] = []
     missing_left: list[str] = []
@@ -341,7 +342,7 @@ def _contrast(
 
 def matched_tables(sweep: MatchedSweep, config: EvaluationConfig) -> dict[str, list[JSONObject]]:
     """Build separate tables for coverage, paired estimates and every planned trial."""
-    observations = {(row.budget_id, row.instance_id, row.mode): row for row in sweep.trials}
+    observations: dict[_TrialKey, SweepTrial] = {(row.budget_id, row.instance_id, row.mode): row for row in sweep.trials}
     trials: list[JSONObject] = []
     coverage: list[JSONObject] = []
     comparisons: list[JSONObject] = []

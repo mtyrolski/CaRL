@@ -7,7 +7,7 @@ from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from enum import StrEnum
 from itertools import islice
-from typing import Any, Generic, Literal
+from typing import Any, Generic
 
 from pydantic import BaseModel
 
@@ -17,11 +17,12 @@ from carl.icl.luna_intent_rollout import ActionAttempt, RolloutStatus
 from carl.icl.planning.intent_execution import (
     DomainExecutionOutcome, DomainExecutionState, DomainExecutor, IntentT, MemoryT, ObservationT, SnapshotT,
 )
+from carl.icl.planning.search_types import FinishReason
 from carl.icl.types import JSONObject
 
 Scale = float | None
-Phase = Literal["direct", "probe", "commit", "search", "plan"]
 Metrics = Mapping[str, int | float]
+IntentFinishReason = FinishReason | RolloutStatus
 TERMINAL_FAILURES = (RolloutStatus.EPISODE_TERMINATED, RolloutStatus.EPISODE_TRUNCATED)
 
 
@@ -32,6 +33,25 @@ class SearchMode(StrEnum):
     ONE_STEP = "one-step"
     FULL_SEARCH = "full-search"
     PLAN_AND_ACT = "plan-and-act"
+
+
+class Phase(StrEnum):
+    DIRECT = "direct"
+    PROBE = "probe"
+    COMMIT = "commit"
+    SEARCH = "search"
+    PLAN = "plan"
+
+
+class AttemptDisposition(StrEnum):
+    REJECTED = "rejected"
+    INTERRUPTED = "interrupted"
+    COMMITTED = "committed"
+    COMMITTED_INCOMPLETE = "committed_incomplete"
+    SCORED = "scored"
+    DUPLICATE = "duplicate"
+    REOPENED = "reopened"
+    ACCEPTED = "accepted"
 
 
 @dataclass(frozen=True)
@@ -125,7 +145,7 @@ class IntentSearchAttempt(Generic[SnapshotT, IntentT]):
     """One actual trial or an invalid proposal, with original outcome flags."""
 
     parent: int
-    phase: Phase
+    phase: str
     scale: Scale
     intent: IntentT | None
     status: str
@@ -136,7 +156,7 @@ class IntentSearchAttempt(Generic[SnapshotT, IntentT]):
     error: str | None = None
     node: int | None = None
     score: float | None = None
-    disposition: str = "rejected"
+    disposition: str = AttemptDisposition.REJECTED.value
     rewards: tuple[float, ...] = ()
 
 
@@ -193,8 +213,8 @@ def _public_value(value: Any) -> Any:
 
 
 class _Stop(BudgetExceeded):
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
+    def __init__(self, reason: FinishReason) -> None:
+        super().__init__(reason.value)
         self.reason = reason
 
 
@@ -250,14 +270,14 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
 
     def _guard(self) -> None:
         if time.monotonic() - self.started >= self.settings.wall_seconds:
-            raise _Stop("wall_budget")
+            raise _Stop(FinishReason.WALL_BUDGET)
         if self.remaining <= 0:
-            raise _Stop("action_budget")
+            raise _Stop(FinishReason.ACTION_BUDGET)
 
     def _expand(self) -> None:
         self._guard()
         if self.settings.max_expansions is not None and self.expansions >= self.settings.max_expansions:
-            raise _Stop("expansion_budget")
+            raise _Stop(FinishReason.EXPANSION_BUDGET)
         self.expansions += 1
 
     def _before_action(self) -> None:
@@ -272,16 +292,15 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
             raise ValueError("V must return a finite discounted goal return in [0, 1]")
         return float(estimate)
 
-    def _terminal_reason(self, state: DomainExecutionState[SnapshotT, MemoryT]) -> str:
+    def _terminal_reason(self, state: DomainExecutionState[SnapshotT, MemoryT]) -> RolloutStatus:
         record = self.runtime.executor.snapshot_record(state.snapshot)
-        return (RolloutStatus.EPISODE_TRUNCATED if record.get("truncated") is True
-                else RolloutStatus.EPISODE_TERMINATED).value
+        return RolloutStatus.EPISODE_TRUNCATED if record.get("truncated") is True else RolloutStatus.EPISODE_TERMINATED
 
     def _invalid(
         self, parent: IntentNode[SnapshotT, MemoryT], scale: Scale, phase: Phase, error: ValueError,
     ) -> None:
         self.attempts.append(IntentSearchAttempt(
-            parent.node, phase, scale, None, "invalid_proposal", (), parent.state.snapshot, False, False, str(error),
+            parent.node, phase.value, scale, None, "invalid_proposal", (), parent.state.snapshot, False, False, str(error),
         ))
 
     def _proposals(self, parent: IntentNode[SnapshotT, MemoryT], scale: Scale, phase: Phase) -> list[IntentT]:
@@ -315,7 +334,7 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
             step.get("simulator_no_op", step.get("no_op")) is True for step in outcome.rollout.steps
         )
         record = IntentSearchAttempt(
-            parent.node, phase, scale, intent, outcome.status.value, tuple(outcome.actions), outcome.state.snapshot,
+            parent.node, phase.value, scale, intent, outcome.status.value, tuple(outcome.actions), outcome.state.snapshot,
             outcome.intent_reached, outcome.task_solved, outcome.rollout.error,
             rewards=outcome.rewards,
         )
@@ -337,28 +356,28 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
 
     def _interrupted(
         self, outcome: DomainExecutionOutcome[SnapshotT, MemoryT], record: IntentSearchAttempt[SnapshotT, IntentT],
-    ) -> str | None:
+    ) -> IntentFinishReason | None:
         if outcome.status is RolloutStatus.BUDGET_EXHAUSTED:
-            record.disposition = "interrupted"
+            record.disposition = AttemptDisposition.INTERRUPTED.value
             self._guard()
-            return "api_budget"
+            return FinishReason.API_BUDGET
         if outcome.status in (RolloutStatus.API_ERROR, RolloutStatus.OUTPUT_LIMIT):
-            record.disposition = "interrupted"
-            return "api_error"
+            record.disposition = AttemptDisposition.INTERRUPTED.value
+            return FinishReason.API_ERROR
         if outcome.status is RolloutStatus.SIMULATOR_ERROR:
-            record.disposition = "interrupted"
-            return "simulator_error"
+            record.disposition = AttemptDisposition.INTERRUPTED.value
+            return outcome.status
         return None
 
-    def direct(self, root: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
-        outcome, record = self._trial(root, None, None, "direct")
+    def direct(self, root: IntentNode[SnapshotT, MemoryT]) -> tuple[IntentFinishReason, str | None]:
+        outcome, record = self._trial(root, None, None, Phase.DIRECT)
         if outcome.actions or _accepted(outcome):
             self._record_node(root, outcome, record)
-            record.disposition = "committed"
+            record.disposition = AttemptDisposition.COMMITTED.value
         if _accepted(outcome):
-            return "solved", None
+            return FinishReason.SOLVED, None
         return self._interrupted(outcome, record) or (
-            "action_budget" if self.remaining == 0 else outcome.status.value
+            FinishReason.ACTION_BUDGET if self.remaining == 0 else outcome.status
         ), record.error
 
     def _trial_score(
@@ -372,20 +391,20 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
             score = 0.0
         else:
             score = exponent * self._score(outcome.state)
-        record.disposition = "scored"
+        record.disposition = AttemptDisposition.SCORED.value
         record.score = score
         return score
 
-    def one_step(self, parent: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
+    def one_step(self, parent: IntentNode[SnapshotT, MemoryT]) -> tuple[IntentFinishReason, str | None]:
         while True:
             self._expand()
             choice: tuple[Scale, IntentT] | None = None
             best_score = -math.inf
             for scale in self.scales:
-                for candidate in self._proposals(parent, scale, "probe"):
+                for candidate in self._proposals(parent, scale, Phase.PROBE):
                     trials = []
                     for trial in range(self.settings.trials_per_proposal):
-                        outcome, record = self._trial(parent, candidate, scale, "probe", trial=trial)
+                        outcome, record = self._trial(parent, candidate, scale, Phase.PROBE, trial=trial)
                         if reason := self._interrupted(outcome, record):
                             return reason, record.error
                         trials.append((outcome, record))
@@ -397,21 +416,22 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
                         choice, best_score = (scale, candidate), score
             self._guard()
             if choice is None:
-                return "no_proposals", None
+                return FinishReason.NO_PROPOSALS, None
             scale, candidate = choice
-            outcome, record = self._trial(parent, candidate, scale, "commit", trial=self.settings.trials_per_proposal)
+            outcome, record = self._trial(parent, candidate, scale, Phase.COMMIT, trial=self.settings.trials_per_proposal)
             if not _accepted(outcome) and outcome.status is not RolloutStatus.ACTION_LIMIT:
                 if _confirmed_prefix(outcome):
                     self._record_node(parent, outcome, record)
-                    record.disposition = "committed_incomplete"
+                    record.disposition = AttemptDisposition.COMMITTED_INCOMPLETE.value
                 reason = self._interrupted(outcome, record)
                 if outcome.status in TERMINAL_FAILURES:
-                    return outcome.status.value, record.error
-                return reason or ("action_budget" if self.remaining == 0 else "intent_failed"), record.error
-            record.disposition = "committed" if _accepted(outcome) else "committed_incomplete"
+                    return outcome.status, record.error
+                return reason or (FinishReason.ACTION_BUDGET if self.remaining == 0 else FinishReason.INTENT_FAILED), record.error
+            disposition = AttemptDisposition.COMMITTED if _accepted(outcome) else AttemptDisposition.COMMITTED_INCOMPLETE
+            record.disposition = disposition.value
             parent = self._record_node(parent, outcome, record)
             if parent.task_solved:
-                return "solved", None
+                return FinishReason.SOLVED, None
             if self.runtime.executor.terminal(parent.state):
                 return self._terminal_reason(parent.state), None
 
@@ -431,20 +451,21 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
         key = self.runtime.executor.state_key(outcome.state)
         prior = self.best.get(key)
         if prior is not None and self.nodes[prior].path_actions <= parent.path_actions + len(outcome.actions):
-            record.disposition = "duplicate"
+            record.disposition = AttemptDisposition.DUPLICATE.value
             return False
         child = self._record_node(parent, outcome, record)
-        record.disposition = "reopened" if prior is not None else "accepted"
+        disposition = AttemptDisposition.REOPENED if prior is not None else AttemptDisposition.ACCEPTED
+        record.disposition = disposition.value
         if child.task_solved:
             return True
         if not self.runtime.executor.terminal(child.state):
             self._enqueue(child)
         return False
 
-    def full_search(self, root: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
+    def full_search(self, root: IntentNode[SnapshotT, MemoryT]) -> tuple[IntentFinishReason, str | None]:
         if self.settings.max_expansions == 0:
             self._guard()
-            return "expansion_budget", None
+            return FinishReason.EXPANSION_BUDGET, None
         self._enqueue(root)
         while self.frontier:
             entry = heapq.heappop(self.frontier)
@@ -455,17 +476,17 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
             self.queue_pops.append(IntentExpansion(
                 parent.node, entry.scale, -entry.negative_value, entry.serial, len(self.frontier), self.actions,
             ))
-            for candidate in self._proposals(parent, entry.scale, "search"):
+            for candidate in self._proposals(parent, entry.scale, Phase.SEARCH):
                 for trial in range(self.settings.trials_per_proposal):
-                    outcome, record = self._trial(parent, candidate, entry.scale, "search", trial=trial)
+                    outcome, record = self._trial(parent, candidate, entry.scale, Phase.SEARCH, trial=trial)
                     if reason := self._interrupted(outcome, record):
                         return reason, record.error
                     if self._admit(parent, outcome, record):
-                        return "solved", None
+                        return FinishReason.SOLVED, None
             self._guard()
-        return "frontier_exhausted", None
+        return FinishReason.FRONTIER_EXHAUSTED, None
 
-    def plan_and_act(self, parent: IntentNode[SnapshotT, MemoryT]) -> tuple[str, str | None]:
+    def plan_and_act(self, parent: IntentNode[SnapshotT, MemoryT]) -> tuple[IntentFinishReason, str | None]:
         """Request a high-level plan, execute it directly and replan after a safe cutoff."""
         plan = self.runtime.plan
         if plan is None:
@@ -481,25 +502,26 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
                 try:
                     candidate = self.runtime.executor.validate_intent(self.runtime.executor.observation(parent.state), candidate)
                 except ValueError as exc:
-                    self._invalid(parent, None, "plan", exc)
+                    self._invalid(parent, None, Phase.PLAN, exc)
                     break
-                outcome, record = self._trial(parent, candidate, None, "plan")
+                outcome, record = self._trial(parent, candidate, None, Phase.PLAN)
                 accepted = _accepted(outcome)
                 if accepted or (outcome.actions and outcome.status is RolloutStatus.ACTION_LIMIT) or _confirmed_prefix(outcome):
                     parent = self._record_node(parent, outcome, record)
-                    record.disposition = "committed" if accepted else "committed_incomplete"
+                    disposition = AttemptDisposition.COMMITTED if accepted else AttemptDisposition.COMMITTED_INCOMPLETE
+                    record.disposition = disposition.value
                 if parent.task_solved:
-                    return "solved", None
+                    return FinishReason.SOLVED, None
                 if reason := self._interrupted(outcome, record):
                     return reason, record.error
                 if self.runtime.executor.terminal(parent.state):
                     return self._terminal_reason(parent.state), None
                 if outcome.status not in (RolloutStatus.ACHIEVED, RolloutStatus.ACTION_LIMIT):
-                    return "intent_failed", record.error
+                    return FinishReason.INTENT_FAILED, record.error
                 if not accepted:
                     break
             if self.actions == start:
-                return "no_proposals", None
+                return FinishReason.NO_PROPOSALS, None
 
     def _path(self) -> list[int]:
         segment_paths = []
@@ -547,12 +569,13 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
     ) -> IntentSearchResult[SnapshotT, IntentT, MemoryT]:
         root = IntentNode(0, None, initial, (), 0, False, False)
         self.nodes.append(root)
+        reason: IntentFinishReason
         try:
             root.task_solved = self.runtime.executor.task_solved(initial)
             operation = {SearchMode.DIRECT: self.direct, SearchMode.ONE_STEP: self.one_step,
                          SearchMode.FULL_SEARCH: self.full_search, SearchMode.PLAN_AND_ACT: self.plan_and_act}
             if root.task_solved:
-                reason, error = "solved", None
+                reason, error = FinishReason.SOLVED, None
             elif self.runtime.executor.terminal(initial):
                 reason, error = self._terminal_reason(initial), None
             else:
@@ -560,13 +583,13 @@ class _Search(Generic[SnapshotT, ObservationT, IntentT, MemoryT]):
         except _Stop as exc:
             reason, error = exc.reason, None
         except BudgetExceeded as exc:
-            reason, error = "api_budget", str(exc)
+            reason, error = FinishReason.API_BUDGET, str(exc)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            reason, error = "api_error", f"{type(exc).__name__}: {exc}"
+            reason, error = FinishReason.API_ERROR, f"{type(exc).__name__}: {exc}"
         selected = self.nodes[self.selected]
         path = self._path()
         return IntentSearchResult(
-            mode, selected.task_solved, reason, path, selected.state.snapshot, selected.task_solved,
+            mode, selected.task_solved, reason.value, path, selected.state.snapshot, selected.task_solved,
             selected.intent_reached, selected.node, self.nodes, self.queue_pops, self.attempts, self._accounting(path), error,
             self.runtime.executor.snapshot_record, self.planning_calls,
         )

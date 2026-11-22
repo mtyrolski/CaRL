@@ -9,6 +9,7 @@ from typing import Annotated, Literal, TypeAlias
 from pydantic import ConfigDict, Field, model_validator
 
 from carl.icl.config import Settings
+from carl.icl.types import JSONValue
 
 
 Resource = Literal[
@@ -122,8 +123,8 @@ def load_tasks(path: Path) -> CraftaxTaskManifest:
     return CraftaxTaskManifest.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value: dict[str, object] = {}
+def _unique_object(pairs: list[tuple[str, JSONValue]]) -> dict[str, JSONValue]:
+    value: dict[str, JSONValue] = {}
     for key, entry in pairs:
         if key in value:
             raise ValueError(f"duplicate JSON key {key}")
@@ -131,7 +132,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return value
 
 
-def decode_intent(value: object) -> CraftaxIntent:
+def decode_intent(value: JSONValue | CraftaxIntent) -> CraftaxIntent:
     """Decode a typed intent and reject duplicate keys or free-text instructions."""
     if isinstance(value, str):
         value = json.loads(value, object_pairs_hook=_unique_object)
@@ -176,7 +177,7 @@ def render_instruction(intent: CraftaxIntent) -> str:
     return aim + "."
 
 
-def _visible_inventory(observation: Mapping[str, object]) -> dict[str, int]:
+def _visible_inventory(observation: Mapping[str, JSONValue]) -> dict[str, int]:
     inventory = observation.get("inventory")
     if not isinstance(inventory, Mapping):
         raise ValueError("Craftax recipe policy requires the visible inventory")
@@ -186,7 +187,7 @@ def _visible_inventory(observation: Mapping[str, object]) -> dict[str, int]:
     }
 
 
-def recipe_objectives(observation: Mapping[str, object], goal: CraftaxIntent) -> tuple[CraftaxIntent, ...]:
+def recipe_objectives(observation: Mapping[str, JSONValue], goal: CraftaxIntent) -> tuple[CraftaxIntent, ...]:
     """Derive remaining wood, stone and pickaxe objectives from public observations and a goal."""
     visible = _visible_inventory(observation)
     if not intent_is_admissible(goal, visible):
@@ -239,13 +240,13 @@ def recipe_objectives(observation: Mapping[str, object], goal: CraftaxIntent) ->
 
 
 def mock_proposals(
-    observation: Mapping[str, object], goal: CraftaxIntent, _scale: float | None,
+    observation: Mapping[str, JSONValue], goal: CraftaxIntent, _scale: float | None,
 ) -> tuple[CraftaxIntent, ...]:
     """Propose the next recipe objective without accessing the task's reference chain."""
     return recipe_objectives(observation, goal)[:1]
 
 
-def mock_value(observation: Mapping[str, object], goal: CraftaxIntent) -> float:
+def mock_value(observation: Mapping[str, JSONValue], goal: CraftaxIntent) -> float:
     """Return a deterministic recipe-distance heuristic for the pilot."""
     if conjunction(goal.effects, _visible_inventory(observation)) is True:
         return 1.0
@@ -254,7 +255,7 @@ def mock_value(observation: Mapping[str, object], goal: CraftaxIntent) -> float:
 
 
 def _craft_action(
-    predicate: ToolThreshold, inventory: Counts, neighbors: Mapping[str, object],
+    predicate: ToolThreshold, inventory: Counts, neighbors: Mapping[str, JSONValue],
 ) -> str:
     if (predicate.tool != "pickaxe" or "CRAFTING_TABLE" not in neighbors.values()
             or inventory.get("wood", 0) < 1):
@@ -265,7 +266,7 @@ def _craft_action(
 
 
 def mock_action(
-    observation: Mapping[str, object], goal: CraftaxIntent, intent: CraftaxIntent | None,
+    observation: Mapping[str, JSONValue], goal: CraftaxIntent, intent: CraftaxIntent | None,
 ) -> str:
     """Execute an objective using visible inventory, facing and neighboring terrain."""
     objectives = recipe_objectives(observation, intent or goal)

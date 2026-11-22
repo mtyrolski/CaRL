@@ -54,7 +54,7 @@ def test_directed_ties_use_eligible_success_mass() -> None:
 
 def test_directed_censoring_and_duplicate_futures_mask_the_entire_context() -> None:
     success = _future("same", "intent_reached", 2)
-    rows = directed_labels([[success, success, _future("new", "campaign_interrupted")],
+    rows = directed_labels([[success, success, _future("new", "campaign_interrupted"), _future("legacy", "achieved", 1)],
                            [_future("a", "intent_timeout"), _future("b", "preservation_failed")]], [2, 2])
     assert [row["eligible_n"] for row in rows] == [1, 2]
     assert [row["p"] for row in rows] == [1.0, 0.0]

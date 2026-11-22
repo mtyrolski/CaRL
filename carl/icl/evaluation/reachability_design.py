@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeAlias
 
 import numpy as np
 from pydantic import Field, model_validator
@@ -15,6 +15,7 @@ from carl.icl.types import Board, JSONObject, TrainingContext, TrainingData
 
 Positive = Annotated[int, Field(strict=True, ge=1)]
 Action = Annotated[int, Field(strict=True, ge=0, le=3)]
+WitnessSplit: TypeAlias = Literal["train", "test"]
 
 
 class ReachabilityModel(Settings):
@@ -76,7 +77,7 @@ class WitnessFile(Settings):
     """A named split containing complete legal Sokoban demonstrations."""
 
     schema_version: Literal[1]
-    split: Literal["train", "test"]
+    split: WitnessSplit
     trajectories: list[Witness] = Field(min_length=1)
 
 
@@ -110,7 +111,7 @@ class TrainingReceipt(Settings):
     policy_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-def fixture(study: ReachabilityStudy, split: Literal["train", "test"]) -> WitnessFile:
+def fixture(study: ReachabilityStudy, split: WitnessSplit) -> WitnessFile:
     """Build deterministic small 12x12 witnesses using the existing reverse generator."""
     train = split == "train"
     number = 4 if train else study.trials_per_point + study.reserves_per_point
@@ -122,7 +123,7 @@ def fixture(study: ReachabilityStudy, split: Literal["train", "test"]) -> Witnes
     return WitnessFile(schema_version=1, split=split, trajectories=records)
 
 
-def validated_trajectories(data: WitnessFile, split: Literal["train", "test"]) -> list[Trajectory]:
+def validated_trajectories(data: WitnessFile, split: WitnessSplit) -> list[Trajectory]:
     """Verify family, action witnesses and independence units before sampling."""
     if data.split != split:
         raise ValueError(f"Expected the {split} split")

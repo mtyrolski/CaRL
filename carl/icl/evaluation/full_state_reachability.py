@@ -6,6 +6,7 @@ import platform
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from importlib.metadata import version
 from pathlib import Path
 from typing import Literal, TypeAlias
@@ -30,6 +31,23 @@ from carl.inference_components.conditional_low_level_policy import ConditionalLo
 TrialReason: TypeAlias = Literal["exact_target", "action_cap", "terminal_before_target", "model_error", "inference_budget"]
 
 
+class TrialStatus(StrEnum):
+    """Whether an exact-state trial produced a valid observation."""
+
+    COMPLETE = "complete"
+    ERROR = "error"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+
+    @classmethod
+    def from_reason(cls, reason: TrialReason) -> "TrialStatus":
+        """Classify technical failures separately from observed trial outcomes."""
+        if reason == "model_error":
+            return cls.ERROR
+        if reason == "inference_budget":
+            return cls.BUDGET_EXHAUSTED
+        return cls.COMPLETE
+
+
 class Tariff(Settings):
     """User-supplied per-million-token assumptions for a cost estimate."""
 
@@ -42,7 +60,7 @@ class Trial(Settings):
 
     case_sha256: str
     policy_fingerprint: str
-    status: Literal["complete", "error", "budget_exhausted"]
+    status: TrialStatus
     actions: list[Action]
     first_hit: Positive | None
     reason: TrialReason
@@ -52,8 +70,7 @@ class Trial(Settings):
     @model_validator(mode="after")
     def check_outcome(self) -> "Trial":
         """Keep first hit, completion and failure causes internally consistent."""
-        statuses = {"model_error": "error", "inference_budget": "budget_exhausted"}
-        if self.status != statuses.get(self.reason, "complete"):
+        if self.status != TrialStatus.from_reason(self.reason):
             raise ValueError("Trial status and termination disagree")
         if self.reason == "exact_target":
             if self.first_hit is None or self.first_hit != len(self.actions):
@@ -159,24 +176,22 @@ def execute_trial(case: ReachabilityCase, active: Controller, env: SokobanEnv) -
     actions: list[int] = []
     before = active.counts()
     started = time.monotonic()
-    reached = False
-    status: Literal["complete", "error", "budget_exhausted"] = "complete"
     reason: TrialReason
     try:
         result = rollout(env, active.policy, source, target, cap=case.k, rng=np.random.default_rng(case.seed),
                          on_action=lambda _before, action, _after: actions.append(action))
-        reached = result.reached
-        reason = "exact_target" if reached else "terminal_before_target" if result.solved else "action_cap"
+        reason = "exact_target" if result.reached else "terminal_before_target" if result.solved else "action_cap"
     except BudgetExceeded:
-        status, reason = "budget_exhausted", "inference_budget"
+        reason = "inference_budget"
     except RequestFailed:
-        status, reason = "error", "model_error"
+        reason = "model_error"
     counts = {key: value - before.get(key, 0) for key, value in active.counts().items()}
     if "logical_token_byte_fallback" in before:
         counts["logical_token_byte_fallback"] = before["logical_token_byte_fallback"]
     counts["attempted_simulator_actions"] = len(actions)
     return Trial(case_sha256=contract_hash(case.model_dump(mode="json")), policy_fingerprint=contract_hash(active.identity),
-                 status=status, reason=reason, actions=actions, first_hit=len(actions) if reached else None,
+                 status=TrialStatus.from_reason(reason), reason=reason, actions=actions,
+                 first_hit=len(actions) if reason == "exact_target" else None,
                  seconds=time.monotonic() - started, accounting=counts)
 
 
@@ -218,7 +233,7 @@ def point_rows(study: ReachabilityStudy, manifest: JSONObject, output: Path) -> 
         for k in offsets(study, model):
             cases = [ReachabilityCase.model_validate(value) for value in manifest["cases"][str(k)]]
             trials = saved_trials(output, model, cases)
-            valid = [trial for trial in trials if trial.status == "complete"]
+            valid = [trial for trial in trials if trial.status == TrialStatus.COMPLETE]
             n = len(valid)
             successes = sum(trial.first_hit is not None for trial in valid)
             low, high = wilson(successes, n)

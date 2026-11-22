@@ -4,9 +4,10 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
-from typing import Any, Final, TypedDict
+from typing import Any, Final, NamedTuple, TypedDict
 
 from carl.icl.calibration import weighted_median, weighted_percentiles
+from carl.icl.types import JSONValue
 
 MEASUREMENT_VERSION: Final = "carl-dc-v2"
 
@@ -21,7 +22,18 @@ class ScaleLabels(TypedDict):
     weight: float | None
 
 
-def contract_hash(value: object) -> str:
+class WeightedMidpoint(NamedTuple):
+    weight: float
+    relative_u: float
+
+
+class _ReachedCandidate(NamedTuple):
+    position: int
+    duration: float
+    success_fraction: float
+
+
+def contract_hash(value: JSONValue) -> str:
     """Hash canonical JSON, with non-finite values rejected."""
     data = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(data.encode()).hexdigest()
@@ -41,10 +53,10 @@ def pool_identity(rows: Sequence[Mapping[str, Any]], planned_attempts: Mapping[s
 
 def _reached(
     durations: Sequence[float | None], success_fractions: Sequence[float],
-) -> list[tuple[int, float, float]]:
+) -> list[_ReachedCandidate]:
     if not durations or len(durations) != len(success_fractions):
         raise ValueError("a complete pool needs a duration and success fraction for every candidate")
-    reached: list[tuple[int, float, float]] = []
+    reached: list[_ReachedCandidate] = []
     for index, (duration, fraction) in enumerate(zip(durations, success_fractions, strict=True)):
         if isinstance(fraction, bool) or not math.isfinite(fraction) or not 0 <= fraction <= 1:
             raise ValueError("success fractions must be between zero and one")
@@ -54,19 +66,27 @@ def _reached(
         elif isinstance(duration, bool) or not math.isfinite(duration) or duration <= 0 or fraction == 0:
             raise ValueError("duration must be positive and finite and have a successful attempt")
         else:
-            reached.append((index, duration, fraction))
+            reached.append(_ReachedCandidate(index, duration, fraction))
     return reached
+
+
+def _midpoints(reached: Sequence[_ReachedCandidate]) -> dict[int, WeightedMidpoint]:
+    if not reached:
+        return {}
+    weights, percentiles = weighted_percentiles(
+        [candidate.duration for candidate in reached], [candidate.success_fraction for candidate in reached],
+    )
+    return {
+        candidate.position: WeightedMidpoint(float(weight), float(percentile))
+        for candidate, weight, percentile in zip(reached, weights, percentiles, strict=True)
+    }
 
 
 def reached_midpoints(
     durations: Sequence[float | None], success_fractions: Sequence[float],
-) -> dict[int, tuple[float, float]]:
+) -> dict[int, WeightedMidpoint]:
     """Map each reached candidate to its normalized success mass and weighted midrank."""
-    reached = _reached(durations, success_fractions)
-    if not reached:
-        return {}
-    weights, quantiles = weighted_percentiles([d for _, d, _ in reached], [p for _, _, p in reached])
-    return {index: (float(w), float(u)) for (index, _, _), w, u in zip(reached, weights, quantiles, strict=True)}
+    return _midpoints(_reached(durations, success_fractions))
 
 
 def label_candidates(
@@ -100,13 +120,14 @@ def label_candidates(
         for duration, offset, rank in zip(durations, offsets, ranks, strict=True)
     ]
     if reached:
-        times = [duration for _, duration, _ in reached]
-        masses = [fraction for _, _, fraction in reached]
-        midpoints = reached_midpoints(durations, success_fractions)
+        times = [candidate.duration for candidate in reached]
+        masses = [candidate.success_fraction for candidate in reached]
+        midpoints = _midpoints(reached)
         median = weighted_median(times, masses)
-        for index, duration, _ in reached:
-            weight, percentile = midpoints[index]
-            labels[index]["ratio_d_over_ac"] = duration / median
-            labels[index]["relative_u"] = float(percentile)
-            labels[index]["weight"] = float(weight)
+        for candidate in reached:
+            label = labels[candidate.position]
+            midpoint = midpoints[candidate.position]
+            label["ratio_d_over_ac"] = candidate.duration / median
+            label["relative_u"] = midpoint.relative_u
+            label["weight"] = midpoint.weight
     return labels

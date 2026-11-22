@@ -5,19 +5,15 @@ import time
 from collections.abc import Callable
 from copy import copy
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from enum import StrEnum
+from typing import Protocol, TypeAlias
 
 from carl.icl.api import BudgetExceeded
 from carl.icl.intent_domain import annotation_digest, annotation_json
-from carl.icl.intent_domain import decode_intent as sokoban_intent
-from carl.icl.intent_domain import render_instruction as sokoban_instruction
-from carl.icl.planning.craftax_tasks import CraftaxIntent, conjunction
-from carl.icl.planning.craftax_tasks import render_instruction as craftax_instruction
-from carl.icl.planning.local_direct import SYSTEM, CraftaxDirect, SokobanDirect, parse_batch
-from carl.icl.types import JSONObject
+from carl.icl.planning.local_direct import SYSTEM, DirectDomain, TaskStatus, parse_batch
+from carl.icl.types import JSONObject, JSONValue
 
 
-ActiveDomain: TypeAlias = SokobanDirect | CraftaxDirect
 Decide: TypeAlias = Callable[[list[dict[str, str]]], JSONObject]
 INTENT_CAP = 12
 HISTORY_CAP = 6
@@ -27,7 +23,30 @@ SYSTEM_PROMPT = SYSTEM + (
 )
 
 
-def digest(value: object) -> str:
+class IntentStatus(StrEnum):
+    """Checkpoint and terminal statuses for an assigned intent."""
+
+    RUNNING = "running"
+    REACHED = "intent_reached"
+    TIMEOUT = "intent_timeout"
+    PRESERVATION_FAILED = "preservation_failed"
+    PRESERVATION_UNKNOWN = "preservation_unknown"
+    TASK_SOLVED = "task_solved"
+    EPISODE_ENDED = "episode_ended"
+    BUDGET_CUTOFF = "budget_cutoff"
+    CONTROLLER_ERROR = "controller_error"
+    INVALID_RESPONSE = "invalid_response"
+
+
+class ActiveDomain(DirectDomain, Protocol):
+    """An assigned-intent adapter that can be copied to run a speculative branch."""
+
+    def assign_intent(self, requested: JSONObject) -> tuple[JSONObject, str]: ...
+    def task_status(self) -> TaskStatus: ...
+    def checkpoint(self) -> tuple[str, JSONObject]: ...
+
+
+def digest(value: JSONValue) -> str:
     return annotation_digest(annotation_json(value).encode())
 
 
@@ -57,45 +76,22 @@ class IntentBudget:
         return None
 
 
-def _assign(domain: ActiveDomain, requested_h: JSONObject) -> tuple[JSONObject, str]:
-    if isinstance(domain, SokobanDirect):
-        domain.intent = sokoban_intent(requested_h)
-        return dict(domain.intent), sokoban_instruction(domain.intent)
-    domain.intent = CraftaxIntent.model_validate(requested_h)
-    return domain.intent.model_dump(mode="json"), craftax_instruction(domain.intent)
-
-
-def _goal(domain: ActiveDomain, task: CraftaxIntent | None) -> tuple[bool, bool]:
-    if isinstance(domain, SokobanDirect):
-        return bool(domain.env.is_solved(domain.snapshot.restore())), False
-    snapshot = domain.snapshot
-    facts = domain.adapter.inventory(snapshot)
-    solved = task is not None and conjunction((*task.effects, *task.preserve), facts) is True
-    return solved, snapshot.terminated or snapshot.truncated
-
-
 def _state(domain: ActiveDomain, history: list[JSONObject], note: str | None, feedback: str | None) -> JSONObject:
     memory = {"history": history[-HISTORY_CAP:], "note": note, "feedback": feedback}
-    if isinstance(domain, SokobanDirect):
-        rows = list(domain.snapshot.rows)
-        return {"state_id": digest(rows), "memory_id": digest(memory), "memory": memory, "observation": rows}
-    snapshot = domain.snapshot
-    return {
-        "state_id": snapshot.fingerprint, "memory_id": digest(memory), "memory": memory,
-        "observation": domain.adapter.observe(snapshot), "native": domain.adapter.snapshot_record(snapshot),
-    }
+    state_id, checkpoint = domain.checkpoint()
+    return {"state_id": state_id, "memory_id": digest(memory), "memory": memory, **checkpoint}
 
 
-def _stop(hits: bool | None, preserves: bool | None, solved: bool, ended: bool, *, observed: bool) -> str | None:
+def _stop(hits: bool | None, preserves: bool | None, solved: bool, ended: bool, *, observed: bool) -> IntentStatus | None:
     if preserves is False:
-        return "preservation_failed"
+        return IntentStatus.PRESERVATION_FAILED
     if preserves is None or not observed:
-        return "preservation_unknown"
+        return IntentStatus.PRESERVATION_UNKNOWN
     if hits is True:
-        return "intent_reached"
+        return IntentStatus.REACHED
     if solved:
-        return "task_solved"
-    return "episode_ended" if ended else None
+        return IntentStatus.TASK_SOLVED
+    return IntentStatus.EPISODE_ENDED if ended else None
 
 
 @dataclass
@@ -105,7 +101,6 @@ class IntentSession:
     domain: ActiveDomain
     public_task: str
     budget: IntentBudget
-    craftax_task: CraftaxIntent | None = None
     history: list[JSONObject] = field(default_factory=list)
     note: str | None = None
     feedback: str | None = None
@@ -119,13 +114,13 @@ class IntentSession:
         if cap <= 0:
             raise ValueError("An intent cap must be positive")
         domain = copy(self.domain) if speculative else self.domain
-        h, instruction = _assign(domain, requested_h)
+        h, instruction = domain.assign_intent(requested_h)
         history, note, feedback = list(self.history), self.note, self.feedback
         initial = _state(domain, history, note, feedback)
         states = [initial]
         steps: list[JSONObject] = []
         decisions: list[JSONObject] = []
-        solved, ended = _goal(domain, self.craftax_task)
+        solved, ended = domain.task_status()
         hits, preserves = domain.check()
         status = _stop(hits, preserves, solved, ended, observed=True)
         initial_check = {"effects": hits, "preservation": preserves, "task_solved": solved, "episode_ended": ended}
@@ -137,7 +132,7 @@ class IntentSession:
         def save_progress() -> None:
             if checkpoint is not None:
                 checkpoint({
-                    "attempt_id": attempt_id, "requested_h": h, "status": "running",
+                    "attempt_id": attempt_id, "requested_h": h, "status": IntentStatus.RUNNING.value,
                     "executed_primitives": primitives, "initial_check": initial_check,
                     "states": states, "steps": steps, "decisions": decisions,
                     "budget_after": self.budget.remaining(), "elapsed_seconds": time.monotonic() - started,
@@ -146,7 +141,7 @@ class IntentSession:
         while status is None:
             cutoff = self.budget.cutoff()
             if cutoff is not None:
-                status = "budget_cutoff"
+                status = IntentStatus.BUDGET_CUTOFF
                 break
             query = {
                 "observation": domain.observe(), "public_task": self.public_task,
@@ -162,11 +157,11 @@ class IntentSession:
             try:
                 decision.update(decide(messages))
             except BudgetExceeded as error:
-                status, cutoff = "budget_cutoff", "model_context"
+                status, cutoff = IntentStatus.BUDGET_CUTOFF, "model_context"
                 decision["error"] = str(error)
                 break
             except (OSError, RuntimeError, ValueError) as error:
-                status = "controller_error"
+                status = IntentStatus.CONTROLLER_ERROR
                 decision["error"] = str(error)
                 break
             try:
@@ -175,7 +170,7 @@ class IntentSession:
                 feedback = "The previous batch was invalid. Return one to four allowed actions."
                 decision["error"] = str(error)
                 if stop_on_invalid:
-                    status = "invalid_response"
+                    status = IntentStatus.INVALID_RESPONSE
                     break
                 continue
 
@@ -186,7 +181,7 @@ class IntentSession:
                 cutoff = self.budget.cutoff()
                 # The call reservation includes its admitted batch.
                 if cutoff is not None and cutoff != "calls":
-                    status = "budget_cutoff"
+                    status = IntentStatus.BUDGET_CUTOFF
                     decision["discarded_suffix"] = actions[index:]
                     break
                 step = domain.step(action)
@@ -194,7 +189,7 @@ class IntentSession:
                 self.budget.actions += int(step.executed)
                 self.budget.ticks += step.native_ticks
                 hits, preserves = domain.check()
-                solved, ended = _goal(domain, self.craftax_task)
+                solved, ended = domain.task_status()
                 entry = {"requested": action, "applied": step.native_action, "executed": step.executed, "no_op": step.no_op}
                 history.append(entry)
                 history = history[-HISTORY_CAP:]
@@ -208,9 +203,9 @@ class IntentSession:
                 })
                 status = _stop(hits, preserves, solved, ended, observed=step.native_ticks == 1)
                 if status is None and primitives == cap:
-                    status = "intent_timeout"
+                    status = IntentStatus.TIMEOUT
                 if status is not None or step.progress_changed or step.no_op or step.automatic_ticks:
-                    decision["interrupt"] = status or "observation_changed"
+                    decision["interrupt"] = status.value if status is not None else "observation_changed"
                     decision["discarded_suffix"] = actions[index + 1:]
                     save_progress()
                     break
@@ -220,10 +215,10 @@ class IntentSession:
         if not speculative:
             self.history, self.note, self.feedback = history, note, feedback
         return {
-            "attempt_id": attempt_id, "requested_h": h, "instruction": instruction, "status": status,
-            "budget_reason": cutoff if status == "budget_cutoff" else None, "intent_cap": cap,
+            "attempt_id": attempt_id, "requested_h": h, "instruction": instruction, "status": status.value,
+            "budget_reason": cutoff if status is IntentStatus.BUDGET_CUTOFF else None, "intent_cap": cap,
             "mode": "speculative" if speculative else "live", "initial_check": initial_check,
-            "first_hit": primitives if status == "intent_reached" else None,
+            "first_hit": primitives if status is IntentStatus.REACHED else None,
             "task_solved": solved, "episode_ended": ended, "executed_primitives": primitives,
             "budget_before": budget_before, "budget_after": self.budget.remaining(),
             "states": states, "steps": steps, "decisions": decisions,

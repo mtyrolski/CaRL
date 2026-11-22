@@ -1,7 +1,7 @@
 """Pure snapshot transitions for the pinned, non-auto-reset Craftax environment."""
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from importlib import import_module, metadata
@@ -162,6 +162,14 @@ class CraftaxAdapter:
         """Read authoritative scalar inventory and tool tiers for predicate checks."""
         native = self.restore(snapshot)._state.inventory
         return {name: int(getattr(native, name)) for name in _INVENTORY_FIELDS}
+
+    def loop_key(self, snapshot: CraftaxSnapshot) -> Hashable:
+        """Identify repeated positions and inventories independently of the clock and RNG."""
+        state = self.restore(snapshot)._state
+        return (
+            int(state.player_level), tuple(map(int, state.player_position)), int(state.player_direction),
+            tuple(sorted(self.inventory(snapshot).items())),
+        )
 
     def observe(self, snapshot: CraftaxSnapshot) -> dict[str, Any]:
         """Return model-visible data only, including native darkness and view crop."""

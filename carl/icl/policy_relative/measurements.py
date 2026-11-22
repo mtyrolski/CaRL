@@ -18,22 +18,26 @@ from carl.icl.intent_annotations import DA_VERSION
 from carl.icl.intent_domain import DOMAIN_VERSION, SokobanSnapshot, decode_intent
 from carl.icl.intents.generation.data import file_sha256, read_records
 from carl.icl.intents.provenance import component_hashes
-from carl.icl.luna_intent_rollout import MEASUREMENT_PROMPT, Action, ActionAttempt
+from carl.icl.luna_intent_rollout import MEASUREMENT_PROMPT, Action, ActionAttempt, RolloutStatus
+from carl.icl.planning.active_intent import IntentStatus
 from carl.icl.policy_relative.labels import MEASUREMENT_VERSION, contract_hash, label_candidates, pool_identity, reached_midpoints
 from carl.icl.policy_relative.rollout import (
     ACTION_PARSER_VERSION, MEASUREMENT_PROMPT_VERSION, PolicyFactory, run_measurement_attempt,
 )
 
 COMPLETE_STATUSES = frozenset({
-    "achieved", "action_limit", "task_solved", "preservation_violated", "invalid_response", "unknown",
+    RolloutStatus.ACHIEVED, RolloutStatus.ACTION_LIMIT, RolloutStatus.TASK_SOLVED,
+    RolloutStatus.PRESERVATION_VIOLATED, RolloutStatus.INVALID_RESPONSE, RolloutStatus.UNKNOWN,
 })
 EXPORTED_ATTEMPT_FIELDS = (
     "index", "seed", "status", "primitive_actions_attempted", "first_hit_actions", "task_solved", "model_calls", "metrics",
 )
 
 DIRECTED_FAILURES = frozenset({
-    "intent_timeout", "invalid_response", "episode_ended", "task_solved", "preservation_failed", "preservation_unknown",
+    IntentStatus.TIMEOUT, IntentStatus.INVALID_RESPONSE, IntentStatus.EPISODE_ENDED, IntentStatus.TASK_SOLVED,
+    IntentStatus.PRESERVATION_FAILED, IntentStatus.PRESERVATION_UNKNOWN,
 })
+DIRECTED_COMPLETE_STATUSES = DIRECTED_FAILURES | {IntentStatus.REACHED}
 
 
 def directed_labels(
@@ -44,7 +48,7 @@ def directed_labels(
     for candidates, expected in zip(attempts, planned, strict=True):
         futures: dict[str, dict[str, Any]] = {}
         for trial in candidates:
-            if trial["status"] not in DIRECTED_FAILURES | {"intent_reached"}:
+            if trial["status"] not in DIRECTED_COMPLETE_STATUSES:
                 continue
             future = trial["future_id"]
             if future in futures:
@@ -56,7 +60,7 @@ def directed_labels(
         n = len(futures)
         if not 0 < expected or n > expected:
             raise ValueError("Eligible futures do not match the frozen trial counts")
-        hits = [row["first_hit"] for row in futures.values() if row["status"] == "intent_reached"]
+        hits = [row["first_hit"] for row in futures.values() if row["status"] == IntentStatus.REACHED]
         if any(isinstance(hit, bool) or not isinstance(hit, int) or hit < 1 for hit in hits):
             raise ValueError("A successful unmet intent requires a positive executed first hit")
         counts.append(n)
@@ -69,8 +73,8 @@ def directed_labels(
     scales = reached_midpoints(durations, [p or 0.0 for p in fractions]) if complete else {}
     return [{
         "eligible_n": count, "successes": success, "p": fraction, "d": duration,
-        "w": scales[index][0] if index in scales else None,
-        "u": scales[index][1] if comparative and index in scales else None,
+        "w": scales[index].weight if index in scales else None,
+        "u": scales[index].relative_u if comparative and index in scales else None,
         "planned_n": planned[index], "context_complete": complete,
         "scale_supervision": comparative and index in scales,
         "uncertainty": [flag for condition, flag in (
@@ -225,7 +229,7 @@ def _measurement_rows(
     for rows in contexts.values():
         trials = [list(completed.get(row["record_id"], {}).values()) for row in rows]
         successful = [
-            [item["first_hit_actions"] for item in attempts if item["status"] == "achieved"]
+            [item["first_hit_actions"] for item in attempts if item["status"] == RolloutStatus.ACHIEVED]
             for attempts in trials
         ]
         denominators = [planned[row["record_id"]] for row in rows]

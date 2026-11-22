@@ -51,9 +51,10 @@ def test_timeout_keeps_live_checkpoint_and_charges_speculation() -> None:
 
     queries.clear()
     branch = _session(TWO_GOALS, IntentBudget(24, 24, 24, 60))
+    checkpoint = branch.domain.checkpoint()
     speculative = branch.attempt("branch", TWO_GOALS, decide, speculative=True)
     assert speculative["status"] == "intent_timeout" and speculative["continuation"] == speculative["states"][0]
-    assert branch.domain.snapshot == BOARD and not branch.history
+    assert branch.domain.checkpoint() == checkpoint and not branch.history
     assert branch.budget.actions == 12 and branch.budget.calls == 12
 
 

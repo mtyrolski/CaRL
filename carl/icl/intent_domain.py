@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from typing import Final, Literal, TypeAlias, TypedDict, cast
 
 import numpy as np
@@ -14,7 +14,7 @@ from carl.icl.data_sources.sokoban import environment
 from carl.icl.intent_augmentation import TRANSFORM_INVARIANT_TASK
 from carl.icl.intent_data import SCHEMA_VERSION, SokobanPredicate, validate_intent, validate_prediction
 from carl.icl.intents.representation.formats import Representation, parse_representation, render_representation
-from carl.icl.types import Board
+from carl.icl.types import Board, JSONValue
 
 DOMAIN_VERSION: Final = "sokoban-observation-v1"
 TASK_GOAL: Final = TRANSFORM_INVARIANT_TASK
@@ -57,7 +57,7 @@ def annotation_digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def annotation_json(value: object) -> str:
+def annotation_json(value: JSONValue | Intent | Predicate) -> str:
     """Serialize annotation data consistently across producers and readers."""
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
@@ -70,10 +70,11 @@ def context_identity(rows: Sequence[str]) -> str:
 def annotation_identity(context_id: str, intent: Intent) -> str:
     """Identify a conjunction independently of the order of its predicates."""
     semantic = {
+        "context_id": context_id,
         "effects": sorted(map(annotation_json, intent["effects"])),
         "preserve": sorted(map(annotation_json, intent["preserve"])),
     }
-    return annotation_digest(annotation_json({"context_id": context_id, **semantic}).encode())
+    return annotation_digest(annotation_json(semantic).encode())
 
 
 @dataclass(frozen=True)
@@ -175,7 +176,10 @@ class SokobanSnapshot:
         return from_rows(list(self.rows))
 
 
-CheckStatus: TypeAlias = Literal["accepted", "rejected", "unknown"]
+class CheckStatus(StrEnum):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -186,7 +190,7 @@ class IntentCheck:
     errors: tuple[str, ...] = ()
 
 
-def decode_intent(sketch: object) -> Intent:
+def decode_intent(sketch: JSONValue | Intent) -> Intent:
     """Read strict JSON or a legacy dictionary with an omitted instruction."""
     if isinstance(sketch, str):
         return cast(Intent, parse_representation(Representation.JSON, sketch))
@@ -275,9 +279,9 @@ def _check_partial(intent: Intent, observations: Sequence[SokobanObservation]) -
     try:
         problems = _check_partial_legality(intent, _partial_layout(observations))
     except ValueError as exc:
-        return IntentCheck("rejected", (str(exc),))
+        return IntentCheck(CheckStatus.REJECTED, (str(exc),))
     if problems:
-        return IntentCheck("rejected", problems)
+        return IntentCheck(CheckStatus.REJECTED, problems)
     rejected: list[str] = []
     unknown: list[str] = []
     for index, predicate in enumerate(intent["effects"]):
@@ -300,20 +304,20 @@ def _check_partial(intent: Intent, observations: Sequence[SokobanObservation]) -
             if truth is None:
                 unknown.append(f"preserve[{index}]: unknown at fragment state {step}")
     if rejected:
-        return IntentCheck("rejected", tuple(rejected))
+        return IntentCheck(CheckStatus.REJECTED, tuple(rejected))
     if unknown:
-        return IntentCheck("unknown", tuple(unknown))
-    return IntentCheck("accepted")
+        return IntentCheck(CheckStatus.UNKNOWN, tuple(unknown))
+    return IntentCheck(CheckStatus.ACCEPTED)
 
 
 def check_intent(intent: Intent, observations: Sequence[SokobanObservation]) -> IntentCheck:
     """Verify an intent against the whole fragment, with unknowns retained explicitly."""
     if len(observations) < 2:
-        return IntentCheck("rejected", ("fragment must contain at least two states",))
+        return IntentCheck(CheckStatus.REJECTED, ("fragment must contain at least two states",))
     if any(observation.partial for observation in observations):
         return _check_partial(intent, observations)
     errors = validate_intent(intent, [list(observation.rows) for observation in observations])
-    return IntentCheck("rejected", tuple(errors)) if errors else IntentCheck("accepted")
+    return IntentCheck(CheckStatus.REJECTED, tuple(errors)) if errors else IntentCheck(CheckStatus.ACCEPTED)
 
 
 def validate_intent_proposal(intent: Intent, observation: SokobanObservation) -> tuple[str, ...]:
