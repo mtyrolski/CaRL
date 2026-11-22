@@ -641,3 +641,53 @@ Use the original validation evidence to assess the empty-action failures of the 
 All eight original Qwen2.5 direct validation cases contained at least one empty action batch, with seven empty batches in Sokoban and eight in Craftax. The same symptom caused all 12 invalid-response stops in the directed block, four in Sokoban and eight in Craftax. The one candidate intervention is a controller response contract that enforces a nonempty list of legal actions. A changed output contract needs a new policy identity and new `D_C`. The original pilot used all four Sokoban validation layouts and all four Craftax validation worlds across two chain groups. Neither frozen validation split has an untouched group. There was no further tuning or new test claim.
 
 The Sokoban-only forecast for the intervention is about 1,056 worker-seconds for nine directed slots at up to 12 one-action decisions per slot, using the previously observed 8.391-second median, plus two 60-second validation slots and 30 seconds of setup. Collection of new disjoint groups would add cost. Prompt 10 logged zero experiment worker-seconds and unknown Codex usage. The final available total was **901.927 worker-seconds**. The evidence and estimate are in `analysis/intent-pilot/final/diagnostic.json` and can be checked with the same resume command.
+
+## Prompt 11 — Capped Qwen3 thinking diagnostic
+
+The extension tested the native Transformers Qwen3 thinking switch on the two existing Sokoban development starts. It used one shared pinned Qwen3-0.6B FP32 CPU checkpoint, the same typed action interface, greedy decoding and one decision per assigned start. Every arm had a 64-token output cap and a 40-second warmed wall limit. The semantic intent, unassigned relative scale, four-action batch width and hard intent length 12 were recorded separately. The actual template inputs differed by the backend switch. Each call recorded current effort and the scheduled effort for a subsequent call. The one-decision limit prevented subsequent dispatch.
+
+| Validation start | Thinking off | Thinking on |
+| --- | --- | --- |
+| `generated_12x12x10_validation_1` | 3.505 s, 21 output tokens, one executed primitive | 13.617 s, 64 thinking tokens, zero primitives and ticks |
+| `generated_12x12x10_validation_2` | 8.620 s, 21 output tokens, one executed primitive | 16.438 s, 64 thinking tokens, zero primitives and ticks |
+
+Both thinking-on requests exhausted their output cap before an action answer. All four calls were charged. This was a first-decision diagnostic with two paired starts and zero solved compositions. The frozen variant receives no calibration claim or `D_C` assignment. Raw cases and configuration hashes are in `analysis/intent-pilot/effort/`. The worker charged **57.400 seconds**, including **10.127 seconds** of recorded binding and cold setup. No natural-reset full-game result is available.
+
+```bash
+source analysis/intent-pilot/env.sh
+export OMP_NUM_THREADS=6 MKL_NUM_THREADS=6 OPENBLAS_NUM_THREADS=1
+uv run --locked --offline --no-sync python analysis/intent-pilot/delivery/ledger.py \
+  --prompt 11 --domain sokoban --phase inference --activity native-thinking-switch --seconds 225 -- \
+  uv run --locked --offline --no-sync python analysis/intent-pilot/delivery/effort.py
+```
+
+### Next prompt — 12
+
+Index the checked data and independent trial evidence, replay a small original subset, and generate the final local report. Keep the sealed eligibility record read-only.
+
+## Prompt 12 — Closed local release
+
+The data card is `analysis/intent-pilot/DATA_CARD.md`. Its shard index `DATASET_MANIFEST.json` contains **372 hashed files** and explicit path bases for the campaign, checkout and workspace. The index SHA-256 is `1fb70d3a9d49a2f97f16869c45fe8950f78486ba746ec0f782cb58d6a9322d51`. Effective `D_A` has **37 verified Sokoban rows and 30 verified Craftax rows**, with 25 training rows per domain. It retains both checked hindsight prefixes, all 68 raw Codex replies and the rejected Craftax duplicate. Effective `D_C` has **36 candidate rows and 54 scheduled attempts across four cells**. There are **29 eligible attempts, one censored attempt, 24 undispatched slots and zero informative scale labels**. The original measurement release remains indexed separately.
+
+The two full annotation checks and the hindsight verification passed. The regeneration smoke replayed the original 44-primitives Sokoban trace `part_1:294` and the five-request native Craftax trace `cx-stage03-gather-wood`. It regenerated three checked rows per domain from the existing raw replies. The lineage audit resolved every packet and verification outcome, recomputed policy measurements from their attempted trials, and checked separate assigned intents, controller identities, memory and native futures. Sealed metadata and file hashes confirmed zero overlaps with support or measurement. The audit decoded no sealed observations or witnesses. The original sealed report checksums passed.
+
+`analysis/intent-pilot/REPORT.md` summarizes the measured outcomes and limitations. `results.jsonl` has **156 case records**, including 24 unassigned sealed slots. The 48 distinct cost and outcome groups in `delivery/summary.json` keep each success criterion separate. `delivery/{commands.json,budget.json,case-index.csv}` preserves exact argv, measured ledger costs and case evidence paths. Ruff and the eight release checksums passed.
+
+The closeout used the original SQLite table and metering wrapper with a local adapter that records Prompts 11 and 12 under their own IDs. This preserves the frozen Prompt 09 code and report. Prompt 12 charged **116.249 preparation worker-seconds**. This includes **97.620 s** for regeneration and **6.872 s** for an index attempt that resolved a repository-relative fixture as workspace-relative. The corrected index and final audit succeeded. Cumulative charges are **2,537.354 preparation** and **3,934.368 inference worker-seconds**. The final ledger has **728.278 unspent worker-seconds**, **USD 0**, and no outstanding reservation. No further experiments are queued.
+
+### Exact verification commands
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python analysis/intent-pilot/delivery/dataset.py verify
+(cd analysis/intent-pilot && sha256sum -c delivery/RELEASE.sha256)
+```
+
+For the native replay and six-row regeneration, use the audited preparation command below. Fresh campaigns can use the same `regenerate.sh` against the copied data and a locked CPU environment.
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python analysis/intent-pilot/delivery/ledger.py \
+  --prompt 12 --phase preparation --activity regenerate-and-verify --seconds 300 -- \
+  bash analysis/intent-pilot/delivery/regenerate.sh
+```
