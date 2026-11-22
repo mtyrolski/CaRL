@@ -9,6 +9,7 @@ from carl.icl.boards import from_rows
 from carl.icl.data_sources.sokoban import environment
 from carl.icl.luna_intent_rollout import Action
 from carl.icl.luna_intent_rollout import ActionAttempt
+from carl.icl.luna_intent_rollout import IntentRollout
 from carl.icl.luna_intent_rollout import RolloutStatus
 from carl.icl.luna_intent_rollout import build_prompt
 from carl.icl.luna_intent_rollout import rollout
@@ -31,6 +32,7 @@ def test_no_op_counts_and_first_satisfaction_stops():
     assert result.status == RolloutStatus.ACHIEVED
     assert result.achieved
     assert result.actions == [0, 3]
+    assert result.first_hit_actions == 2
     assert result.model_calls == 2
     assert [step["no_op"] for step in result.steps] == [True, False]
     assert result.endpoint[1] == "#-@$.-#"
@@ -40,6 +42,16 @@ def test_no_op_counts_and_first_satisfaction_stops():
     assert second["state"] == result.steps[0]["after"]
     assert [event["type"] for event in events] == ["request", "response", "action"] * 2
     json.dumps(asdict(result))
+
+
+@pytest.mark.parametrize(("executed", "duration"), [([False, True], 1), ([False, False], 0)])
+def test_first_hit_excludes_automatic_ticks(executed, duration):
+    result = IntentRollout(
+        RolloutStatus.ACHIEVED, True, False, [0, 3], 2, [],
+        [{"action": action, "primitive_action_executed": complete}
+         for action, complete in zip((0, 3), executed, strict=True)],
+    )
+    assert result.first_hit_actions == duration
 
 
 def test_preservation_violation_fails_even_if_effect_is_simultaneously_true():

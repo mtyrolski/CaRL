@@ -130,8 +130,12 @@ class IntentRollout:
 
     @property
     def first_hit_actions(self) -> int | None:
-        """Report the first confirmed hit, counted from the restored snapshot."""
-        return len(self.actions) if self.achieved else None
+        """Count executed primitives from the restored snapshot to the first checked hit."""
+        if not self.achieved:
+            return None
+        automatic = sum(step.get("primitive_action_executed") is False for step in self.steps
+                        if step.get("action") is not None)
+        return len(self.actions) - automatic
 
 
 def build_prompt(state: Board, intent: Mapping[str, object], task_goal: str,

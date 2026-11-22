@@ -16,6 +16,9 @@ def main() -> int:
     commands.add_parser("freeze", help="Freeze whole episodes and bind them to the campaign")
     commands.add_parser("verify", help="Check split hashes and display the safe resume summary")
     commands.add_parser("status", help="Read the budget and preparation rows")
+    replay = commands.add_parser("replay", help="Check checkpoint replay on a public integration fixture")
+    replay.add_argument("--domain", required=True, choices=("sokoban", "craftax"))
+    replay.add_argument("--output", type=Path, required=True)
     run = commands.add_parser("run", help="Reserve worker time and execute a local command")
     run.add_argument("--prompt", required=True, choices=range(1, 10), type=int, metavar="1..9")
     run.add_argument("--domain", default="both", choices=DOMAINS)
@@ -40,6 +43,12 @@ def main() -> int:
             command = args.command[1:] if args.command[:1] == ["--"] else args.command
             return ledger.run(args.prompt, args.domain, args.phase, args.activity,
                               command, seconds=args.seconds, workers=args.workers)
+        if args.action == "replay":
+            from carl.icl.experiments.intent_pilot_replay import run_replay
+
+            run_replay(args.domain, args.output)
+            print(args.output)
+            return 0
         if args.action == "record-preparation":
             ledger.record_preparation(
                 args.prompt, args.activity, args.status, args.note, seconds=args.seconds,

@@ -70,3 +70,65 @@ Read both documents and run the resume command. Prepare replay-checked annotatio
 For Craftax, construct the pinned simulator with `CraftaxAdapter`, then run native `reset`, `stage`, `step` and `restore` on the unsealed worlds. Record actual world identities, replayability and termination before selecting fragments. The existing `scripts.run_predicate_icl craftax` CLI exposes `--mode mock` for the published fixture. The local real-controller surface for this campaign needs to be connected to the native Craftax executor before inference. Keep observations, actions and outcomes separate from model-visible requests.
 
 Budget all replay, integration and verification jobs through the ledger. Keep train-measurement, validation and sealed test separate. Record checked Codex annotation provenance for both domains, then append the exact inputs, outputs, commands, results, remaining budget and the next prompt to this journal.
+
+## Prompt 02 — Integration smokes and checkpoint replay, 2026-11-22
+
+Complete on the intake checkout `8be17acfcd5f9253a17cadf0bf4d1f275f06ae8e`. Both smokes and the replay audits are **integration-only**. They used the public Sokoban quick-start fixtures and the pinned native Craftax task `wood-to-stone-pickaxe`. The campaign split hash reproduced and the sealed cohorts stayed outside these runs.
+
+### Commands and artefacts
+
+From the CaRL root, source `analysis/intent-pilot/env.sh` and set `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`. The native commands also set `JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS=0`. The existing Craftax 1.1.0 and JAX 0.4.23 overlay follows the package setup in `scripts/README.md`. All jobs used `uv run --locked --offline --no-sync` inside `scripts.intent_pilot run --prompt 2 --phase preparation`. The ledger contains the exact argv, deadlines and costs.
+
+| Entry point and arguments | Output under `analysis/intent-pilot/smoke/` |
+| --- | --- |
+| `python -m scripts.run_icl_smoke --config configs/icl/quickstart/sokoban_sweep.json --output analysis/intent-pilot/smoke/sokoban` | `sokoban/sweep.json`, per-trial traces, `sokoban.log` |
+| `python -m scripts.run_predicate_icl craftax --mode mock --planning-mode all --task wood-to-stone-pickaxe --output analysis/intent-pilot/smoke/craftax.json` | `craftax.json`, `craftax.log` |
+| `python -m scripts.intent_pilot replay --domain sokoban --output analysis/intent-pilot/smoke/sokoban-replay.json` | `sokoban-replay.json`, `sokoban-replay.log` |
+| `python -m scripts.intent_pilot replay --domain craftax --output analysis/intent-pilot/smoke/craftax-replay.json` | `craftax-replay.json`, `craftax-replay.log` |
+| `python analysis/intent-pilot/smoke/reconcile.py` | `integration-only.json`, `action-work.csv`, `reconcile.log` |
+
+The Craftax entry accepts `mock` and its `mock_proposals` returned identical proposals at requested scales 0.2 and 0.8. The native output carries the integration-only label. The reconciled JSON labels both smokes and binds their raw files by SHA-256.
+
+| Fixture smoke | Solved | Policy / generator / value calls | Live / speculative ticks | Warm-up ticks |
+| --- | ---: | ---: | ---: | ---: |
+| Sokoban | 22 / 24 | 44 / 16 / 8 | 20 / 24 | 0 |
+| Native Craftax | 4 / 4 | 25 / 9 / 7 | 15 / 10 | 1 |
+
+The two Sokoban one-step runs at the smaller budget stopped on `action_budget`. In both smokes all primitive requests in the matched records executed, and the matched records contain zero automatic ticks. The Craftax warm-up is charged separately from its matched records. Direct, committed one-step and Plan-and-Act execution are live for fixture accounting. Rollout probes and full-search expansions are speculative, including the selected full-search path. All role calls were mocked and physical requests were zero.
+
+### Replay and native tick evidence
+
+- Both domains cloned a checkpoint with one prior action in controller memory. The restored branches matched the reference observations, decisions, transitions and endpoint memory. Sokoban reached its first checked hit after one executed primitive from the checkpoint. Craftax reached it after four, with identical reward, terminal flags and full snapshot fingerprints.
+- The independent Craftax stream probe changed the future native key while holding the full initial physical state, visible input, controller seed and `DO` decision fixed. Seven bounded branches yielded both zero and one sapling. The evaluator logs record fingerprints and branch identifiers for the RNG check.
+- A native sleep tick overrode the requested `DO`. It recorded one automatic tick, zero executed primitives and verified wood preservation. A second probe ran two native automatic ticks and withheld their intermediate observation from the checker. It returned `unknown` with no first-hit duration. `action-work.csv` and the replay JSON retain the per-case work class, decisions, role counts, tick counts and stop reasons.
+- The two actual replays passed. The targeted locked regression command ran `tests/experiments/test_luna_intent_rollout.py`, `test_predicate_intent_search.py` and `test_craftax.py` with `-k 'not native_craftax'`. It passed 33 cases and deselected three native cases. The public smoke and checkpoint replay supplied the native checks. Ruff and `git diff --check` passed.
+
+### Reconciled budget
+
+| Job | Worker-seconds |
+| --- | ---: |
+| Sokoban predicate smoke | 18.693 |
+| Native Craftax smoke, including warm-up | 117.271 |
+| Sokoban checkpoint replay | 10.556 |
+| Craftax checkpoint and stochastic replay | 119.166 |
+| Targeted regressions | 11.490 |
+| Integration reconciliation | 0.812 |
+| Prompt 02 total | 277.988 |
+
+All six jobs settled. The stage charged **277.988 preparation worker-seconds** and zero inference worker-seconds. Cumulative preparation is 284.938 seconds. The balance is **6,915.062 seconds**, with **5,115.062 available before Prompt 09** and **1,800 protected for Prompt 09**. Outstanding reservations and metered USD are both zero. The full snapshot is `analysis/intent-pilot/stage02-budget.json`.
+
+### Exact resume command
+
+From the CaRL root, read [CONTRACT.md](CONTRACT.md) and this journal, then verify the existing split package against the ledger.
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.intent_pilot verify \
+  > analysis/intent-pilot/stage03-input-check.json
+```
+
+This reads the frozen split package and bound ledger. It writes the current balance, counts, hashes and unsealed input paths. The completed verification is saved as `analysis/intent-pilot/stage02-resume.json`.
+
+### Next prompt — 03
+
+Read the contract and status, then run the resume command. Prepare replay-checked annotation inputs for both domains from the frozen train-support episodes. Validate the unsealed Sokoban witnesses and collect native Craftax transitions on their pinned worlds with restorable snapshots. Use Codex's own typed annotations and keep annotation evidence, automatic ticks and unknown outcomes in the audit. Reserve calibration and validation data for their declared roles and keep fixture traces and sealed chains out of training and model inputs. Record preparation costs, artefacts, the result and the next exact resume command in this journal.

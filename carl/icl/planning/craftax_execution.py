@@ -98,6 +98,7 @@ class CraftaxIntentExecutor:
         solved, effects, preserve = self._check(snapshot, intent)
         status = _termination(snapshot, solved, effects, preserve) or RolloutStatus.ACTION_LIMIT
         instruction = goal if intent is None else render_instruction(intent)
+        has_preservation = bool(self.goal.preserve or (intent is not None and intent.preserve))
         for _ in range(cap):
             if status != RolloutStatus.ACTION_LIMIT:
                 break
@@ -106,6 +107,8 @@ class CraftaxIntentExecutor:
                 action = self.adapter.action_id(self.controller(
                     self.adapter.observe(snapshot), instruction, tuple(history), intent, seed=seed,
                 ))
+                step: JSONObject = {"requested_action": action, "action": None}
+                steps.append(step)
                 if before_action is not None:
                     before_action()
             except BudgetExceeded as exc:
@@ -127,8 +130,14 @@ class CraftaxIntentExecutor:
             actions.append(action)
             rewards.append(transition.reward)
             solved, effects, preserve = self._check(snapshot, intent)
-            steps.append({"action": action, "no_op": transition.no_op, "preservation_holds": preserve,
-                          "intent_holds": effects, "task_solved": solved, "reward": transition.reward})
+            if has_preservation and transition.native_ticks != 1 and preserve is not False:
+                preserve = None
+            step.update(
+                action=action, native_action=transition.native_action, native_ticks=transition.native_ticks,
+                automatic_ticks=transition.automatic_ticks, primitive_action_executed=transition.primitive_action_executed,
+                no_op=transition.no_op, preservation_holds=preserve,
+                intent_holds=effects, task_solved=solved, reward=transition.reward,
+            )
             status = _termination(snapshot, solved, effects, preserve) or RolloutStatus.ACTION_LIMIT
         return DomainExecutionOutcome(
             DomainExecutionState(snapshot, tuple(history)),

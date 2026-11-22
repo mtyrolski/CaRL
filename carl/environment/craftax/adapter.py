@@ -2,7 +2,7 @@
 
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property
 from importlib import import_module, metadata
 from typing import Any, Final
@@ -35,11 +35,19 @@ class CraftaxSnapshot:
     @cached_property
     def fingerprint(self) -> str:
         """Identify complete simulator state, including hidden timers and RNG."""
+        return self._digest(self._state, (self._key,))
+
+    @cached_property
+    def physical_fingerprint(self) -> str:
+        """Identify the native state independently of its current and next RNG keys."""
+        return self._digest(self._state.replace(state_rng=None), ())
+
+    def _digest(self, state: Any, keys: tuple[Any, ...]) -> str:
         jax = import_module("jax")
-        leaves, tree = jax.tree_util.tree_flatten(self._state)
+        leaves, tree = jax.tree_util.tree_flatten(state)
         h = hashlib.sha256()
         h.update(f"craftax-{CRAFTAX_VERSION}:{self.config}:{self.terminated}:{self.truncated}:{tree}".encode())
-        for leaf in [*leaves, self._key]:
+        for leaf in [*leaves, *keys]:
             array = np.asarray(leaf)
             h.update(f"{array.shape}:{array.dtype.str}:".encode())
             h.update(array.tobytes(order="C"))
@@ -56,6 +64,14 @@ class CraftaxTransition:
     terminated: bool
     truncated: bool
     no_op: bool
+    native_ticks: int
+    automatic_ticks: int
+    native_action: int
+
+    @property
+    def primitive_action_executed(self) -> bool:
+        """Count an explicit primitive only when it reaches the native action handler."""
+        return self.native_ticks > self.automatic_ticks
 
 
 class CraftaxAdapter:
@@ -121,6 +137,14 @@ class CraftaxAdapter:
         if not isinstance(snapshot, CraftaxSnapshot) or snapshot.config != self._config:
             raise ValueError("Snapshot does not match this Craftax world configuration")
         return snapshot
+
+    def fork_future(self, snapshot: CraftaxSnapshot, stream: int) -> CraftaxSnapshot:
+        """Derive a separate future transition stream on the same physical state."""
+        if not isinstance(stream, int) or isinstance(stream, bool) or not 0 <= stream < 2**32:
+            raise ValueError("Craftax stream must be an unsigned 32-bit integer")
+        snapshot = self.restore(snapshot)
+        with self._jax.default_device(self._cpu):
+            return replace(snapshot, _key=self._jax.random.fold_in(snapshot._key, stream))
 
     def fingerprint(self, snapshot: CraftaxSnapshot) -> str:
         """Return the search identity of the full state and transition stream."""
@@ -215,6 +239,8 @@ class CraftaxAdapter:
         if snapshot.terminated or snapshot.truncated:
             raise ValueError("A finished Craftax snapshot cannot advance")
         index = self.action_id(action)
+        # Craftax 1.1.0 replaces the request with NOOP while sleeping or resting.
+        automatic = bool(snapshot._state.is_sleeping) or bool(snapshot._state.is_resting)
         with self._jax.default_device(self._cpu):
             key, step_key = self._jax.random.split(snapshot._key)
             symbolic, state, reward, done, _ = self._env.step(step_key, snapshot._state, index, self._params)
@@ -222,5 +248,8 @@ class CraftaxAdapter:
         truncated = bool(done) and not terminated
         next_snapshot = CraftaxSnapshot(snapshot.seed, self._config, terminated, truncated, state, key, symbolic)
         observation = self.observe(next_snapshot)
-        return CraftaxTransition(next_snapshot, observation, float(reward), terminated, truncated,
-                                 observation == self.observe(snapshot))
+        ticks = int(state.timestep) - int(snapshot._state.timestep)
+        return CraftaxTransition(
+            next_snapshot, observation, float(reward), terminated, truncated, observation == self.observe(snapshot),
+            ticks, ticks if automatic else max(0, ticks - 1), self.action_id("NOOP") if automatic else index,
+        )
