@@ -1,0 +1,72 @@
+# Intent pilot status
+
+## Prompt 01 — Campaign bootstrap, 2026-11-22
+
+Complete. The checkout was `intents` at `5ddd4cb7bcde591fdcf7a0f32b0aa41b460e8b0c` with a clean tree at intake. Both earlier reference commits are ancestors. The local November 14 proposal supplied the Method and Evaluation.
+
+| Proposal source | SHA-256 |
+| --- | --- |
+| `03_method.tex` | `1b9442aebc194bf3264b726331ce6c24ac2c79c476ef84e40338676889864b02` |
+| `04_evaluation.tex` | `bfce0ce8bc752f65473a346ed4b7af4aa602b6df32569cf4f2f9873b96d174e9` |
+
+### Frozen inputs and outputs
+
+| Partition | Sokoban complete source episodes | Craftax scheduled native episodes | Craftax canonical chains |
+| --- | ---: | ---: | ---: |
+| Train support | 8 | 12 | 6 |
+| Train measurement | 9 | 6 | 3 |
+| Validation | 4 | 4 | 2 |
+| Sealed test | 8 | 4 | 2 |
+
+Sokoban uses the existing campaign demonstrations and their witnesses, the original gamma1 witnesses, the generated 12×12 ten-box validation witnesses and the gamma2 whole-episode pool. The manifest records source file paths and hashes. The Craftax private roster pins native scenarios, ordered milestones and two independently seeded worlds per chain. No segments or new labels have been produced. The first native Craftax collection will check snapshots and task feasibility on the frozen worlds.
+
+- Split manifest `analysis/intent-pilot/splits.json`, SHA-256 `5c6f2810968c5d622550f519c11d6ad1d3ac6090cae984fad6e60a79d27ffd7f`
+- Train and validation whole-episode files in `analysis/intent-pilot/splits/`
+- Evaluator-only test files in `analysis/intent-pilot/sealed/`. The sealed directory and private inputs have mode `0700`.
+- Budget ledger `analysis/intent-pilot/campaign.sqlite3` and read-only snapshot exports `stage01-budget.json` and `stage01-budget.csv` under the same root
+- Verified resume summary `analysis/intent-pilot/stage01-resume.json`, audit `verification.json`, environment inventory `environment.json`, and logs under `logs/`
+
+### Local environment
+
+The WSL2 environment exposes an Intel i9-12900HK, 20 logical CPUs, 10 guest-visible cores and 58,969,616,384 bytes of RAM. GPU access could not be verified in the sandbox. The recorded runtime selects CPU. The bootstrap uses uv 0.12.21, CPython 3.11.4, Torch 2.10.0, Transformers 4.57.6, PEFT 0.21.3, NumPy 1.26.4, Pydantic 2.13.5 and Safetensors 0.7.0. Craftax 1.1.0 uses JAX and JAXLIB 0.4.23. The complete version inventory and tokenizer file hashes are in `environment.json`.
+
+| Controller | Local state |
+| --- | --- |
+| Qwen/Qwen3-0.6B | Cached at `analysis/intent_generator_20261114T032232Z/models/Qwen3-0.6B`, revision `c1899de289a04d12100db370d81485cdf75e47ca`. The 1,503,300,328-byte weight file has SHA-256 `f47f71177f32bcd101b7573ec9171e6a57f4f4d31148d38e382306f42996874b`. |
+| Qwen/Qwen3-1.7B | Snapshot and revision are unresolved. The checked Hugging Face cache and project model directories contained no snapshot. A verified local snapshot is required before this arm can run. |
+
+The lockfile SHA-256 is `725622210195c95d959efbc418cba3b4241b6ec33b56a486991a058dc5d5bac2`. The separate `requirements/craftax-1.1.0.txt` pins hash to `7f9c0ba5f5b82e5296d09567f254727f4cb4c341fddea318ef59d8c4f8cc55d7`. Source `analysis/intent-pilot/env.sh` from the repo root to reuse the existing locked environment and Craftax package overlay.
+
+### Verified entry points and results
+
+`scripts.intent_pilot` initialized the ledger, froze and verified both domains, and recorded the bootstrap invocations. Rebuilding produced the same split hash. The audit verified group separation, omission of sealed paths from the resume summary, admission under competing reservations, access to the protected Prompt 09 budget, and charging for failed and timed-out commands. Ruff on the new modules and `git diff --check` passed.
+
+The initial freeze stopped on the quick-start query's raw board-list format. The corrected fixture reader completed the retry, and the ledger charges both attempts. CPU inference, native controller rollouts and model downloads have not started. Human and Codex annotation time are separate preparation rows. Per-run Codex usage is unknown.
+
+| Bootstrap job | Result | Worker-seconds |
+| --- | --- | ---: |
+| Freeze whole episodes | Failed on fixture format | 1.453 |
+| Freeze whole episodes retry | Complete | 1.777 |
+| Rebuild, budget and cache audit | Complete | 3.720 |
+
+**Remaining budget** is USD 0 metered and 7,193.050 local worker-seconds, of which 5,393.050 can be committed by Prompts 01–08. Prompt 09 retains 1,800 seconds. Inference and outstanding reservations are both zero. These figures describe the ledger at the end of this stage. Query `status` for the live balance.
+
+### Exact resume command
+
+From the CaRL checkout, after reading [CONTRACT.md](CONTRACT.md) and this journal, run the tested verification entry point.
+
+```bash
+source analysis/intent-pilot/env.sh
+uv run --locked --offline --no-sync python -m scripts.intent_pilot verify \
+  > analysis/intent-pilot/stage02-input-check.json
+```
+
+Inputs are the pinned manifest, its split files and the bound SQLite ledger. The command writes hashes, counts, unsealed input paths and the current budget to `stage02-input-check.json`. The sealed files are checked by hash.
+
+### Next prompt — 02
+
+Read both documents and run the resume command. Prepare replay-checked annotation inputs for both domains from the frozen train-support episodes. For Sokoban, pass the `episodes[].demonstration` records as `trajectories` to the existing replay and annotation contract in `carl.icl.intent_annotations.prepare_annotations`. The default CLI sketch provider and its mock option are integration checks. Use Codex's own checked labels for this campaign.
+
+For Craftax, construct the pinned simulator with `CraftaxAdapter`, then run native `reset`, `stage`, `step` and `restore` on the unsealed worlds. Record actual world identities, replayability and termination before selecting fragments. The existing `scripts.run_predicate_icl craftax` CLI exposes `--mode mock` for the published fixture. The local real-controller surface for this campaign needs to be connected to the native Craftax executor before inference. Keep observations, actions and outcomes separate from model-visible requests.
+
+Budget all replay, integration and verification jobs through the ledger. Keep train-measurement, validation and sealed test separate. Record checked Codex annotation provenance for both domains, then append the exact inputs, outputs, commands, results, remaining budget and the next prompt to this journal.
