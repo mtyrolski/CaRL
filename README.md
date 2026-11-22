@@ -268,13 +268,15 @@ CaRL also provides the following environment variables for handling heterogeneou
 
 ### Notebook
 
-For interactive development, you can instantiate and run algorithms directly in a Jupyter Notebook:
+In a Jupyter notebook started at the repository root, compose a configuration with Hydra.
 
 ```python
-from carl.notebook_utils import instantiate_algorithm
+from pathlib import Path
+from hydra import compose, initialize_config_dir
 
-alg = instantiate_algorithm('rlloop_adasubs_sokoban', config_path='../experiments', worker_type='trainer')
-alg.run()
+config_dir = Path('configs/solve/npuzzle').resolve()
+with initialize_config_dir(version_base=None, config_dir=str(config_dir)):
+    config = compose(config_name='npuzzle_ada_solve')
 ```
 
 ### Command Line (cmd)
@@ -282,10 +284,11 @@ alg.run()
 You can also run experiments via the command line:
 
 ```sh
-python3 -m carl.run --config-dir experiments --config-name adaptive_subgoal_search_solve_n_puzzle
+uv run --locked python -m carl.run --config-dir configs/solve/npuzzle --config-name npuzzle_ada_solve
 ```
 
 This method is suitable for quick tests or environments where a Jupyter Notebook is unavailable.
+See the [archive guide](configs/archive/README.md) for Hydra overrides and recovering historical runs.
 
 #### Via Makefile Shortcut
 For convenience, you can invoke a local solve using the Makefile targets:
@@ -318,7 +321,7 @@ python3 -m carl.slurm.launcher --cluster-config CLUSTER_CONFIG --job-config JOB_
 ```
 
 - `--cluster-config`: Path to the YAML file defining your cluster configuration (e.g., `carl/slurm/ares.yaml`).
-- `--job-config`: Path to the experiment configuration file (e.g., `experiments/adaptive_subgoal_search_solve_n_puzzle`).
+- `--job-config`: Path to the experiment configuration without `.yaml`, for example `configs/solve/npuzzle/npuzzle_ada_solve`.
 - `--worker`: Specifies the worker type and resources (e.g., `"solve;1;cpu1"` for one CPU worker of type 'solve').
 
 ### Image Build
@@ -383,14 +386,14 @@ node_specs:
 
 - **Running adaptive subgoal search on a single CPU node:**
   ```sh
-  python3 -m carl.slurm.launcher --cluster-config "carl/slurm/ares.yaml" --job-config experiments/adaptive_subgoal_search_solve_n_puzzle --worker "solve;1;cpu1"
+  python3 -m carl.slurm.launcher --cluster-config "carl/slurm/ares.yaml" --job-config configs/solve/npuzzle/npuzzle_ada_solve --worker "solve;1;cpu1"
   ```
 
 - **Running with multiple workers:**
   ```sh
-  python3 -m carl.slurm.launcher --cluster-config "carl/slurm/eagle.yaml" --job-config experiments/rlloop_adasubs_n_puzzle --worker "trainer;1;cpu1" --worker "solver;5;cpu1"
+  python3 -m carl.slurm.launcher --cluster-config "carl/slurm/eagle.yaml" --job-config configs/solve/npuzzle/npuzzle_ada_solve --worker "solve;5;cpu1"
   ```
-  This command allocates 5 CPU nodes for 'solver' and 1 for 'trainer'.
+  This command requests five `solve` workers with the `cpu1` node specification.
 
 
 ### Syncing Multiple Clusters
