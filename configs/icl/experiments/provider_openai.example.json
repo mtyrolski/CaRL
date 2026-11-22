@@ -1,0 +1,18 @@
+{
+  "extends": "smoke_fixed.json",
+  "name": "provider_openai",
+  "roles": {
+    "policy": {
+      "provider": "openai",
+      "api": "responses",
+      "model": "gpt-6-luna",
+      "response_format": "text"
+    },
+    "value": {
+      "provider": "openai",
+      "api": "responses",
+      "model": "gpt-6-luna",
+      "response_format": "json_schema"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "data": "seeded_fixture",
+  "seed": 20261122,
+  "offsets": [1, 2, 4],
+  "trials_per_point": 4,
+  "models": [
+    {"id": "mock-zero-shot", "kind": "mock", "config": "configs/icl/full_state/reachability_policy_zero.json", "offsets": [1, 2]},
+    {"id": "mock-four-shot", "kind": "mock", "config": "configs/icl/full_state/reachability_policy_four.json"}
+  ]
+}

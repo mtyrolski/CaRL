@@ -1,5 +1,8 @@
 # CaRL Library README
 
+For in-context search components and experiment commands, see
+[ICL_SEARCH.md](ICL_SEARCH.md).
+
 - [CaRL Library README](#carl-library-readme)
   - [Introduction](#introduction)
   - [Architecture Overview](#architecture-overview)
@@ -32,7 +35,7 @@
 The **CaRL (Combinatorial Reinforcement Learning) Library** is designed for developing and scaling offline and online reinforcement/imitation learning experiments in combinatorial planning problems. It provides a comprehensive suite of tools for planning in **combinatorial problems**, including environments, data handling, inference components, training loops, and AI-guided search algorithms. The library comes with interactive notebooks in the `examples` folder, showcasing inference components used in published research. It includes fully operational environments such as `Sokoban`, `NPuzzle`, `Rubik`, and `INT`. Additionally, we provide **35 open-source models** of various types: `Generator`, `Value`, `Conditional Low-Level Policy`, and `Policy` (see [Papers Created or Reproduced with CaRL](#papers-created-or-reproduced-with-carl) and the full list in the [Open Source Components](#open-source-components) section).
 
 **How?**  
-CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation.html), enabling the deployment of tasks across multiple nodes with varying specifications (heterogeneous job support). It offers a flexible way to define and execute tasks using a custom deployer that extends the [Hydra Config](https://github.com/facebookresearch/hydra) syntax. Remote computation is handled via [Apptainer](https://apptainer.org/) (formerly Singularity) images, which are automatically generated. Experiment tracking is managed using [Neptune](https://neptune.ai).
+CaRL leverages key components of [SLURM](https://slurm.schedmd.com/documentation.html), enabling the deployment of tasks across multiple nodes with varying specifications (heterogeneous job support). It offers a flexible way to define and execute tasks using a custom deployer that extends the [Hydra Config](https://github.com/facebookresearch/hydra) syntax. Remote computation is handled via [Apptainer](https://apptainer.org/) (formerly Singularity) images, which are automatically generated. Experiment tracking is available locally with [Trackio](https://github.com/gradio-app/trackio).
 
 ![Planning problem](img/planning.png)
 
@@ -119,7 +122,7 @@ For access to the full datasets used in various experiments, please contact the 
 
 Made on version v1.0.0 of the CaRL library to ensure reproducibility of algorithms on selected environments, using the components listed above.
 
-**NPuzzle, Sokoban:** [notebooks with evaluation](notebooks/eval.ipynb)
+**NPuzzle, Sokoban:** evaluation notebooks are available under `examples/`.
 
 For INT environment, please see [INT repository](https://github.com/mtyrolski/INT).
 
@@ -130,7 +133,6 @@ For INT environment, please see [INT repository](https://github.com/mtyrolski/IN
 
 1. **Set up environment variables**:  
    Ensure the following environment variables are defined in your `.tokens.env` file (see `.tokens.env.example` for reference):
-   - `NEPTUNE_API_TOKEN`: Required for authentication. See [Neptune documentation](https://docs.neptune.ai/) for details.
    - `HYDRA_FULL_ERROR=1`: Enables detailed error reporting for debugging.
    - `TQDM_MININTERVAL=30`: Sets the minimum update interval for progress bars.
 
@@ -141,6 +143,16 @@ For INT environment, please see [INT repository](https://github.com/mtyrolski/IN
    poetry install
    ```
 
+**Local experiment tracking** (optional for runs configured with `TrackioCaRLLogger`):
+
+```bash
+uv venv local/experiments/trackio/.venv --python .venv/bin/python
+uv pip install --python local/experiments/trackio/.venv/bin/python -r requirements-trackio.txt
+HF_HUB_OFFLINE=1 GRADIO_ANALYTICS_ENABLED=False TRACKIO_DIR="$PWD/analysis/trackio" local/experiments/trackio/.venv/bin/trackio show --host 127.0.0.1
+```
+
+Trackio runs in a separate Python environment because its current Hugging Face Hub requirements differ from those of the main Transformers environment. Runs are stored under `analysis/trackio` by default. Set `CARL_TRACKIO_PYTHON` to use another Trackio interpreter or `TRACKIO_DIR` to choose a local directory. Logging is local; no Space or remote server is configured.
+
 3. **Mount demonstrative data**:  
    Link the data under `./rl-data` (download and link using `ln -s`) to run notebooks from the `examples/` folder. **You can download datasets and components from the [rl-data](rl-data).**
 
@@ -148,10 +160,8 @@ For INT environment, please see [INT repository](https://github.com/mtyrolski/IN
    The `examples/` directory contains several Jupyter notebooks showcasing CaRL features:
    - `adaptive_solve_sokoban.ipynb`: step-by-step adaptive subgoal search solving Sokoban puzzles.
    - `crafter_demo.ipynb`: integration demo with the Crafter environment, visualizing learned policies and value estimates.
-   - `eval.ipynb`: benchmark evaluation on NPuzzle, Sokoban environments with pre-trained components.
    - `inference.ipynb`: hands-on use of inference components (Generator, CLLP, Value, Policy) to predict actions and subgoals.
    - `ood_instances.ipynb`: generation and solving of out-of-distribution problem instances to test generalization.
-   - `ood_evaluation.ipynb`: analysis of model performance on OOD instances, including success rate and difficulty plots.
    - `subgoal_search_npuzzle.ipynb`: detailed walkthrough of subgoal generation and search in the NPuzzle environment.
 
 5. **Run experiments from config**:  
@@ -278,9 +288,11 @@ python3 -m carl.run --config-dir experiments --config-name adaptive_subgoal_sear
 This method is suitable for quick tests or environments where a Jupyter Notebook is unavailable.
 
 #### Via Makefile Shortcut
-For convenience, you can invoke a local solve using the Makefile target:
+For convenience, you can invoke a local solve using the Makefile targets:
 ```sh
-make run_local_solve dir=configs/solve/sokoban name=sokoban_ada_solve
+make run_local_cpu dir=configs/solve/sokoban name=sokoban_ada_solve
+# or (GPU)
+make run_local_gpu dir=configs/solve/sokoban name=sokoban_ada_solve
 ```
 Under the hood this sets:
 ```sh
@@ -288,6 +300,12 @@ export HYDRA_FULL_ERROR=1 CUDA_VISIBLE_DEVICES=""
 python3 -m carl.run --config-dir=${dir} --config-name ${name}
 ```
 and provides a quick shortcut for local execution.
+
+Required Make variables for local run targets:
+- `dir` (or `CONFIG_DIR`): directory containing Hydra config files
+- `name` (or `CONFIG_NAME`): config basename without `.yaml`
+
+The Makefile validates that the directory exists and that `${dir}/${name}.yaml` is present before starting the run, and `make help` prints examples and target descriptions.
 
 ---
 

@@ -81,7 +81,6 @@ def copy_solving_node(solving_node: SearchTreeNode):
 
 def prune_experiences(experiences):
     from carl.planners.base import Experience, SearchInfo, Solution
-    from carl.planners.base import Experience, SearchInfo, Solution
     new_experiences = []
 
     for experience in experiences:

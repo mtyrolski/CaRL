@@ -63,18 +63,13 @@ exit 0"""
         return """
 mkdir -p {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID
 cp -r {experiment_root}/{repo_name}/* {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID
-cp {experiment_root}/{repo_name}/.tokens.env {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID
+if [ -f {experiment_root}/{repo_name}/.tokens.env ]; then cp {experiment_root}/{repo_name}/.tokens.env {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID; fi
 
 
 cp {experiment_root}/configs/$CARL_SLURM_ARRAY_TASK_ID/*.yaml {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID
 
 cd {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID
 ln -sf {data_dir} ./{data_dir_folder}
-
-NEPTUNE_CUSTOM_RUN_ID=`date +"%Y%m%d%H%M%s%N" | md5sum`
-
-echo "" >> .tokens.env
-echo "NEPTUNE_CUSTOM_RUN_ID=$NEPTUNE_CUSTOM_RUN_ID" >> .tokens.env
 
 pids=\"\" """.format(
             experiment_root=self.experiment_root,
@@ -102,7 +97,7 @@ pids=\"\" """.format(
         ])
 
         srun_command = (
-            "NEPTUNE_API_TOKEN={neptune_api_token} srun {het_group_srun_flag} -w {node_name} {job_options} "
+            "srun {het_group_srun_flag} -w {node_name} {job_options} "
             "singularity exec {additional_args} --pwd {experiment_root}/$CARL_SLURM_ARRAY_TASK_ID --nv "
             "\"{singularity_image_path}\" /bin/bash -c "
             "\"{carl_env_vars} PYTHONPATH=. python3 -m carl.run --config-dir {config_dir} --config-name {config_name}\" &"
@@ -123,7 +118,6 @@ pids=\"\" """.format(
             additional_args=additional_args,
             experiment_root=self.experiment_root,
             singularity_image_path=self.cluster_spec.apptainer_container,
-            neptune_api_token=self.cluster_spec.neptune_api_token,
             node_name=node_name,
             het_group=het_group,
             het_group_srun_flag=het_group_srun_flag,
@@ -265,8 +259,8 @@ pids=\"\" """.format(
             [f'git reset --hard {git_repo_hash}'],
         )
 
-        # Send .tokens.env to remote repo
-        Connection.send_to_server('.tokens.env', self.cluster_spec.host, main_repo_dir)
+        if os.path.isfile('.tokens.env'):
+            Connection.send_to_server('.tokens.env', self.cluster_spec.host, main_repo_dir)
 
         sbatch_file_name: str | None = None
         with tempfile.TemporaryDirectory() as tmp_dir_name:

@@ -1,0 +1,6 @@
+{
+  "extends": "pilot_relative.json",
+  "name": "quick_relative_12x12x4",
+  "instances": 2,
+  "repeat_seeds": [11]
+}

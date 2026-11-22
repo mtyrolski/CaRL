@@ -1,0 +1,6 @@
+{
+  "extends": "./pyrightconfig.json",
+  "include": ["tests/experiments", "tests/inference_components"],
+  "exclude": ["**/__pycache__"],
+  "pythonVersion": "3.11"
+}

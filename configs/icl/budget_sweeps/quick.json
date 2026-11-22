@@ -1,0 +1,5 @@
+{
+  "matrix": "quick_matrix.json",
+  "budgets": [16, 64],
+  "output_dir": "analysis/luna_icl/budget_sweep_quick"
+}

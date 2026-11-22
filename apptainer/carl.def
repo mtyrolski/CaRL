@@ -4,6 +4,7 @@ Stage: build
 
 %files
     requirements.txt requirements.txt
+    requirements-trackio.txt requirements-trackio.txt
 
 %post
     export DEBIAN_FRONTEND=noninteractive
@@ -24,6 +25,9 @@ Stage: build
     pip3 install --upgrade pip
     # https://stackoverflow.com/questions/26228136/pip-build-option-to-use-multicore
     MAKEFLAGS="-j$(nproc)" pip3 install -r requirements.txt --no-cache-dir --upgrade
+    # Trackio needs its own Hugging Face Hub version.
+    python3 -m venv /opt/carl-trackio
+    /opt/carl-trackio/bin/python -m pip install --no-cache-dir -r requirements-trackio.txt
     apt-get clean
 
     unset DEBIAN_FRONTEND
@@ -33,3 +37,4 @@ Stage: build
     export LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
     export CMAKE_C_COMPILER=clang-11
     export CMAKE_CXX_COMPILER=clang++-11
+    export CARL_TRACKIO_PYTHON="${CARL_TRACKIO_PYTHON:-/opt/carl-trackio/bin/python}"

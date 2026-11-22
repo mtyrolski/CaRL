@@ -1,0 +1,5 @@
+{
+  "extends": "reachability_policy_zero.json",
+  "name": "full_state_reachability_four_shot",
+  "few_shot": 4
+}

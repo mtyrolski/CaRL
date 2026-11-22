@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "demonstrations": "sokoban_demonstrations.json",
+  "test_queries": "sokoban_test_queries.json",
+  "default_profile": "zero-shot",
+  "profiles": {
+    "zero-shot": {"config": "../experiments/predicate_zero_shot.example.json", "shots": 0},
+    "four-shot": {"config": "../experiments/predicate_four_shot.example.json", "shots": 4},
+    "openai": {"config": "../experiments/provider_openai.example.json", "shots": 0},
+    "ministral": {"config": "../experiments/provider_ministral.example.json", "shots": 0},
+    "legacy": {"config": "../experiments/smoke_fixed.json", "shots": 0}
+  },
+  "annotation_seed": 17,
+  "seeds": [73, 101],
+  "budgets": [
+    {"id": "two-actions", "action_budget": 2},
+    {"id": "four-actions", "action_budget": 4}
+  ],
+  "limits": {"max_requests": 16, "wall_seconds": 30.0},
+  "max_expansions": 4,
+  "rollout_cap": 2,
+  "mock": {
+    "policy": "{\"action\":\"RIGHT\"}",
+    "generator": "{\"effects\":[{\"predicate\":\"box_at\",\"row\":1,\"col\":4}],\"preserve\":[],\"instruction\":null}",
+    "value": "{\"value\":0.5}"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "quick_relative.json",
+  "name": "quick_fixed_12x12x4",
+  "method": "fixed",
+  "scales": [8, 4],
+  "fixed_cap": "horizon"
+}

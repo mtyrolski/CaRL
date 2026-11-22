@@ -66,7 +66,7 @@ algorithm:
   result_logger:
     _target_: carl.utils.result_loggers.SubgoalSearchResultLogger
     custom_logger:
-      _target_: carl.utils.loggers.NeptuneCaRLLogger
+      _target_: carl.utils.loggers.TrackioCaRLLogger
       name: "npuzzle_no_policy_bestfs"
       description: ""
       project: "pmtest/subexit"

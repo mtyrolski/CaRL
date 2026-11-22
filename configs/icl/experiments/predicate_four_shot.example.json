@@ -1,0 +1,8 @@
+{
+  "extends": "predicate_zero_shot.example.json",
+  "name": "sokoban_predicate_four_shot",
+  "predicate_icl": {
+    "policy_shots": 4,
+    "generator_shots": 4
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "family": "bert",
+  "checkpoint": "analysis/icl/full_state/bert/checkpoints/checkpoint-1",
+  "device": "cpu"
+}

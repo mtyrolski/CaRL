@@ -1,10 +1,25 @@
 import os
+from typing import ClassVar
 
 from ..CubieCube import CubieCube
 
 
 class CoordCube:
     """Representation of the cube on the coordinate level"""
+
+    # The lookup tables are populated once after the builder functions below.
+    twistMove: ClassVar[list[list[int]]]
+    flipMove: ClassVar[list[list[int]]]
+    FRtoBR_Move: ClassVar[list[list[int]]]
+    URFtoDLF_Move: ClassVar[list[list[int]]]
+    URtoDF_Move: ClassVar[list[list[int]]]
+    URtoUL_Move: ClassVar[list[list[int]]]
+    UBtoDF_Move: ClassVar[list[list[int]]]
+    MergeURtoULandUBtoDF: ClassVar[list[list[int]]]
+    Slice_URFtoDLF_Parity_Prun: ClassVar[list[int]]
+    Slice_URtoDF_Parity_Prun: ClassVar[list[int]]
+    Slice_Twist_Prun: ClassVar[list[int]]
+    Slice_Flip_Prun: ClassVar[list[int]]
 
     N_TWIST = 2187    # 3^7 possible corner orientations
     N_FLIP = 2048    # 2^11 possible edge flips

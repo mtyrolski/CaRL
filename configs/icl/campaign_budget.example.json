@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "campaign_id": "example",
+  "ledger_path": "analysis/icl/campaign.sqlite3",
+  "limit_usd": "0.00",
+  "stage_limits_usd": {
+    "example": "0.00"
+  },
+  "models": {},
+  "routes": {}
+}

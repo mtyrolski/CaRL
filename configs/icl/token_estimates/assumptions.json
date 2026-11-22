@@ -1,0 +1,16 @@
+{
+  "pricing": {
+    "model": "gpt-6-luna",
+    "input_usd_per_million": 0.1,
+    "output_usd_per_million": 0.5,
+    "currency": "USD",
+    "tier": "default",
+    "as_of": "2026-11-02",
+    "source": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+  },
+  "scenarios": {
+    "low": {"action_fraction": 0.25, "actions_per_generator": 8, "calibration_fraction": 0.25, "output_multiplier": 1.0},
+    "middle": {"action_fraction": 0.5, "actions_per_generator": 4, "calibration_fraction": 0.5, "output_multiplier": 1.5},
+    "high": {"action_fraction": 1.0, "actions_per_generator": 4, "calibration_fraction": 1.0, "output_multiplier": 2.0}
+  }
+}

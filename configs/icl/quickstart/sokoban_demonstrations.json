@@ -1,0 +1,24 @@
+{
+  "trajectories": [
+    {
+      "source_id": "train-01", "split": "train", "actions": [3],
+      "start_observation": ["#######", "#-@$.-#", "#-----#", "#-----#", "#-----#", "#-----#", "#######"]
+    },
+    {
+      "source_id": "train-02", "split": "train", "actions": [3],
+      "start_observation": ["#######", "#-@$.-#", "#-----#", "#-----#", "#--#--#", "#-----#", "#######"]
+    },
+    {
+      "source_id": "train-03", "split": "train", "actions": [3],
+      "start_observation": ["#######", "#-@$.-#", "#-----#", "#-----#", "#-##--#", "#-----#", "#######"]
+    },
+    {
+      "source_id": "train-04", "split": "train", "actions": [3],
+      "start_observation": ["#######", "#-@$.-#", "#-----#", "#-----#", "#-###-#", "#-----#", "#######"]
+    },
+    {
+      "source_id": "validation-01", "split": "validation", "actions": [3],
+      "start_observation": ["#######", "#-@$.-#", "#-----#", "#-----#", "#-#####", "#-----#", "#######"]
+    }
+  ]
+}

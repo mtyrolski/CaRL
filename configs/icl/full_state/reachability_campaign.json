@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "data": "trajectory_files",
+  "seed": 20261122,
+  "offsets": [1, 2, 4, 8, 16, 32],
+  "trials_per_point": 100,
+  "reserves_per_point": 20,
+  "training": "analysis/icl/figure1-inputs/train.json",
+  "test": "analysis/icl/figure1-inputs/test.json",
+  "models": [
+    {"id": "openai-zero-shot", "kind": "api", "config": "configs/icl/full_state/reachability_policy_zero.json"},
+    {"id": "openai-four-shot", "kind": "api", "config": "configs/icl/full_state/reachability_policy_four.json"},
+    {"id": "ministral-four-shot", "kind": "api", "config": "configs/icl/full_state/reachability_policy_ministral.json", "offsets": [1, 2, 4, 8, 16]},
+    {"id": "bert", "kind": "local", "config": "configs/icl/full_state/sokoban_bert_eval.example.json", "training_receipt": "analysis/icl/figure1-inputs/bert-training.json"},
+    {"id": "qwen3-lora", "kind": "local", "config": "configs/icl/full_state/sokoban_qwen3_lora_eval.example.json", "training_receipt": "analysis/icl/figure1-inputs/qwen3-training.json"}
+  ]
+}

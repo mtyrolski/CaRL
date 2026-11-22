@@ -1,0 +1,14 @@
+{
+  "extends": "../experiments/provider_openai.example.json",
+  "name": "full_state_reachability_zero_shot",
+  "method": "direct",
+  "few_shot": 0,
+  "limits": {
+    "max_requests": 17280,
+    "max_input_tokens": 16000,
+    "max_total_input_tokens": 276480000,
+    "max_output_tokens": 2211840,
+    "wall_seconds": 86400,
+    "timeout_seconds": 60
+  }
+}

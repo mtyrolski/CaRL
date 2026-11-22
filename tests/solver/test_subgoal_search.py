@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import pickle
+from dataclasses import asdict
 from dataclasses import dataclass
 
-import pytest
+import numpy as np
 
 from carl.planners.base import Experience
 from carl.planners.base import FinishReason
@@ -12,6 +14,41 @@ from carl.planners.base import Solution
 from carl.solver.nodes import SearchTreeNode
 from carl.solver.nodes import ValidationResult
 from carl.solver.subgoal_search import Solver
+
+
+def test_saved_state_identifier_is_stable_and_includes_array_shape() -> None:
+    identify = Solver._hash_state  # pylint: disable=protected-access
+    assert identify("fixture") == "-4431358843294443104"
+    assert identify(1) != identify("1")
+    state = np.array([0, 1, 2, 3], dtype=np.int8)
+    assert identify(state) != identify(state.reshape(2, 2))
+
+
+def test_legacy_positional_counters() -> None:
+    info = SearchInfo("solved", 5, 2, 1)
+
+    assert (info.low_level_nodes_visited, info.high_level_nodes_valid, info.high_level_nodes_unreachable) == (5, 2, 1)
+    assert info.generator_mode is None
+    assert info.runtime_seconds is None
+
+
+def test_restoring_legacy_search_info_initializes_missing_diagnostics() -> None:
+    info = SearchInfo("solved", low_level_nodes_visited=5)
+    names = ("realized_segment_lengths", "progress_per_segment", "proposal_events")
+    for name in names:
+        delattr(info, name)
+    saved = pickle.dumps(info)
+
+    first = pickle.loads(saved)
+    second = pickle.loads(saved)
+    assert first.low_level_nodes_visited == 5
+    fields = asdict(first)
+    assert all(fields[name] == [] for name in names)
+    for name in names:
+        assert getattr(first, name) is not getattr(second, name)
+
+    first.proposal_events.append({"event_id": 0})
+    assert pickle.loads(pickle.dumps(first)).proposal_events == [{"event_id": 0}]
 
 
 def _make_planner_class(initial_k: int | None, pre_seen: set[str] | None = None):
@@ -215,3 +252,127 @@ def test_solve_budget_exceeded_when_nodes_limit_crossed(monkeypatch):
     assert experience.search_info.subgoals_reachable_count_per_k == {2: 0}
     assert experience.search_info.subgoals_unreachable_count_per_k == {2: 1}
     assert experience.search_info.subgoals_reachable_rate_per_k == {2: 0.0}
+
+
+def _make_universal_planner_class():
+    class DummyUniversalPlanner(Planner):
+        last_instance: "DummyUniversalPlanner | None" = None
+
+        def __init__(self, root_state):
+            self.root_node = SearchTreeNode(root_state, 0.0, [], None, metadata={"depth": 0})
+            self.frontier = [SearchTreeNode(root_state, 0.0, [], self.root_node, metadata={"depth": 0})]
+            self._seen = {root_state}
+            self.added: list[SearchTreeNode] = []
+            type(self).last_instance = self
+
+        def add(self, node: SearchTreeNode) -> None:
+            self._seen.add(node.state)
+            self.added.append(node)
+            self.frontier.append(node)
+
+        def get(self) -> SearchTreeNode | None:
+            if not self.frontier:
+                return None
+            return self.frontier.pop(0)
+
+        def is_seen(self, state) -> bool:
+            return state in self._seen
+
+        def get_solution_data(self, solving_node: SearchTreeNode | None, search_info: SearchInfo) -> Experience:
+            search_info.search_tree = self.root_node
+            search_info.solving_node = solving_node
+            search_info.tree_size = search_info.low_level_nodes_visited
+            search_info.tree_depth = 1
+            search_info.leaf_nodes = 1
+            search_info.branching_factor = 1.0 if self.added else 0.0
+            search_info.subgoals_visited = len(self._seen)
+            if solving_node is None:
+                solution = Solution(solved=False)
+            else:
+                solution = Solution(
+                    solved=True,
+                    subgoal_path=[solving_node.state],
+                    action_path=[1],
+                    subgoal_distance_path=[],
+                )
+            return Experience(solution=solution, search_info=search_info)
+
+    return DummyUniversalPlanner
+
+
+@dataclass
+class DummyUniversalGenerator:
+    mapping: dict[int, list[tuple[int, dict[str, float]]]]
+    mode: str = "propositional_universal"
+    generator_k_list: list[int] = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.generator_k_list is None:
+            self.generator_k_list = []
+
+    def construct_network(self) -> None:
+        pass
+
+    def get_subgoals(self, node: SearchTreeNode):
+        return self.mapping.get(node.state, [])
+
+
+class TinyEnvForBacktracking:
+    def __init__(self) -> None:
+        self.state = 0
+
+    def restore_full_state_from_np_array_version(self, state):
+        self.state = int(state)
+
+    def get_state(self):
+        return self.state
+
+    def step(self, action):
+        self.state += int(action)
+        return self.state, 0.0, False, {}
+
+
+class RecordingValidatorWithEnv(RecordingValidator):
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.env = TinyEnvForBacktracking()
+
+
+def test_solve_universal_mode_uses_no_k_and_logs_proposal_metrics(monkeypatch):
+    monkeypatch.setattr("carl.solver.subgoal_search.ensure_high_recursion_limit", lambda: None)
+    planner_class = _make_universal_planner_class()
+    generator = DummyUniversalGenerator(
+        mapping={
+            0: [(1, {"proposal_rank": 0, "proposal_confidence": 1.0}), (99, {"proposal_rank": 1, "proposal_confidence": 0.5})],
+            1: [(2, {"proposal_rank": 0, "proposal_confidence": 1.0})],
+        }
+    )
+    validator = RecordingValidatorWithEnv(
+        {
+            (0, 1): ValidationResult(True, False, [1], 1, 1),
+            (0, 99): ValidationResult(False, False, [99], 1, 99),
+            (1, 2): ValidationResult(True, True, [1], 1, 2),
+        }
+    )
+    value = RecordingValue({1: 0.2, 2: 0.0})  # type: ignore[arg-type]
+
+    solver = Solver(
+        max_nodes=20,
+        planner_class=planner_class,
+        subgoal_generator=generator,  # type: ignore[arg-type]
+        validator=validator,  # type: ignore[arg-type]
+        value_function=value,  # type: ignore[arg-type]
+    )
+
+    experience = solver.solve(0)
+
+    assert experience.solution.solved is True
+    assert experience.search_info.generator_mode == "propositional_universal"
+    assert experience.search_info.subgoals_reachable_count_per_k == {}
+    assert experience.search_info.subgoals_unreachable_count_per_k == {}
+    assert validator.calls == [(0, 1, None), (0, 99, None), (1, 2, None)]
+    assert experience.search_info.proposal_events_count is not None
+    assert experience.search_info.proposal_events_count >= 3
+    assert experience.search_info.validator_rejection_rate is not None
+    assert experience.search_info.runtime_seconds is not None
+    assert len(experience.search_info.proposal_events) >= 3
