@@ -67,7 +67,7 @@ def test_full_campaign_preflight_and_live_gate(tmp_path: Path) -> None:
         with pytest.raises(SystemExit) as error:
             main(["--config", str(CAMPAIGN), "--output", str(tmp_path / "no-dispatch"), *flags])
         assert error.value.code == 1
-    assert list(tmp_path.iterdir()) == []
+    assert not any(tmp_path.iterdir())
 
 
 def test_public_fixture_wilson_resume_and_schema_validation(tmp_path: Path) -> None:

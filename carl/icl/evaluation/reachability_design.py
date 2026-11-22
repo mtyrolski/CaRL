@@ -149,11 +149,12 @@ def design(study: ReachabilityStudy, train: WitnessFile, test: WitnessFile) -> t
     if {t.layout for t in training} & {t.layout for t in testing}:
         raise ValueError("Training and test share canonical layouts")
     fingerprints = {item.split: contract_hash(item.model_dump(mode="json")) for item in (train, test)}
+    demonstration_window = max(8, *study.offsets)
     examples: list[TrainingContext] = [
         {"id": t.witness.id, "state": t.witness.board, "remaining_actions": len(t.witness.actions),
          "calibration_indices": [], "candidates": [
              {"k": k, "subgoal": to_rows(t.states[k]), "actions": t.witness.actions[:k]}
-             for k in range(1, min(len(t.states), max(8, max(study.offsets)) + 1))]}
+             for k in range(1, min(len(t.states), demonstration_window + 1))]}
         for t in training
     ]
     wanted = study.trials_per_point + study.reserves_per_point

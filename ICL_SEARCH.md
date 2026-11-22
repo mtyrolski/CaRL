@@ -5,10 +5,9 @@ select low-level actions, and estimate state values. The search implementation
 accepts simulator-backed components and records both high-level search and
 primitive-action costs.
 
-The explicit-state generator proposes a complete target board. A controller
-conditioned on that board is not automatically conditioned on a structured
-intent. Structured intent utilities are provided separately and support
-predicate validation and checked trajectory annotations.
+Full-state search conditions the controller on a complete target board.
+Predicate search conditions the controller on a checked intent, with effects
+and conditions that must hold during execution.
 
 ## Components
 
@@ -25,39 +24,48 @@ Search counts all attempted primitive actions, including unsuccessful actions
 and no-ops. Expansion limits, model calls and wall time are recorded separately.
 A target-board hit is distinct from task completion.
 
-## Running experiments
+## Offline quick start
 
-Install the optional ICL dependencies using the project's package manager, and
-run commands from the repository root. Start with an offline preview:
+From the repository root, install the `icl` extra with the pinned CPython
+3.11.4 and the repository lockfile. Add `--offline` to `uv sync` if Python
+and the locked distributions are already available locally.
 
 ```bash
-uv run --extra icl python -m scripts.run_icl_search preview
-uv run --extra icl python -m scripts.run_budget_sweep --config configs/icl/budget_sweeps/mock.json --plan
+mkdir -p analysis/icl
+work="$(mktemp -d "$PWD/analysis/icl/quickstart.XXXXXX")"
+export UV_PROJECT_ENVIRONMENT="$work/venv"
+uv sync --locked --no-dev --python 3.11.4 --extra icl
+
+uv run --locked --offline --no-sync python -m scripts.run_icl_smoke \
+  --config configs/icl/quickstart/sokoban_sweep.json --output "$work/sokoban"
+uv run --locked --offline --no-sync python -m scripts.evaluate_icl \
+  --matched "$work/sokoban/sweep.json" --output "$work/report"
 ```
 
-`run_icl_search` provides `prepare`, `prepare-value`, `preview`, `calibrate`,
-`run`, `matrix` and `tune` commands. `--mock` uses local test components;
-`--replay` reads cached responses; `--execute` enables live API requests.
-Each experiment requires its own input data and configuration.
+The smoke prepares checked demonstrations and a frozen prompt, runs three
+planning modes with matched tasks and budgets, and saves individual trials
+for offline evaluation. It uses a bundled Sokoban fixture and requires no
+credentials or model weights. The command reference also covers zero-shot
+and four-shot prompts, OpenAI Responses and Ministral Chat Completions
+fixtures, native Craftax on CPU, a local LoRA train-and-load run, and the
+full-state reachability pilot. [Experiment commands](scripts/README.md).
 
-The OpenAI and replay providers also require a local
-`configs/icl/campaign_budget.json` and a shared ledger. The example budget
-configuration has a zero limit and no model prices, so it cannot authorise paid
-requests. Configure an appropriate ceiling, stage allocations and current
-pricing before use. Reuse the same ledger across a campaign and reconcile
-unknown attempts before continuing. Once a ledger exists, its configuration
-must remain byte-identical; changing it is rejected.
+## Full-state reachability (Figure 1)
 
-For saved runs, `scripts.evaluate_icl` produces offline summaries. See
-[`scripts/README.md`](scripts/README.md) and the configuration directories for
-command options and examples.
+The protocol tests the exact future board from a held-out trajectory. At
+offset `k`, count the first match to that board within at most `k` attempted
+actions, then compute pointwise 95% Wilson intervals. The full manifest
+specifies 12×12 four-box boards for support or training and a disjoint set of
+12×12 ten-box test boards, with 100 valid cases per full point. Models may
+declare different offset subsets.
 
-The hybrid full-state runner accepts `--prepare-data` to build its local
-demonstrations and evaluation inputs from configured trajectory data. The
-structured-intent generator exposes training and evaluation commands via
-`python -m carl.icl.intent_generator_experiment --help`.
-LoRA training also needs the optional `lora` dependencies; install them with
-`uv sync --extra icl --extra lora` before running training commands.
+```bash
+uv run --locked --offline --no-sync python -m scripts.run_full_state_reachability \
+  --config configs/icl/full_state/reachability_smoke.json --output "$work/figure1"
+```
+
+The smoke uses a deterministic fixture. The full campaign requires external
+trajectories and pinned model artifacts. [Campaign inputs and invocation](scripts/README.md#full-state-reachability-figure-1).
 
 ## Inputs and results
 
@@ -65,6 +73,7 @@ Keep datasets, model weights, credentials, response caches and generated results
 outside source control. The default local result directory is `analysis/`.
 Check split separation, input provenance and controller configuration before
 comparing methods. Model, prompt, decoding and action budget are part of the
-experiment contract.
+experiment contract. Live inference requires an explicit flag, provider
+credentials and a campaign ledger. [Provider setup](scripts/README.md#provider-profiles).
 
 Run the relevant checks with `make test`, `make ruff` and `make pyright`.
